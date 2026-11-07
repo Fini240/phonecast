@@ -1,0 +1,12 @@
+# local notes and machine-specific files
+DEBUGGING.md
+android/local.properties
+.DS_Store
+# build output
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+mac/build/
+dist/
+tools/unstick/cls/

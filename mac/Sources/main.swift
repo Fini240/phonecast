@@ -1,0 +1,635 @@
+import AppKit
+import Network
+import QuartzCore
+
+/// A window that may go borderless and cover the whole display, including the row beside the notch.
+final class PhoneWindow: NSWindow {
+    var covering = false
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+    override func constrainFrameRect(_ r: NSRect, to s: NSScreen?) -> NSRect {
+        covering ? r : super.constrainFrameRect(r, to: s)
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu.title == "Phone screen shape" {
+            menu.removeAllItems()
+            for i in shapeMenu().items { i.menu?.removeItem(i); menu.addItem(i) }
+        }
+    }
+
+    private var window: PhoneWindow!
+    private let view = PhoneView(frame: NSRect(x: 0, y: 0, width: 420, height: 860))
+    private let audio = AudioSink()
+    private var link: Link?
+    private var browser: NWBrowser?
+    private var found: [String: NWEndpoint] = [:]
+    private var wantConnected = false
+    private var deviceLabel = ""
+    private var stateText = "Not connected"
+    private var lastFrames = 0
+    private var fps = 0
+    private var sizedOnce = false
+    private var gameItem: NSMenuItem!
+    private var editItem: NSMenuItem!
+    private var muteItem: NSMenuItem!
+    private var markersItem: NSMenuItem!
+    private var typingItem: NSMenuItem!
+    private var scaleItems: [NSMenuItem] = []
+    private var resItems: [NSMenuItem] = []
+    private var rateItems: [NSMenuItem] = []
+    private var rttMs = 0.0
+    private var resyncs = 0
+    private var lastFrameAt = 0.0
+    private let lagLog = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/PhoneCast-lag.log")
+    // 0 = match this Mac's screen (full phone resolution on any Retina Mac)
+    private let resolutions: [(String, Int)] = [("Match this Mac (sharpest)", 0), ("1440p", 1440), ("1080p", 1080), ("720p (fastest)", 720)]
+    private let bitrates = [8, 16, 24, 40]
+
+    func applicationDidFinishLaunching(_ n: Notification) {
+        buildMenu()
+        window = PhoneWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 860),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.contentView = view
+        window.delegate = self
+        window.acceptsMouseMovedEvents = true
+        window.backgroundColor = .black
+        let tb = NSToolbar(identifier: "main")
+        tb.delegate = self
+        tb.displayMode = .iconOnly
+        window.toolbar = tb
+        window.toolbarStyle = .unifiedCompact
+        // macOS full screen stops below the notch, so the green button and ⌘F use our own mode instead
+        window.collectionBehavior = [.fullScreenNone]
+        window.setFrameAutosaveName("PhoneCastWindow")
+        if !window.setFrameUsingName("PhoneCastWindow") { window.center() }
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(view)
+
+        view.video.onNeedKeyframe = { [weak self] in self?.link?.send(CT.keyframe) }
+        view.onModeChange = { [weak self] _ in self?.refreshMenu(); self?.updateTitle() }
+        view.setMessage("Not connected\n⌘K to connect")
+
+        startBrowsing()
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tickFps() }
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.ping() }
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.watchCable() }
+
+        if UserDefaults.standard.string(forKey: "pin") != nil, savedEndpoint() != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.showConnect(nil) }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    func windowDidResignKey(_ n: Notification) {
+        if view.mode == .game { view.setMode(.normal) } else { view.releaseAll() }
+    }
+
+    // Full screen: cover the whole display, past the notch. That area is 16:10-ish like the phone
+    // picture, so Fill only trims a fraction of a percent. Menu bar and Dock slide in at the screen edges.
+    private var scaleBeforeCover: Scale?
+    private var frameBeforeCover = NSRect.zero
+    private var styleBeforeCover: NSWindow.StyleMask = []
+    private var toolbarBeforeCover: NSToolbar?
+
+    func windowShouldZoom(_ w: NSWindow, toFrame f: NSRect) -> Bool {
+        fullScreen(nil)
+        return false
+    }
+
+    private func enterCover() {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        scaleBeforeCover = view.scale
+        frameBeforeCover = window.frame
+        styleBeforeCover = window.styleMask
+        toolbarBeforeCover = window.toolbar
+        window.setFrameAutosaveName("") // don't remember the cover frame as the normal window size
+        window.covering = true
+        window.toolbar = nil
+        window.styleMask = [.borderless]
+        NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
+        window.setFrame(screen.frame, display: true)
+        view.scale = .fill
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(view)
+        refreshMenu()
+    }
+
+    private func exitCover() {
+        window.covering = false
+        NSApp.presentationOptions = []
+        window.styleMask = styleBeforeCover
+        window.toolbar = toolbarBeforeCover
+        toolbarBeforeCover = nil
+        view.scale = scaleBeforeCover ?? .fit
+        scaleBeforeCover = nil
+        window.contentAspectRatio = view.videoSize
+        window.setFrame(frameBeforeCover, display: true)
+        window.setFrameAutosaveName("PhoneCastWindow")
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(view)
+        refreshMenu()
+    }
+
+    // MARK: menu
+
+    private func buildMenu() {
+        let main = NSMenu()
+        func sub(_ title: String, _ items: [NSMenuItem]) {
+            let m = NSMenu(title: title); items.forEach(m.addItem)
+            let i = NSMenuItem(); i.submenu = m; main.addItem(i)
+        }
+        func item(_ t: String, _ a: Selector?, _ k: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.keyEquivalentModifierMask = mods; i.target = self; return i
+        }
+        let quit = NSMenuItem(title: "Quit PhoneCast", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        sub("PhoneCast", [quit])
+        sub("Device", [
+            item("Connect…", #selector(showConnect(_:)), "k"),
+            item("Disconnect", #selector(disconnect(_:)), "d"),
+            .separator(),
+            item("Back", #selector(back(_:)), "b"),
+            item("Home", #selector(home(_:)), "h"),
+            item("Recent apps", #selector(recents(_:)), "r"),
+            item("Notifications", #selector(notifications(_:)), "n"),
+        ])
+        gameItem = item("Mouse aiming (game mode)", #selector(toggleGame(_:)), "g")
+        typingItem = item("Keys type text (instead of buttons)", #selector(toggleTyping(_:)), "t")
+        editItem = item("Edit key map", #selector(toggleEdit(_:)), "e")
+        markersItem = item("Show key markers in game mode", #selector(toggleMarkers(_:)), "j")
+        sub("Game", [
+            editItem, gameItem, typingItem, markersItem,
+            .separator(),
+            item("Mouse-look faster", #selector(sensUp(_:)), "+"),
+            item("Mouse-look slower", #selector(sensDown(_:)), "-"),
+            .separator(),
+            item("Clear key map", #selector(clearMap(_:)), ""),
+        ])
+        muteItem = item("Mute phone audio", #selector(toggleMute(_:)), "m")
+        scaleItems = [
+            item("Fit — whole picture, black bars", #selector(setScale(_:)), "1"),
+            item("Fill — no bars, crops the edges", #selector(setScale(_:)), "2"),
+            item("Stretch — no bars, distorts", #selector(setScale(_:)), "3"),
+        ]
+        for (i, it) in scaleItems.enumerated() { it.tag = i }
+        sub("View", [
+            item("Full screen", #selector(fullScreen(_:)), "f"),
+            item("Fit window to phone", #selector(fitWindow(_:)), "0"),
+            .separator(),
+        ] + scaleItems + [.separator(), muteItem])
+        resItems = resolutions.enumerated().map { i, r in let it = item(r.0, #selector(setResolution(_:)), ""); it.tag = i; return it }
+        rateItems = bitrates.enumerated().map { i, b in let it = item("\(b) Mbit/s" + (b == 24 ? " (default)" : ""), #selector(setBitrate(_:)), ""); it.tag = i; return it }
+        sub("Quality", [NSMenuItem(title: "Resolution", action: nil, keyEquivalent: "")] + resItems
+            + [.separator(), NSMenuItem(title: "Bitrate", action: nil, keyEquivalent: "")] + rateItems)
+        let shape = NSMenuItem(title: "Phone screen shape", action: nil, keyEquivalent: "")
+        shape.submenu = NSMenu(title: "Phone screen shape")
+        shape.submenu?.delegate = self
+        main.items.last?.submenu?.addItem(.separator())
+        main.items.last?.submenu?.addItem(shape)
+        sub("Help", [item("Keyboard shortcuts", #selector(showShortcuts(_:)), "i")])
+        NSApp.mainMenu = main
+        refreshMenu()
+    }
+
+    private func refreshMenu() {
+        gameItem?.state = view.mode == .game ? .on : .off
+        editItem?.state = view.mode == .edit ? .on : .off
+        markersItem?.state = view.showMarkers ? .on : .off
+        typingItem?.state = view.typing ? .on : .off
+        muteItem?.state = audio.muted ? .on : .off
+        for it in scaleItems { it.state = it.tag == view.scale.rawValue ? .on : .off }
+        let res = UserDefaults.standard.integer(forKey: "resolution")
+        for it in resItems { it.state = resolutions[it.tag].1 == res ? .on : .off }
+        for it in rateItems { it.state = bitrates[it.tag] == bitrate ? .on : .off }
+    }
+
+    private var bitrate: Int { let b = UserDefaults.standard.integer(forKey: "bitrate"); return b == 0 ? 24 : b }
+
+    @objc func setScale(_ s: NSMenuItem) { view.scale = Scale(rawValue: s.tag) ?? .fit; refreshMenu() }
+    @objc func setResolution(_ s: NSMenuItem) { UserDefaults.standard.set(resolutions[s.tag].1, forKey: "resolution"); refreshMenu(); sendSettings() }
+    @objc func setBitrate(_ s: NSMenuItem) { UserDefaults.standard.set(bitrates[s.tag], forKey: "bitrate"); refreshMenu(); sendSettings() }
+
+    /// Tells the phone how big to encode. "Match this Mac" = the long side of this screen in real pixels,
+    /// which on a Retina Mac is more than the phone has, so the phone sends its full native resolution.
+    private func sendSettings() {
+        var maxSize = UserDefaults.standard.integer(forKey: "resolution")
+        if maxSize == 0, let sc = window?.screen ?? NSScreen.main {
+            maxSize = Int(max(sc.frame.width, sc.frame.height) * sc.backingScaleFactor)
+        }
+        maxSize = min(maxSize, 65535)
+        link?.send(CT.settings, Data([UInt8(maxSize >> 8), UInt8(maxSize & 0xff), UInt8(bitrate)]))
+    }
+
+    private func ping() {
+        guard stateText == "Connected" else { return }
+        var t = CACurrentMediaTime().bitPattern.bigEndian
+        link?.send(CT.ping, Data(bytes: &t, count: 8))
+    }
+
+    @objc func back(_ s: Any?) { link?.send(CT.global, Data([Global.back])) }
+    @objc func home(_ s: Any?) { link?.send(CT.global, Data([Global.home])) }
+    @objc func recents(_ s: Any?) { link?.send(CT.global, Data([Global.recents])) }
+    @objc func notifications(_ s: Any?) { link?.send(CT.global, Data([Global.notifications])) }
+    @objc func toggleGame(_ s: Any?) {
+        if view.mode != .game && view.map.look == nil {
+            // No aiming area yet: use an empty spot in the upper right, where dragging turns the camera
+            view.map.look = NPoint(x: 0.62, y: 0.28)
+            view.map.save()
+            view.setMessage("Mouse aiming on — the mouse now turns the camera.\nEsc to stop. To move the aiming area: ⌘E, then ⌃-click.")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in self?.view.setMessage(nil) }
+        }
+        view.setMode(view.mode == .game ? .normal : .game)
+    }
+    @objc func toggleTyping(_ s: Any?) { view.typing.toggle(); refreshMenu(); updateTitle() }
+    @objc func toggleEdit(_ s: Any?) { view.setMode(view.mode == .edit ? .normal : .edit) }
+    @objc func toggleMarkers(_ s: Any?) { view.showMarkers.toggle(); refreshMenu() }
+    @objc func toggleMute(_ s: Any?) { audio.muted.toggle(); refreshMenu() }
+    @objc func sensUp(_ s: Any?) { view.map.sens = min(5, view.map.sens * 1.12); view.map.save(); updateTitle() }
+    @objc func sensDown(_ s: Any?) { view.map.sens = max(0.1, view.map.sens / 1.12); view.map.save(); updateTitle() }
+    @objc func clearMap(_ s: Any?) { view.map = KeyMap(); view.map.save(); view.needsDisplay = true; view.setMode(.normal) }
+    @objc func fullScreen(_ s: Any?) { window.covering ? exitCover() : enterCover() }
+
+    @objc func showShortcuts(_ s: Any?) {
+        if view.mode == .game { view.setMode(.normal) }
+        let a = NSAlert()
+        a.messageText = "PhoneCast shortcuts"
+        a.informativeText = """
+        ⌘F   Full screen on / off
+        ⌘1   Fit (whole picture)      ⌘2   Fill (no bars)      ⌘3   Stretch
+        ⌘0   Window size = phone
+
+        ⌘B   Back          ⌘H   Home          ⌘R   Recent apps
+        ⌘N   Notifications ⌘M   Mute sound
+
+        ⌘E   Edit key map  (Esc when done) — mapped keys work right away
+        ⌘G   Mouse aiming  (Esc to leave; needs a LOOK area)
+        ⌘T   Keys type text instead of pressing buttons
+        ⌘+ / ⌘-   Mouse aiming faster / slower
+        ⌘J   Show/hide key markers
+
+        ⌘K   Connect       ⌘D   Disconnect     ⌘I   This list
+
+        Mouse: click = tap · drag = swipe · two-finger scroll = scroll
+        Right-click or Esc = Back · middle-click = Home
+        """
+        a.runModal()
+    }
+
+    @objc func fitWindow(_ s: Any?) {
+        if window.covering { return }
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let vs = view.videoSize
+        let maxH = screen.visibleFrame.height * 0.9, maxW = screen.visibleFrame.width * 0.9
+        let scale = min(maxH / vs.height, maxW / vs.width)
+        let size = NSSize(width: (vs.width * scale).rounded(), height: (vs.height * scale).rounded())
+        var f = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        f.origin = CGPoint(x: window.frame.midX - f.width / 2, y: window.frame.maxY - f.height)
+        f.origin.y = max(screen.visibleFrame.minY, f.origin.y)
+        f.origin.x = max(screen.visibleFrame.minX, min(f.origin.x, screen.visibleFrame.maxX - f.width))
+        window.setFrame(f, display: true, animate: true)
+    }
+
+    // MARK: toolbar
+
+    private let tbItems: [(String, String, String, Selector)] = [
+        ("back", "chevron.backward", "Back (⌘B)", #selector(back(_:))),
+        ("home", "circle", "Home (⌘H)", #selector(home(_:))),
+        ("recents", "square.on.square", "Recent apps (⌘R)", #selector(recents(_:))),
+        ("full", "arrow.up.left.and.arrow.down.right", "Full screen (⌘F)", #selector(fullScreen(_:))),
+        ("scale", "rectangle.expand.vertical", "Whole picture / crop to fill (⌘1 ⌘2)", #selector(cycleScale(_:))),
+        ("shape", "aspectratio", "Phone screen shape", #selector(showShapeMenu(_:))),
+        ("keys", "keyboard", "Edit key map (⌘E)", #selector(toggleEdit(_:))),
+        ("game", "gamecontroller", "Mouse aiming (⌘G)", #selector(toggleGame(_:))),
+        ("help", "questionmark.circle", "Shortcuts (⌘I)", #selector(showShortcuts(_:))),
+    ]
+
+    // MARK: phone screen shape
+
+    private func shapeMenu() -> NSMenu {
+        let m = NSMenu(title: "Phone screen shape")
+        func add(_ title: String, _ w: Int, _ h: Int) {
+            let i = NSMenuItem(title: title, action: #selector(setShape(_:)), keyEquivalent: "")
+            i.target = self; i.tag = w << 16 | h
+            m.addItem(i)
+        }
+        if let sc = window.screen ?? NSScreen.main {
+            let w = Int(sc.frame.width), h = Int(sc.frame.height), top = Int(sc.safeAreaInsets.top)
+            add("Fit this Mac — whole display", w, h)
+            if top > 0 { add("Fit this Mac — below the notch", w, h - top) }
+        }
+        add("16:9", 16, 9)
+        m.addItem(.separator())
+        add("Phone's normal shape", 0, 0)
+        return m
+    }
+
+    @objc func showShapeMenu(_ s: Any?) {
+        shapeMenu().popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    @objc func setShape(_ s: NSMenuItem) {
+        let w = s.tag >> 16, h = s.tag & 0xffff
+        link?.send(CT.resolution, Data([UInt8(w >> 8), UInt8(w & 0xff), UInt8(h >> 8), UInt8(h & 0xff)]))
+    }
+
+    private func resolutionResult(_ r: UInt8) {
+        if r == 0 { return }
+        let a = NSAlert()
+        if r == 1 {
+            a.messageText = "The phone needs one permission first"
+            a.informativeText = "Turn on USB debugging once and run:\n\nadb shell pm grant de.finn.phonecast android.permission.WRITE_SECURE_SETTINGS\n\nIt stays granted after you turn USB debugging off again."
+        } else {
+            a.messageText = "The phone couldn't change its screen shape"
+            a.informativeText = "Android refused the change. You can still set it with adb: adb shell wm size"
+        }
+        a.runModal()
+    }
+
+    @objc func cycleScale(_ s: Any?) { view.scale = view.scale == .fit ? .fill : .fit; refreshMenu() }
+
+    func toolbarDefaultItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] {
+        let ids = tbItems.map { NSToolbarItem.Identifier($0.0) }
+        return Array(ids[0..<3]) + [.flexibleSpace] + Array(ids[3...])
+    }
+    func toolbarAllowedItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(t) }
+    func toolbar(_ t: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar f: Bool) -> NSToolbarItem? {
+        guard let d = tbItems.first(where: { $0.0 == id.rawValue }) else { return nil }
+        let it = NSToolbarItem(itemIdentifier: id)
+        it.image = NSImage(systemSymbolName: d.1, accessibilityDescription: d.2)
+        it.label = d.2; it.toolTip = d.2
+        it.target = self; it.action = d.3
+        it.isBordered = true
+        return it
+    }
+
+    // MARK: discovery
+
+    private func startBrowsing() {
+        let b = NWBrowser(for: .bonjour(type: "_phonecast._tcp", domain: nil), using: .tcp)
+        b.browseResultsChangedHandler = { [weak self] results, _ in
+            DispatchQueue.main.async {
+                var f: [String: NWEndpoint] = [:]
+                for r in results { if case let .service(name, _, _, _) = r.endpoint { f[name] = r.endpoint } }
+                self?.found = f
+            }
+        }
+        b.start(queue: .main)
+        browser = b
+    }
+
+    private func savedEndpoint() -> (NWEndpoint, String)? {
+        if let h = ProcessInfo.processInfo.environment["PHONECAST_TEST_HOST"] {
+            return (.hostPort(host: NWEndpoint.Host(h), port: 27183), "test phone")
+        }
+        let d = UserDefaults.standard
+        if let name = d.string(forKey: "service") {
+            return (found[name] ?? .service(name: name, type: "_phonecast._tcp", domain: "local.", interface: nil), name)
+        }
+        if let host = d.string(forKey: "host"), !host.isEmpty {
+            return (.hostPort(host: NWEndpoint.Host(host), port: 27183), host)
+        }
+        return nil
+    }
+
+    @objc func showConnect(_ s: Any?) {
+        if view.mode == .game { view.setMode(.normal) }
+        let d = UserDefaults.standard
+        let a = NSAlert()
+        a.messageText = "Connect to your phone"
+        a.informativeText = "Open PhoneCast on the phone and tap Start sharing. Phones on this Wi-Fi show up automatically."
+        a.addButton(withTitle: "Connect"); a.addButton(withTitle: "Cancel")
+
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        let names = found.keys.sorted()
+        names.forEach { popup.addItem(withTitle: $0) }
+        popup.addItem(withTitle: "IP address below")
+        if let saved = d.string(forKey: "service"), names.contains(saved) { popup.selectItem(withTitle: saved) }
+        else if names.isEmpty || d.string(forKey: "host") != nil { popup.selectItem(withTitle: "IP address below") }
+
+        let host = NSTextField(string: d.string(forKey: "host") ?? "")
+        host.placeholderString = "e.g. 192.168.1.57 (shown in the phone app)"
+        let pin = NSTextField(string: d.string(forKey: "pin") ?? "")
+        pin.placeholderString = "6-digit PIN from the phone app"
+        let stack = NSStackView(views: [
+            NSTextField(labelWithString: "Phone:"), popup,
+            NSTextField(labelWithString: "IP address:"), host,
+            NSTextField(labelWithString: "PIN:"), pin,
+        ])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 320, height: 160)
+        [popup, host, pin].forEach { $0.widthAnchor.constraint(equalToConstant: 320).isActive = true }
+        a.accessoryView = stack
+        a.window.initialFirstResponder = pin.stringValue.isEmpty ? pin : host
+
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let p = pin.stringValue.trimmingCharacters(in: .whitespaces)
+        d.set(p, forKey: "pin")
+        if let t = popup.titleOfSelectedItem, t != "IP address below" {
+            d.set(t, forKey: "service"); d.removeObject(forKey: "host")
+        } else {
+            d.set(host.stringValue.trimmingCharacters(in: .whitespaces), forKey: "host"); d.removeObject(forKey: "service")
+        }
+        connectSaved()
+    }
+
+    private var viaUSB = false
+    private var retryDelay: Double = 2   // grows while the phone isn't answering, so we don't hammer the cable
+    private var usbBusy = false
+    private var usbGaveUp = false   // USB failed while plugged in: don't keep retrying until it is re-plugged
+
+    /// Cable first (if a phone is plugged in), Wi-Fi otherwise.
+    private func connectSaved() {
+        guard let pin = UserDefaults.standard.string(forKey: "pin") else { showConnect(nil); return }
+        wantConnected = true
+        if !usbBusy && !usbGaveUp && !Self.noUSB && UsbBridge.shared.phonePresent() {
+            usbBusy = true
+            link?.onState = nil; link?.close(); link = nil
+            stateText = "Connecting…"
+            view.setMessage("Connecting over the USB cable…\n(If the phone asks to open PhoneCast for this USB device, tap OK / Always.)")
+            updateTitle()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let port = UsbBridge.shared.start()
+                DispatchQueue.main.async {
+                    self.usbBusy = false
+                    if let port {
+                        self.viaUSB = true
+                        self.connect(.hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!), label: "USB cable", pin: pin)
+                    } else {
+                        self.usbGaveUp = true
+                        self.connectWifi(pin)
+                    }
+                }
+            }
+            return
+        }
+        connectWifi(pin)
+    }
+
+    private func connectWifi(_ pin: String) {
+        guard let (ep, label) = savedEndpoint() else { showConnect(nil); return }
+        viaUSB = false
+        connect(ep, label: label, pin: pin)
+    }
+
+    /// Every few seconds: switch to the cable when it gets plugged in.
+    static let noUSB = ProcessInfo.processInfo.environment["PHONECAST_NO_USB"] != nil
+
+    private func watchCable() {
+        if Self.noUSB { return }
+        let present = UsbBridge.shared.phonePresent()
+        if !present { usbGaveUp = false }
+        if wantConnected && present && !viaUSB && !usbBusy && !usbGaveUp && view.mode != .game {
+            connectSaved()
+        }
+    }
+
+    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop() }
+
+    private func connect(_ ep: NWEndpoint, label: String, pin: String) {
+        link?.onState = nil; link?.onPacket = nil
+        link?.close()
+        view.releaseAll()
+        deviceLabel = label
+        let l = Link(endpoint: ep)
+        link = l
+        view.link = l
+        view.video.reset()
+        sizedOnce = false
+
+        l.onState = { [weak self, weak l] st in
+            DispatchQueue.main.async {
+                guard let self, let l, self.link === l else { return }
+                switch st {
+                case .connecting:
+                    self.stateText = "Connecting…"
+                    self.view.setMessage(self.viaUSB
+                        ? "Cable connected — waiting for the phone.\nOpen PhoneCast on the phone and tap Start sharing."
+                        : "Connecting to \(label)…")
+                case .ready:
+                    self.retryDelay = 2
+                    self.stateText = "Connected"; self.view.setMessage(nil)
+                    self.sendSettings()
+                case .badPin:
+                    self.wantConnected = false
+                    self.stateText = "Wrong PIN"
+                    self.view.setMessage("Wrong PIN — check the PIN in the phone app")
+                    self.showConnect(nil)
+                case .closed(let why):
+                    if self.viaUSB { UsbBridge.shared.stop(); self.viaUSB = false }
+                    self.audio.stop()
+                    self.view.setMode(.normal)
+                    self.stateText = "Disconnected"
+                    if self.wantConnected {
+                        let wait = self.retryDelay
+                        self.retryDelay = min(15, self.retryDelay * 2)
+                        self.view.setMessage("Lost connection (\(why))\nRetrying in \(Int(wait)) s — is sharing on in the phone app?")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                            guard let self, self.wantConnected, self.link === l else { return }
+                            self.connectSaved()
+                        }
+                    } else {
+                        self.view.setMessage("Not connected\n⌘K to connect")
+                    }
+                }
+                self.updateTitle()
+            }
+        }
+        l.onPacket = { [weak self] type, payload in self?.packet(type, payload) }
+        l.start(pin: pin)
+    }
+
+    @objc func disconnect(_ s: Any?) {
+        wantConnected = false
+        link?.close()
+        UsbBridge.shared.stop()
+    }
+
+    // runs on the link queue
+    private func packet(_ type: UInt8, _ p: Data) {
+        switch type {
+        case PT.frame:
+            let now = CACurrentMediaTime()
+            if lastFrameAt > 0, now - lastFrameAt > 0.15 { logLag(gapMs: (now - lastFrameAt) * 1000) }
+            lastFrameAt = now
+            view.video.frame(p)
+        case PT.audio: audio.push(p)
+        case PT.config: view.video.config(p)
+        case PT.format:
+            guard p.count >= 8 else { return }
+            let b = [UInt8](p)
+            let w = Int(b[0]) << 24 | Int(b[1]) << 16 | Int(b[2]) << 8 | Int(b[3])
+            let h = Int(b[4]) << 24 | Int(b[5]) << 16 | Int(b[6]) << 8 | Int(b[7])
+            view.video.reset()
+            DispatchQueue.main.async {
+                // refit on rotation and on a new screen shape
+                let old = self.view.videoSize
+                let rotated = self.sizedOnce && old.height > 0 && abs(CGFloat(w) / CGFloat(h) - old.width / old.height) > 0.01
+                self.view.videoSize = CGSize(width: w, height: h)
+                self.window.contentAspectRatio = NSSize(width: w, height: h)
+                if !self.sizedOnce || rotated { self.fitWindow(nil); self.sizedOnce = true }
+                self.updateTitle()
+            }
+        case PT.pong:
+            guard p.count == 8 else { return }
+            let sent = Double(bitPattern: p.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
+            let rtt = (CACurrentMediaTime() - sent) * 1000
+            DispatchQueue.main.async { self.rttMs = self.rttMs == 0 ? rtt : self.rttMs * 0.7 + rtt * 0.3 }
+        case PT.stats:
+            guard p.count >= 4 else { break }
+            let b = [UInt8](p)
+            let n = Int(b[0]) << 24 | Int(b[1]) << 16 | Int(b[2]) << 8 | Int(b[3])
+            DispatchQueue.main.async { self.resyncs = n }
+        case PT.resResult:
+            let r = p.first ?? 2
+            DispatchQueue.main.async { self.resolutionResult(r) }
+        case PT.helloOK, PT.control:
+            let on = p.first == 1
+            DispatchQueue.main.async { self.view.controlAvailable = on; self.updateTitle() }
+        default: break
+        }
+    }
+
+    /// A gap in arriving video (runs on the link queue). A static screen also pauses frames, so this
+    /// only means something while the game is moving.
+    private func logLag(gapMs: Double) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) gap=\(Int(gapMs))ms rtt=\(Int(rttMs))ms decode=\(String(format: "%.1f", view.video.decodeMs))ms resyncs=\(resyncs)\n"
+        guard let d = line.data(using: .utf8) else { return }
+        if let h = FileHandle(forWritingAtPath: lagLog) { h.seekToEndOfFile(); h.write(d); h.closeFile() }
+        else { FileManager.default.createFile(atPath: lagLog, contents: d) }
+    }
+
+    private func tickFps() {
+        let f = view.video.frames
+        fps = f - lastFrames
+        lastFrames = f
+        updateTitle()
+    }
+
+    private func updateTitle() {
+        var parts = ["PhoneCast"]
+        if !deviceLabel.isEmpty { parts.append(deviceLabel) }
+        if stateText == "Connected" {
+            parts.append("\(Int(view.videoSize.width))×\(Int(view.videoSize.height)) · \(fps) fps · \(viaUSB ? "USB" : "Wi-Fi") \(Int(rttMs)) ms · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+            if !view.controlAvailable { parts.append("view only — turn on mouse & keyboard in the phone app") }
+        } else {
+            parts.append(stateText)
+        }
+        switch view.mode {
+        case .game: parts.append("MOUSE AIMING (Esc to exit) · speed \(String(format: "%.1f", view.map.sens))×")
+        case .edit: parts.append("EDITING KEY MAP")
+        case .normal: if view.typing { parts.append("TYPING (⌘T for buttons)") }
+        }
+        window?.title = parts.joined(separator: " — ")
+    }
+}
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.regular)
+app.run()

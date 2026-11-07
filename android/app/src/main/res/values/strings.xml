@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="input_desc">Lets the PhoneCast Mac viewer tap, swipe and type on this phone with the Mac\'s mouse and keyboard. Only active while a paired Mac is connected.</string>
+</resources>
