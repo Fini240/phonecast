@@ -14,6 +14,7 @@ import java.security.SecureRandom
  */
 object Proto {
     const val PORT = 27183
+    const val UDP_PORT = 27184     // Wi-Fi video datagrams (UdpVideo)
     const val SERVICE_TYPE = "_phonecast._tcp"
 
     // phone -> mac
@@ -28,6 +29,9 @@ object Proto {
     const val RES_RESULT: Int = 8  // u8 DisplaySize result
     const val STATS: Int = 14      // u32 video resyncs since connecting, then PhoneStats (optional)
     const val STOPPED: Int = 19    // u8 reason (STOP_*): sharing ends now, the connection closes next
+    const val UDP_TOKEN: Int = 20  // u32 token: send "PCU1"+token to UDP_PORT to get video over UDP
+    const val UDP_ON: Int = 21     // video now arrives over UDP (FRAME stops on TCP)
+    const val UDP_OFF: Int = 22    // video back on TCP
     const val STOP_USER = 0
     const val STOP_LOCKED = 1      // Android ends screen capture when the phone locks
 

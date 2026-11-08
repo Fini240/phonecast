@@ -48,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var rttMs = 0.0
     private var resyncs = 0
     private var lastFrameAt = 0.0
+    /// Wi-Fi video over UDP (nil on the cable, or until the phone offers it).
+    private var udp: UdpVideoIn?
+    private var udpActive = false
+    private var udpOnAt: CFTimeInterval = 0
     private let lagLog = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/PhoneCast-lag.log")
     // 0 = match this Mac's screen (full phone resolution on any Retina Mac)
     private let resolutions: [(String, Int)] = [("Match this Mac (sharpest)", 0), ("1440p", 1440), ("1080p", 1080), ("720p (fastest)", 720)]
@@ -241,6 +245,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let now = CACurrentMediaTime()
         if lastPong == 0 { lastPong = now }
         if now - lastPong > 6 { lastPong = 0; link?.close("the phone stopped answering"); return }
+        // UDP video on, but nothing arrives (firewall?): stop the hellos, the phone goes back to TCP
+        if udpActive, let u = udp, now - max(udpOnAt, u.lastPacketAt) > 2 {
+            NSLog("udp: no video datagrams for 2 s, back to TCP")
+            u.stop(); udp = nil
+        }
+        // too lossy for the repair (frames keep failing): TCP's resends work better there
+        if udpActive, let u = udp, u.recentLossCount() >= 8 {
+            NSLog("udp: 8+ frames lost in 5 s, back to TCP")
+            u.stop(); udp = nil
+        }
         var t = CACurrentMediaTime().bitPattern.bigEndian
         link?.send(CT.ping, Data(bytes: &t, count: 8))
     }
@@ -278,8 +292,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let out = NSMutableAttributedString()
         func add(_ s: String, _ c: NSColor = white) { out.append(NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: c])) }
         add("\(fps) fps", fps < 20 ? warn : white)
-        add(" · \(viaUSB ? "USB" : "Wi-Fi") \(Int(rttMs)) ms", rttMs > 40 ? warn : white)
+        add(" · \(transport) \(Int(rttMs)) ms", rttMs > 40 ? warn : white)
         add(" · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+        if udpActive, let u = udp { add(" · repaired \(u.repaired) · resent \(u.resentFrames) · lost \(u.lost)", u.lost > 0 ? warn : white) }
         if let h = health {
             add("\nBattery ")
             add(String(format: "%.1f °C", h.tempC), h.tempC >= 45 ? bad : h.tempC >= 40 ? warn : white)
@@ -300,6 +315,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
         view.setStats(out)
     }
+    /// Each phone screen layout (size) has its own key map, because the game's buttons move with it.
+    private func switchKeyLayout(_ w: Int, _ h: Int) {
+        let layout = "\(w)x\(h)"
+        if layout == KeyMap.layout { return }
+        let first = KeyMap.layout.isEmpty
+        if view.mode == .game { view.setMode(.normal) } // fingers held for the old layout would land wrong
+        KeyMap.layout = layout
+        let (m, copied) = KeyMap.load(layout: layout)
+        view.map = m
+        view.needsDisplay = true
+        guard w > h, copied || !first, !(m.binds.isEmpty && m.joy == nil && m.look == nil) else { return }
+        view.setMessage(copied
+            ? "New screen layout (\(w)×\(h)): the game's buttons moved.\nYour last key map was copied — check it with ⌘E and drag the markers into place."
+            : "Key map for \(w)×\(h) loaded")
+        DispatchQueue.main.asyncAfter(deadline: .now() + (copied ? 6 : 2.5)) { [weak self] in
+            guard let self, self.stateText == "Connected" else { return }
+            self.view.setMessage(nil)
+        }
+    }
+
     @objc func sensUp(_ s: Any?) { view.map.sens = min(5, view.map.sens * 1.12); view.map.save(); updateTitle() }
     @objc func sensDown(_ s: Any?) { view.map.sens = max(0.1, view.map.sens / 1.12); view.map.save(); updateTitle() }
     @objc func clearMap(_ s: Any?) { view.map = KeyMap(); view.map.save(); view.needsDisplay = true; view.setMode(.normal) }
@@ -317,7 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         ⌘B   Back          ⌘H   Home          ⌘R   Recent apps
         ⌘N   Notifications ⌘M   Mute sound    ⌘O   Stats overlay
 
-        ⌘E   Edit key map  (Esc when done) — mapped keys work right away
+        ⌘E   Edit key map  (Esc when done; drag markers to move them)
         ⌘G   Mouse aiming  (Esc to leave; needs a LOOK area)
         ⌘T   Keys type text instead of pressing buttons
         ⌘+ / ⌘-   Mouse aiming faster / slower
@@ -571,6 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private func connect(_ ep: NWEndpoint, label: String, pin: String) {
         link?.onState = nil; link?.onPacket = nil
         link?.close()
+        udp?.stop(); udp = nil; udpActive = false
         view.releaseAll()
         deviceLabel = label
         let l = Link(endpoint: ep)
@@ -599,6 +635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                     self.view.setMessage("Wrong PIN — check the PIN in the phone app")
                     self.showConnect(nil)
                 case .closed(let why):
+                    self.udp?.stop(); self.udp = nil; self.udpActive = false
                     if self.viaUSB { UsbBridge.shared.stop(); self.viaUSB = false }
                     self.audio.stop()
                     self.view.setMode(.normal)
@@ -637,6 +674,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             lastFrameAt = now
             view.video.frame(p)
         case PT.audio: audio.push(p)
+        case PT.udpToken:
+            guard p.count >= 6, let l = link, let host = l.remoteHost else { return }
+            let b = [UInt8](p)
+            let token = UInt32(b[0]) << 24 | UInt32(b[1]) << 16 | UInt32(b[2]) << 8 | UInt32(b[3])
+            let port = UInt16(b[4]) << 8 | UInt16(b[5])
+            udp?.stop()
+            guard let u = UdpVideoIn(host: host, port: port, token: token) else { NSLog("udp: no socket for \(host)"); return }
+            u.onFrame = { [weak self, weak l] payload in l?.async { self?.packet(PT.frame, payload) } }
+            u.onNeedKeyframe = { [weak l] in l?.send(CT.keyframe) }
+            udp = u
+            u.start()
+        case PT.udpOn: DispatchQueue.main.async { self.udpActive = true; self.udpOnAt = CACurrentMediaTime(); self.updateTitle() }
+        case PT.udpOff: DispatchQueue.main.async { self.udpActive = false; self.updateTitle() }
         case PT.config: view.video.config(p)
         case PT.format:
             guard p.count >= 8 else { return }
@@ -649,6 +699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                 let old = self.view.videoSize
                 let rotated = self.sizedOnce && old.height > 0 && abs(CGFloat(w) / CGFloat(h) - old.width / old.height) > 0.01
                 self.view.videoSize = CGSize(width: w, height: h)
+                self.switchKeyLayout(w, h)
                 self.window.contentAspectRatio = NSSize(width: w, height: h)
                 if !self.sizedOnce || rotated { self.fitWindow(nil); self.sizedOnce = true }
                 self.updateTitle()
@@ -702,11 +753,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         updateStats()
     }
 
+    private var transport: String { viaUSB ? "USB" : udpActive ? "Wi-Fi UDP" : "Wi-Fi" }
+
     private func updateTitle() {
         var parts = ["PhoneCast"]
         if !deviceLabel.isEmpty { parts.append(deviceLabel) }
         if stateText == "Connected" {
-            parts.append("\(Int(view.videoSize.width))×\(Int(view.videoSize.height)) · \(fps) fps · \(viaUSB ? "USB" : "Wi-Fi") \(Int(rttMs)) ms · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+            parts.append("\(Int(view.videoSize.width))×\(Int(view.videoSize.height)) · \(fps) fps · \(transport) \(Int(rttMs)) ms · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
             if !view.controlAvailable { parts.append("view only — turn on mouse & keyboard in the phone app") }
         } else {
             parts.append(stateText)

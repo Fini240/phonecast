@@ -1,0 +1,193 @@
+package de.finn.phonecast
+
+import android.os.SystemClock
+import android.util.Log
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetSocketAddress
+import java.net.SocketAddress
+import java.net.SocketTimeoutException
+import java.nio.ByteBuffer
+
+/**
+ * Wi-Fi video over UDP (like Moonlight): TCP stalls the whole stream until a lost packet is resent,
+ * which on Wi-Fi shows up as 30–150 ms spikes. Here every frame is split into datagrams plus XOR
+ * repair datagrams, so the Mac rebuilds lost pieces instead of waiting. A frame that can't be
+ * rebuilt is dropped and the Mac asks for a keyframe (over TCP).
+ *
+ * The Mac learns [token] over the authenticated TCP link and sends "PCU1"+token to [Proto.UDP_PORT]
+ * every second; that tells us where to send. No hello for 3 s -> back to TCP.
+ *
+ * Datagram: u8 0xC5, u8 flags (1 = repair), u32 frame id, u16 index, u16 data count n,
+ * u16 repair count p, u32 frame length, then up to [SHARD] bytes. Repair j is the XOR of the data
+ * pieces i with i % p == j (zero-padded), so p lost pieces in a row can be rebuilt.
+ */
+class UdpVideo(private val onTarget: (Boolean) -> Unit) {
+    companion object {
+        const val SHARD = 1200
+        private const val HEADER = 16
+        private const val TAG = "PhoneCastUDP"
+        /**
+         * Pacing: a keyframe is up to ~900 datagrams; fired out at once they overflow the Wi-Fi
+         * queue and its tail is lost. Above this rate (bytes/s) we wait a little between batches.
+         */
+        private const val PACE_BYTES_PER_S = 15_000_000L
+        private const val BATCH = 16
+        /** Repair overhead: ~25% of the data pieces. */
+        fun repairCount(n: Int) = maxOf(1, (n + 3) / 4)
+    }
+
+    private val sock = DatagramSocket(null).apply {
+        reuseAddress = true
+        bind(InetSocketAddress(Proto.UDP_PORT))
+        sendBufferSize = 4 shl 20
+        soTimeout = 500
+        trafficClass = 0xB8 // DSCP EF: Wi-Fi puts it in the voice/video queue
+    }
+    @Volatile var token = 0
+    @Volatile var target: SocketAddress? = null
+        private set
+    @Volatile private var lastHello = 0L
+    @Volatile private var open = true
+    private var frameId = 0
+    private val out = ByteArray(HEADER + SHARD)
+
+    init {
+        Thread({ receiveLoop() }, "pc-udp-in").start()
+    }
+
+    private fun receiveLoop() {
+        val buf = ByteArray(1500)
+        val p = DatagramPacket(buf, buf.size)
+        while (open) {
+            try {
+                p.length = buf.size
+                sock.receive(p)
+                if (p.length >= 8 && buf[0] == 'P'.code.toByte() && buf[1] == 'C'.code.toByte() &&
+                    buf[2] == 'U'.code.toByte() && buf[3] == '1'.code.toByte() &&
+                    token != 0 && ByteBuffer.wrap(buf, 4, 4).int == token
+                ) {
+                    lastHello = SystemClock.uptimeMillis()
+                    if (target != p.socketAddress) {
+                        val first = target == null
+                        target = p.socketAddress
+                        Log.i(TAG, "video over UDP to ${p.socketAddress}")
+                        if (first) onTarget(true)
+                    }
+                } else if (p.length >= 16 && buf[0] == 'P'.code.toByte() && buf[1] == 'C'.code.toByte() &&
+                    buf[2] == 'R'.code.toByte() && buf[3] == '1'.code.toByte() &&
+                    token != 0 && ByteBuffer.wrap(buf, 4, 4).int == token
+                ) {
+                    // resend request: u32 frame id, then (u16 start, u16 count) ranges of data pieces
+                    val bb = ByteBuffer.wrap(buf, 8, p.length - 8)
+                    val id = bb.int
+                    val ranges = ArrayList<Pair<Int, Int>>()
+                    while (bb.remaining() >= 4) ranges.add((bb.short.toInt() and 0xffff) to (bb.short.toInt() and 0xffff))
+                    resend(id, ranges)
+                }
+            } catch (_: SocketTimeoutException) {
+            } catch (e: Exception) {
+                if (open) Log.w(TAG, "receive", e)
+            }
+            if (target != null && SystemClock.uptimeMillis() - lastHello > 3000) {
+                target = null
+                Log.i(TAG, "no hello from the Mac for 3 s: video back to TCP")
+                onTarget(false)
+            }
+        }
+    }
+
+    /** Forget the Mac (new or closed TCP client). */
+    fun reset(newToken: Int) {
+        token = newToken
+        if (target != null) { target = null; onTarget(false) }
+    }
+
+    /** The last frames sent, for resend requests (a lost piece comes back in one round trip). */
+    private val recent = object : LinkedHashMap<Int, ByteArray>() {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<Int, ByteArray>?) = size > 24
+    }
+    private val resendOut = ByteArray(HEADER + SHARD)
+    @Volatile var resent = 0
+        private set
+
+    private fun resend(id: Int, ranges: List<Pair<Int, Int>>) {
+        val to = target ?: return
+        val frame = synchronized(recent) { recent[id] } ?: return
+        val n = (frame.size + SHARD - 1) / SHARD
+        val p = repairCount(n)
+        var k = 0
+        try {
+            for ((start, count) in ranges) {
+                for (i in start until minOf(n, start + count)) {
+                    val off = i * SHARD
+                    val len = minOf(SHARD, frame.size - off)
+                    ByteBuffer.wrap(resendOut, 0, HEADER)
+                        .put(0xC5.toByte()).put(0).putInt(id)
+                        .putShort(i.toShort()).putShort(n.toShort()).putShort(p.toShort()).putInt(frame.size)
+                    System.arraycopy(frame, off, resendOut, HEADER, len)
+                    sock.send(DatagramPacket(resendOut, HEADER + len, to))
+                    resent++
+                    if (++k % BATCH == 0) java.util.concurrent.locks.LockSupport.parkNanos(BATCH * 1300L * 1_000_000_000L / PACE_BYTES_PER_S)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "resend failed: ${e.message}")
+        }
+    }
+
+    /** Called by the encoder thread. Returns false if there is no UDP target. */
+    @Synchronized
+    fun send(frame: ByteArray): Boolean {
+        val to = target ?: return false
+        val id = ++frameId
+        synchronized(recent) { recent[id] = frame }
+        val n = (frame.size + SHARD - 1) / SHARD
+        // (more repair for keyframes was tried: the bigger burst made Wi-Fi drop more, 08.11.2026)
+        val p = repairCount(n)
+        val repair = Array(p) { ByteArray(SHARD) }
+        val t0 = System.nanoTime()
+        var sent = 0L
+        var count = 0
+        fun pace(bytes: Int) {
+            sent += bytes
+            if (++count % BATCH != 0) return
+            val due = t0 + sent * 1_000_000_000L / PACE_BYTES_PER_S
+            val wait = due - System.nanoTime()
+            if (wait > 50_000) java.util.concurrent.locks.LockSupport.parkNanos(wait)
+        }
+        try {
+            for (i in 0 until n) {
+                val off = i * SHARD
+                val len = minOf(SHARD, frame.size - off)
+                val r = repair[i % p]
+                for (k in 0 until len) r[k] = (r[k].toInt() xor frame[off + k].toInt()).toByte()
+                header(0, id, i, n, p, frame.size)
+                System.arraycopy(frame, off, out, HEADER, len)
+                sock.send(DatagramPacket(out, HEADER + len, to))
+                pace(HEADER + len)
+            }
+            for (j in 0 until p) {
+                header(1, id, j, n, p, frame.size)
+                System.arraycopy(repair[j], 0, out, HEADER, SHARD)
+                sock.send(DatagramPacket(out, HEADER + SHARD, to))
+                pace(HEADER + SHARD)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "send failed: ${e.message}")
+        }
+        return true
+    }
+
+    private fun header(flags: Int, id: Int, index: Int, n: Int, p: Int, len: Int) {
+        ByteBuffer.wrap(out, 0, HEADER)
+            .put(0xC5.toByte()).put(flags.toByte()).putInt(id)
+            .putShort(index.toShort()).putShort(n.toShort()).putShort(p.toShort()).putInt(len)
+    }
+
+    fun close() {
+        open = false
+        target = null
+        try { sock.close() } catch (_: Exception) {}
+    }
+}

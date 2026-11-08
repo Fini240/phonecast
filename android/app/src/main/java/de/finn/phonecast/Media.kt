@@ -31,7 +31,8 @@ class VideoEncoder(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 3)
+            // keyframes are huge (~1 MB at high resolution) and burst the Wi-Fi; losses ask for one anyway
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
             // keep sending frames when the screen is static so the Mac never stalls
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
             setInteger(MediaFormat.KEY_PRIORITY, 0) // realtime

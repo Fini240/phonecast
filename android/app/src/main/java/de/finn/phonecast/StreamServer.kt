@@ -41,14 +41,27 @@ class StreamServer(
 
     val clientAddress: String? get() = client?.address
 
+    /** Wi-Fi only: video over UDP once the Mac answers (the cable keeps TCP). */
+    private var udp: UdpVideo? = null
+
+    private fun onUdpTarget(on: Boolean) {
+        val c = client ?: return
+        c.udpOn = on
+        c.sendControl(packet(if (on) Proto.UDP_ON else Proto.UDP_OFF, ByteArray(0)))
+        c.waitingForKey = true
+        listener.requestKeyFrame()
+    }
+
     fun start() {
         running = true
+        udp = try { UdpVideo { on -> onUdpTarget(on) } } catch (e: Exception) { Log.w(TAG, "no UDP video", e); null }
         Thread({ acceptLoop() }, "pc-accept").start()
     }
 
     /** [reason]: tell the Mac why first (Proto.STOP_*), so it doesn't sit on a black screen. */
     fun stop(reason: Int? = null) {
         running = false
+        udp?.close(); udp = null
         try { serverSocket?.close() } catch (_: Exception) {}
         val c = client ?: return
         client = null
@@ -98,6 +111,15 @@ class StreamServer(
             c.waitingForKey = true
             listener.requestKeyFrame()
             listener.onClientChanged(c.address)
+            // Wi-Fi: offer video over UDP (the cable arrives via 127.0.0.1 and stays on TCP)
+            val u = udp
+            if (u != null && !s.inetAddress.isLoopbackAddress) {
+                val token = java.security.SecureRandom().nextInt().let { if (it == 0) 1 else it }
+                u.reset(token)
+                c.sendControl(packet(Proto.UDP_TOKEN, ByteBuffer.allocate(6).putInt(token).putShort(Proto.UDP_PORT.toShort()).array()))
+            } else {
+                u?.reset(0)
+            }
 
             while (true) {
                 val t = input.readUnsignedByte()
@@ -132,6 +154,7 @@ class StreamServer(
             try { s.close() } catch (_: Exception) {}
             if (wasCurrent) {
                 client = null
+                udp?.reset(0)
                 listener.onInput(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), 0, 0, 0, 0, 0))
                 listener.onClientChanged(null)
             }
@@ -147,15 +170,19 @@ class StreamServer(
     }
 
     fun onConfig(bytes: ByteArray) {
+        // (UDP keyframes carry it too: a datagram can overtake the TCP CONFIG)
         config = bytes
         client?.sendControl(packet(Proto.CONFIG, bytes))
     }
 
     fun onFrame(bytes: ByteArray, key: Boolean) {
         val c = client ?: return
-        val payload = ByteArray(bytes.size + 1)
+        val cfg = if (key && c.udpOn) config else null
+        val payload = ByteArray(1 + (cfg?.size ?: 0) + bytes.size)
         payload[0] = if (key) 1 else 0
-        System.arraycopy(bytes, 0, payload, 1, bytes.size)
+        if (cfg != null) System.arraycopy(cfg, 0, payload, 1, cfg.size)
+        System.arraycopy(bytes, 0, payload, 1 + (cfg?.size ?: 0), bytes.size)
+        if (c.udpOn && udp?.send(payload) == true) return
         c.sendVideo(packet(Proto.FRAME, payload), key)
     }
 
@@ -178,6 +205,7 @@ class StreamServer(
 
     private inner class Client(val socket: Socket) {
         val address: String = socket.inetAddress?.hostAddress ?: "?"
+        @Volatile var udpOn = false
         private val queue = ArrayBlockingQueue<ByteArray>(48)
         private val queuedVideo = java.util.concurrent.atomic.AtomicInteger(0)
         @Volatile var waitingForKey = false

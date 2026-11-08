@@ -4,6 +4,7 @@ import Network
 enum PT {
     static let format: UInt8 = 0, config: UInt8 = 1, frame: UInt8 = 2, audio: UInt8 = 3
     static let helloOK: UInt8 = 4, helloBad: UInt8 = 5, control: UInt8 = 6, pong: UInt8 = 7, resResult: UInt8 = 8, stats: UInt8 = 14, stopped: UInt8 = 19
+    static let udpToken: UInt8 = 20, udpOn: UInt8 = 21, udpOff: UInt8 = 22
 }
 
 enum CT {
@@ -61,6 +62,20 @@ final class Link {
     }
 
     func close(_ why: String = "disconnected") { finish(why) }
+
+    /// Run on the link's queue (where all packets are handled), e.g. for frames that came over UDP.
+    func async(_ work: @escaping () -> Void) { queue.async(execute: work) }
+
+    /// The phone's address as this connection resolved it (for the UDP video socket).
+    var remoteHost: String? {
+        guard case .hostPort(let host, _)? = conn.currentPath?.remoteEndpoint else { return nil }
+        switch host {
+        case .ipv4(let a): return "\(a)"
+        case .ipv6(let a): return "\(a)"
+        case .name(let n, _): return n
+        @unknown default: return nil
+        }
+    }
 
     private func readHeader() {
         conn.receive(minimumIncompleteLength: 5, maximumLength: 5) { [weak self] data, _, done, err in

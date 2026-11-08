@@ -93,6 +93,10 @@ clears it. With USB debugging on, you can also read the stuck IDs and clear them
 
 **Reinstalled the app and input stopped:** turn its Accessibility service off and on again.
 
+**Wi-Fi video over UDP:** on Wi-Fi the video goes over UDP like Moonlight/Parsec: lost pieces are rebuilt from repair data or re-sent within one round trip instead of stalling the whole stream (TCP). The title shows "Wi-Fi UDP" when it's active. It falls back to TCP by itself if UDP is blocked (firewall) or the network is very lossy. Taps, keys and audio stay on the reliable connection. The cable doesn't need it.
+
+**Key maps per screen layout:** each phone screen size (inner/cover screen, shape, sharpness) keeps its own key map. A new layout starts from a copy of the last one; fix it with ⌘E by dragging the markers.
+
 **Stats overlay:** ⌘O (View menu) shows FPS, delay, battery temperature/power, CPU/GPU temperature (on phones that allow reading it, e.g. Galaxy Z Fold7) and the phone's heat level in the top-left corner while you play. The game's own FPS can't be read without root.
 
 **Lag:** the title bar shows FPS, delay and skipped video, and gaps are logged in

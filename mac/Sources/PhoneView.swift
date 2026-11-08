@@ -16,10 +16,22 @@ struct KeyMap: Codable {
 
     static let wasdKeys = ["k13", "k0", "k1", "k2"]
 
-    static func load() -> KeyMap {
-        guard let d = UserDefaults.standard.data(forKey: "keymap"), var m = try? JSONDecoder().decode(KeyMap.self, from: d) else { return KeyMap() }
+    /// The phone's current screen layout ("2560x1664"). Games lay out their HUD differently for every
+    /// screen size (inner vs cover screen, shape, sharpness), so each layout keeps its own key map.
+    static var layout = ""
+
+    static func load() -> KeyMap { load(layout: layout).map }
+
+    /// The map saved for [layout]; if there is none yet, a copy of the last map used (copied = true).
+    static func load(layout: String) -> (map: KeyMap, copied: Bool) {
+        let d = UserDefaults.standard
+        var copied = false
+        var data = layout.isEmpty ? nil : d.data(forKey: "keymap.\(layout)")
+        if data == nil { data = d.data(forKey: "keymap"); copied = !layout.isEmpty && data != nil }
+        guard let data, var m = try? JSONDecoder().decode(KeyMap.self, from: data) else { return (KeyMap(), false) }
+        if d.object(forKey: "lookSens") != nil { m.sens = d.double(forKey: "lookSens") } // speed is the same everywhere
         if m.migrateWasd() { m.save() }
-        return m
+        return (m, copied)
     }
 
     /// W/A/S/D placed as separate taps around a joystick can't move a character (the finger never slides).
@@ -37,7 +49,12 @@ struct KeyMap: Codable {
         for k in Self.wasdKeys { binds[k] = nil }
         return true
     }
-    func save() { UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: "keymap") }
+    func save() {
+        let d = UserDefaults.standard, data = try? JSONEncoder().encode(self)
+        d.set(data, forKey: "keymap") // the last map used: starting point for a new layout
+        if !Self.layout.isEmpty { d.set(data, forKey: "keymap.\(Self.layout)") }
+        d.set(sens, forKey: "lookSens")
+    }
 }
 
 enum Mode { case normal, game, edit }
@@ -228,21 +245,27 @@ final class PhoneView: NSView {
         switch mode {
         case .normal: send(Touch.down, mouseId, norm(e))
         case .game: press("m0")
-        case .edit: editClick(e, button: 0)
+        case .edit:
+            // plain click on a marker: drag it; anywhere else: place a new key as before
+            if pending == nil, e.modifierFlags.intersection([.option, .control]).isEmpty, let k = nearestMarker(norm(e), within: 0.035) {
+                dragging = k
+            } else {
+                editClick(e, button: 0)
+            }
         }
     }
     override func mouseDragged(with e: NSEvent) {
         switch mode {
         case .normal: send(Touch.move, mouseId, norm(e))
         case .game: look(e)
-        case .edit: break
+        case .edit: if let k = dragging { moveMarker(k, to: norm(e)) }
         }
     }
     override func mouseUp(with e: NSEvent) {
         switch mode {
         case .normal: send(Touch.up, mouseId, norm(e))
         case .game: release("m0")
-        case .edit: break
+        case .edit: if dragging != nil { dragging = nil; map.save() }
         }
     }
     override func rightMouseDown(with e: NSEvent) {
@@ -531,16 +554,29 @@ final class PhoneView: NSView {
         overlay.needsDisplay = true
     }
 
-    private func deleteNearest(_ p: NPoint?) {
-        guard let p else { return }
+    /// The marker (bind name, "joy" or "look") closest to [p], if one is near enough.
+    private func nearestMarker(_ p: NPoint, within r: Double = 0.06) -> String? {
         func d(_ x: Double, _ y: Double) -> Double { hypot(x - p.x, (y - p.y) * videoSize.height / videoSize.width) }
         var best: (String, Double)?
-        for (k, b) in map.binds { let dist = d(b.x, b.y); if dist < (best?.1 ?? 0.06) { best = (k, dist) } }
-        if let j = map.joy, d(j.x, j.y) < (best?.1 ?? 0.06) { best = ("joy", d(j.x, j.y)) }
-        if let l = map.look, d(l.x, l.y) < (best?.1 ?? 0.06) { best = ("look", d(l.x, l.y)) }
-        guard let (k, _) = best else { return }
+        for (k, b) in map.binds { let dist = d(b.x, b.y); if dist < (best?.1 ?? r) { best = (k, dist) } }
+        if let j = map.joy, d(j.x, j.y) < (best?.1 ?? r) { best = ("joy", d(j.x, j.y)) }
+        if let l = map.look, d(l.x, l.y) < (best?.1 ?? r) { best = ("look", d(l.x, l.y)) }
+        return best?.0
+    }
+
+    private func deleteNearest(_ p: NPoint?) {
+        guard let p, let k = nearestMarker(p) else { return }
         if k == "joy" { map.joy = nil } else if k == "look" { map.look = nil } else { map.binds[k] = nil }
         map.save()
+    }
+
+    /// Edit mode: the marker being dragged to a new spot (e.g. after the game's buttons moved).
+    private var dragging: String?
+
+    private func moveMarker(_ k: String, to p: NPoint) {
+        if k == "joy" { map.joy = p } else if k == "look" { map.look = p }
+        else if var b = map.binds[k] { b.x = p.x; b.y = p.y; map.binds[k] = b }
+        overlay.needsDisplay = true
     }
 
     static func keyName(_ code: UInt16, _ chars: String?) -> String {
@@ -608,7 +644,7 @@ final class PhoneView: NSView {
 
             if editing {
                 let help = o.pending == nil
-                    ? "KEY MAP — click a button on the phone screen, then press the key or mouse button for it.\nMovement: click the middle of the joystick, then press W (scroll to resize)  ·  ⌃-click: mouse-look area  ·  ⌫ over a marker: delete  ·  Esc: done"
+                    ? "KEY MAP — click a button on the phone screen, then press the key or mouse button for it.\nMovement: click the middle of the joystick, then press W (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌫ over a marker: delete  ·  Esc: done"
                     : "Now press a key, or click left/right mouse button, to bind this spot.  Esc: cancel"
                 let para = NSMutableParagraphStyle(); para.alignment = .center
                 let s = NSAttributedString(string: help, attributes: [
