@@ -549,7 +549,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var viaUSB = false
     private var retryDelay: Double = 2   // grows while the phone isn't answering, so we don't hammer the cable
     private var usbBusy = false
-    private var usbGaveUp = false   // USB failed while plugged in: don't keep retrying until it is re-plugged
+    /// USB failed while plugged in: don't try again before this time (and never block Wi-Fi meanwhile).
+    /// (Was "until re-plugged", but a quick unplug/replug was easily missed -> never switched back.)
+    private var usbRetryAt: CFTimeInterval = 0
+    private var usbGaveUp: Bool { CACurrentMediaTime() < usbRetryAt }
 
     /// Cable first (if a phone is plugged in), Wi-Fi otherwise.
     private func connectSaved() {
@@ -557,20 +560,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         wantConnected = true
         if !usbBusy && !usbGaveUp && !Self.noUSB && UsbBridge.shared.phonePresent() {
             usbBusy = true
-            link?.onState = nil; link?.close(); link = nil
-            stateText = "Connecting…"
-            view.setMessage("Connecting over the USB cable…\n(If the phone asks to open PhoneCast for this USB device, tap OK / Always.)")
-            updateTitle()
+            // Already playing over Wi-Fi (cable plugged back in): keep Wi-Fi running while the cable
+            // gets ready in the background, then swap in one step (game mode stays on).
+            let switching = stateText == "Connected" && link != nil
+            NSLog("cable: trying USB (switching from Wi-Fi: \(switching))")
+            if !switching {
+                link?.onState = nil; link?.close(); link = nil
+                stateText = "Connecting…"
+                view.setMessage("Connecting over the USB cable…\n(If the phone asks to open PhoneCast for this USB device, tap OK / Always.)")
+                updateTitle()
+            }
             DispatchQueue.global(qos: .userInitiated).async {
                 let port = UsbBridge.shared.start()
                 DispatchQueue.main.async {
                     self.usbBusy = false
+                    NSLog("cable: USB start -> \(port.map { "port \($0)" } ?? "failed")")
                     if let port {
                         self.viaUSB = true
                         self.connect(.hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!), label: "USB cable", pin: pin)
                     } else {
-                        self.usbGaveUp = true
-                        self.connectWifi(pin)
+                        self.usbRetryAt = CACurrentMediaTime() + (UsbBridge.shared.heldByOtherApp ? 30 : 10)
+                        if !(switching && self.stateText == "Connected") { self.connectWifi(pin) } // else: stay on Wi-Fi
                         if UsbBridge.shared.heldByOtherApp {
                             self.deviceLabel += " (cable busy: another Mac app is using the phone's USB connection)"
                             self.updateTitle()
@@ -592,11 +602,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     /// Every few seconds: switch to the cable when it gets plugged in.
     static let noUSB = ProcessInfo.processInfo.environment["PHONECAST_NO_USB"] != nil
 
+    private var lastPresent = false
+
     private func watchCable() {
         if Self.noUSB { return }
         let present = UsbBridge.shared.phonePresent()
-        if !present { usbGaveUp = false }
-        if wantConnected && present && !viaUSB && !usbBusy && !usbGaveUp && view.mode != .game {
+        if present != lastPresent {
+            NSLog("cable: phone \(present ? "plugged in" : "unplugged") (viaUSB=\(viaUSB) busy=\(usbBusy) gaveUp=\(usbGaveUp) want=\(wantConnected) state=\(stateText))")
+            lastPresent = present
+        }
+        if !present { usbRetryAt = 0 }
+        // (also in game mode: the switch keeps Wi-Fi running until the cable is ready)
+        if wantConnected && present && !viaUSB && !usbBusy && !usbGaveUp {
             connectSaved()
         }
     }

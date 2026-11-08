@@ -48,8 +48,17 @@ final class UsbBridge {
     }
 
     /// Is an Android phone plugged in at all?
+    /// Never blocks: while start() is busy (seconds) it answers with the last known state, so the
+    /// main thread's cable check can't freeze.
+    private var lastPresent = false
     func phonePresent() -> Bool {
-        usbLock.lock(); defer { usbLock.unlock() }
+        guard usbLock.try() else { return lastPresent }
+        defer { usbLock.unlock() }
+        lastPresent = phonePresentLocked()
+        return lastPresent
+    }
+
+    private func phonePresentLocked() -> Bool {
         let (devs, list) = devices()
         defer { if let list { libusb_free_device_list(list, 1) } }
         return devs.contains { androidVendors.contains($0.vid) }
