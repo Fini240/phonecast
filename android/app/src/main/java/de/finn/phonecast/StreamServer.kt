@@ -44,11 +44,15 @@ class StreamServer(
         Thread({ acceptLoop() }, "pc-accept").start()
     }
 
-    fun stop() {
+    /** [reason]: tell the Mac why first (Proto.STOP_*), so it doesn't sit on a black screen. */
+    fun stop(reason: Int? = null) {
         running = false
         try { serverSocket?.close() } catch (_: Exception) {}
-        client?.close()
+        val c = client ?: return
         client = null
+        if (reason == null) { c.close(); return }
+        c.sendControl(packet(Proto.STOPPED, byteArrayOf(reason.toByte())))
+        Thread({ Thread.sleep(300); c.close() }, "pc-bye").start() // let the send loop flush it
     }
 
     private fun acceptLoop() {

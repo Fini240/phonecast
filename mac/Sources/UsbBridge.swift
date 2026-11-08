@@ -20,6 +20,8 @@ final class UsbBridge {
     private let usbLock = NSRecursiveLock()
     private(set) var port: UInt16 = 0
     private(set) var running = false
+    /// The last start() failed because another Mac app holds the phone's accessory interface.
+    private(set) var heldByOtherApp = false
     /// The phone dropped off the bus: nothing left to reset.
     private var gone = false
 
@@ -66,7 +68,7 @@ final class UsbBridge {
         }
         // 2. Ask the phone to become our accessory.
         if findAccessory() == nil {
-            guard switchToAccessory() else { return nil }
+            guard switchToAccessory() else { NSLog("usb: phone didn't accept accessory mode"); return nil }
         }
         // 3. Wait for it to come back as an accessory and open the bulk endpoints.
         var acc: OpaquePointer?
@@ -75,11 +77,11 @@ final class UsbBridge {
             if acc != nil { break }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        guard let acc else { return nil }
+        guard let acc else { NSLog("usb: phone never came back as an accessory"); return nil }
         defer { libusb_unref_device(acc) }
         gone = false
-        guard openAccessory(acc) else { return nil }
-        guard listen() else { stop(); return nil }
+        guard openAccessory(acc) else { NSLog("usb: couldn't open the accessory interface"); return nil }
+        guard listen() else { NSLog("usb: local port failed"); stop(); return nil }
         running = true
         Thread { self.acceptLoop() }.start()
         return port
@@ -124,10 +126,11 @@ final class UsbBridge {
 
     private func openAccessory(_ dev: OpaquePointer) -> Bool {
         var h: OpaquePointer?
-        guard libusb_open(dev, &h) == 0, let h else { return false }
+        let o = libusb_open(dev, &h)
+        guard o == 0, let h else { NSLog("usb: open failed \(o)"); return false }
         var cfg: UnsafeMutablePointer<libusb_config_descriptor>?
-        guard attached(dev) else { libusb_close(h); return false }
-        guard libusb_get_active_config_descriptor(dev, &cfg) == 0, let cfg else { libusb_close(h); return false }
+        guard attached(dev) else { NSLog("usb: accessory left the bus"); libusb_close(h); return false }
+        guard libusb_get_active_config_descriptor(dev, &cfg) == 0, let cfg else { NSLog("usb: no config descriptor"); libusb_close(h); return false }
         defer { libusb_free_config_descriptor(cfg) }
         // interface 0 is the accessory interface (1 may be adb)
         let alt = cfg.pointee.interface[0].altsetting[0]
@@ -138,7 +141,11 @@ final class UsbBridge {
             if ep.bEndpointAddress & 0x80 != 0 { epIn = ep.bEndpointAddress } else { epOut = ep.bEndpointAddress }
         }
         libusb_set_auto_detach_kernel_driver(h, 1)
-        guard epIn != 0, epOut != 0, libusb_claim_interface(h, Int32(alt.bInterfaceNumber)) == 0 else { libusb_close(h); return false }
+        guard epIn != 0, epOut != 0 else { NSLog("usb: no bulk endpoints"); libusb_close(h); return false }
+        let c = libusb_claim_interface(h, Int32(alt.bInterfaceNumber))
+        // ACCESS: another Mac app (e.g. a different phone-mirroring tool) has the interface exclusively
+        heldByOtherApp = c == LIBUSB_ERROR_ACCESS.rawValue
+        guard c == 0 else { NSLog("usb: claim failed \(c)"); libusb_close(h); return false }
         handle = h
         return true
     }

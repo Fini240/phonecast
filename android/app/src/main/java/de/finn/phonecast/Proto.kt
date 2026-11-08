@@ -27,6 +27,9 @@ object Proto {
     const val PONG: Int = 7        // echo of PING payload
     const val RES_RESULT: Int = 8  // u8 DisplaySize result
     const val STATS: Int = 14      // u32 video resyncs since connecting
+    const val STOPPED: Int = 19    // u8 reason (STOP_*): sharing ends now, the connection closes next
+    const val STOP_USER = 0
+    const val STOP_LOCKED = 1      // Android ends screen capture when the phone locks
 
     // mac -> phone
     const val HELLO: Int = 9       // utf8 PIN

@@ -225,8 +225,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         link?.send(CT.settings, Data([UInt8(maxSize >> 8), UInt8(maxSize & 0xff), UInt8(bitrate)]))
     }
 
+    private var lastPong: CFTimeInterval = 0
+
     private func ping() {
         guard stateText == "Connected" else { return }
+        // A phone that stopped answering (e.g. sharing ended while the cable stays plugged in, so
+        // the connection never closes) would otherwise leave a black window forever.
+        let now = CACurrentMediaTime()
+        if lastPong == 0 { lastPong = now }
+        if now - lastPong > 6 { lastPong = 0; link?.close("the phone stopped answering"); return }
         var t = CACurrentMediaTime().bitPattern.bigEndian
         link?.send(CT.ping, Data(bytes: &t, count: 8))
     }
@@ -462,6 +469,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                     } else {
                         self.usbGaveUp = true
                         self.connectWifi(pin)
+                        if UsbBridge.shared.heldByOtherApp {
+                            self.deviceLabel += " (cable busy: another Mac app is using the phone's USB connection)"
+                            self.updateTitle()
+                        }
                     }
                 }
             }
@@ -512,6 +523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                         : "Connecting to \(label)…")
                 case .ready:
                     self.retryDelay = 2
+                    self.lastPong = 0
                     self.stateText = "Connected"; self.view.setMessage(nil)
                     self.sendSettings()
                 case .badPin:
@@ -578,7 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             guard p.count == 8 else { return }
             let sent = Double(bitPattern: p.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
             let rtt = (CACurrentMediaTime() - sent) * 1000
-            DispatchQueue.main.async { self.rttMs = self.rttMs == 0 ? rtt : self.rttMs * 0.7 + rtt * 0.3 }
+            DispatchQueue.main.async { self.lastPong = CACurrentMediaTime(); self.rttMs = self.rttMs == 0 ? rtt : self.rttMs * 0.7 + rtt * 0.3 }
         case PT.stats:
             guard p.count >= 4 else { break }
             let b = [UInt8](p)

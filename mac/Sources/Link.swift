@@ -3,7 +3,7 @@ import Network
 
 enum PT {
     static let format: UInt8 = 0, config: UInt8 = 1, frame: UInt8 = 2, audio: UInt8 = 3
-    static let helloOK: UInt8 = 4, helloBad: UInt8 = 5, control: UInt8 = 6, pong: UInt8 = 7, resResult: UInt8 = 8, stats: UInt8 = 14
+    static let helloOK: UInt8 = 4, helloBad: UInt8 = 5, control: UInt8 = 6, pong: UInt8 = 7, resResult: UInt8 = 8, stats: UInt8 = 14, stopped: UInt8 = 19
 }
 
 enum CT {
@@ -60,7 +60,7 @@ final class Link {
         onState?(.closed(why))
     }
 
-    func close() { finish("disconnected") }
+    func close(_ why: String = "disconnected") { finish(why) }
 
     private func readHeader() {
         conn.receive(minimumIncompleteLength: 5, maximumLength: 5) { [weak self] data, _, done, err in
@@ -85,6 +85,10 @@ final class Link {
         switch type {
         case PT.helloOK: onState?(.ready); onPacket?(type, payload)
         case PT.helloBad: onState?(.badPin); finish("wrong PIN")
+        case PT.stopped:
+            finish(payload.first == 1
+                ? "the phone locked, and Android ends screen sharing then. Unlock it and allow sharing again"
+                : "sharing was stopped on the phone")
         default: onPacket?(type, payload)
         }
     }

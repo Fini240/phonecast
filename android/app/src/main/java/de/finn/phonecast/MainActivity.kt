@@ -47,6 +47,19 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildUi()
+        resumeIfAsked(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        resumeIfAsked(intent)
+    }
+
+    /** Opened after an unlock because the lock had ended sharing: ask to share again right away. */
+    private fun resumeIfAsked(i: Intent?) {
+        if (i?.getBooleanExtra(EXTRA_RESUME, false) != true) return
+        i.removeExtra(EXTRA_RESUME)
+        if (CaptureService.instance == null) toggle()
     }
 
     override fun onResume() {
@@ -232,8 +245,12 @@ class MainActivity : Activity() {
 
     private fun askCapture() {
         val mpm = getSystemService(MediaProjectionManager::class.java)
+        // Android 14+: ask for the whole screen directly (skips the "one app / entire screen" choice)
+        val req = if (android.os.Build.VERSION.SDK_INT >= 34)
+            mpm.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+        else mpm.createScreenCaptureIntent()
         @Suppress("DEPRECATION")
-        startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE)
+        startActivityForResult(req, REQ_CAPTURE)
     }
 
     @Deprecated("Deprecated in Java")
@@ -267,5 +284,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_PERMS = 1
         private const val REQ_CAPTURE = 2
+        const val EXTRA_RESUME = "resume"
     }
 }

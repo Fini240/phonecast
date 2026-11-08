@@ -81,8 +81,27 @@ class InputService : AccessibilityService() {
         }
     }
 
+    /**
+     * After an unlock: if sharing ended because the phone locked, open PhoneCast's "share screen"
+     * prompt right away (an accessibility service may start activities from the background).
+     */
+    private val unlockReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+            if (!CaptureService.stoppedByLock || CaptureService.instance != null) return
+            CaptureService.stoppedByLock = false
+            try {
+                startActivity(android.content.Intent(c, MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(MainActivity.EXTRA_RESUME, true))
+            } catch (e: Exception) { android.util.Log.w("PhoneCastInput", "couldn't reopen sharing", e) }
+        }
+    }
+
     override fun onServiceConnected() {
         instance = this
+        val unlock = android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT)
+        if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(unlockReceiver, unlock, RECEIVER_EXPORTED)
+        else registerReceiver(unlockReceiver, unlock)
         main.postDelayed(watchdog, 200)
         onControlChanged?.invoke(true)
     }
@@ -94,6 +113,7 @@ class InputService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(unlockReceiver) } catch (_: Exception) {}
         instance = null
         onControlChanged?.invoke(false)
         super.onDestroy()

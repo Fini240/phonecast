@@ -36,6 +36,8 @@ class CaptureService : Service(), StreamServer.Listener {
 
         @Volatile var instance: CaptureService? = null
             private set
+        /** Sharing ended because the phone locked: offer to share again after the next unlock. */
+        @Volatile var stoppedByLock = false
     }
 
     private val thread = HandlerThread("pc-display").apply { start() }
@@ -54,6 +56,7 @@ class CaptureService : Service(), StreamServer.Listener {
         private set
     @Volatile var lastError: String? = null
         private set
+    private var stopReason = Proto.STOP_USER
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(id: Int) {}
@@ -96,7 +99,15 @@ class CaptureService : Service(), StreamServer.Listener {
         val mpm = getSystemService(MediaProjectionManager::class.java)
         val proj = mpm.getMediaProjection(code, data) ?: error("screen capture was not allowed")
         proj.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() { handler.post { stopSelf() } }
+            override fun onStop() {
+                // Android ends screen capture when the phone locks (screen off, double tap...).
+                val pm = getSystemService(android.os.PowerManager::class.java)
+                val km = getSystemService(android.app.KeyguardManager::class.java)
+                val locked = !pm.isInteractive || km.isKeyguardLocked
+                stopReason = if (locked) Proto.STOP_LOCKED else Proto.STOP_USER
+                stoppedByLock = locked
+                handler.post { stopSelf() }
+            }
         }, handler)
         projection = proj
 
@@ -277,7 +288,7 @@ class CaptureService : Service(), StreamServer.Listener {
         multicastLock?.release()
         wifiLock?.release()
         audio?.release()
-        server?.stop()
+        server?.stop(stopReason)
         val enc = encoder
         val vd = display
         val proj = projection
