@@ -71,6 +71,15 @@ same menu undoes the change. Without the Mac, the phone app's **Screen shape** s
 
 **Sharpness:** the same menu can render the phone at more pixels than its screen has (Sharp = 2560 px wide, Sharpest = 3200 px), so the picture isn't blurry on a Retina display. Android allows up to 2× the panel. More pixels means more GPU work and heat; games may still draw their 3D world at a lower resolution (Fortnite: *3D Resolution* in its graphics settings).
 
+## PC menu (streaming a PC)
+
+The Mac app's **PC** menu opens Moonlight streams of the PC *my-pc* (Linux or Windows, dual boot).
+Sunshine streams only one monitor, so each OS runs a second Sunshine for monitor 2: it shows up in
+Moonlight as its own PC, "my-pc (<OS>) Monitor 2", on port 48089. The menu offers Monitor 1,
+Monitor 2 or both side by side, and says which OS is running if you pick the other one.
+`pc/linux-monitor2.sh` sets up the Linux side. On a phone, use the Moonlight app and pick the
+"Monitor 2" PC for the second screen. Needs Moonlight in /Applications, paired with each host.
+
 ## Before you use it
 
 - **Online games:** using a mouse and keyboard through injected touches may break a game's rules, and

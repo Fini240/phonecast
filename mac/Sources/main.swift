@@ -210,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         shape.submenu?.delegate = self
         main.items.last?.submenu?.addItem(.separator())
         main.items.last?.submenu?.addItem(shape)
+        sub("PC", pcMenuItems())
         sub("Help", [item("Keyboard shortcuts", #selector(showShortcuts(_:)), "i")])
         NSApp.mainMenu = main
         refreshMenu()
