@@ -41,6 +41,26 @@ enum PC {
         q.asyncAfter(deadline: .now() + 1.5) { finish(false) }
     }
 
+    /// On the home network (192.168.1.x) Moonlight's own settings apply. Away (hotspot, other Wi-Fi)
+    /// the full ~34 Mbit/s at 2560×1600 overflows mobile data: measured 08.11.2026 over the phone's
+    /// hotspot it gave 202 ms and 58% lost frames, while 1080p60 at 15 Mbit/s gave 41 ms and none lost.
+    static func atHome() -> Bool {
+        var ifs: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifs) == 0 else { return true }
+        defer { freeifaddrs(ifs) }
+        var p = ifs
+        while let i = p {
+            if let a = i.pointee.ifa_addr, a.pointee.sa_family == UInt8(AF_INET) {
+                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                getnameinfo(a, socklen_t(a.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
+                if String(cString: host).hasPrefix("192.168.1.") { return true }
+            }
+            p = i.pointee.ifa_next
+        }
+        return false
+    }
+    static let awayArgs = ["--bitrate", "15000", "--resolution", "1920x1080", "--fps", "60"]
+
     /// Starts one Moonlight per target. Several at once open in windows so they fit side by side.
     static func stream(_ ts: [Target]) {
         for (i, t) in ts.enumerated() {
@@ -48,6 +68,7 @@ enum PC {
             p.executableURL = URL(fileURLWithPath: moonlight)
             // by name, not address: both Sunshines share the IP and Moonlight ignores the port when matching
             p.arguments = ["stream", t.host, "Desktop"] + (ts.count > 1 ? ["--display-mode", "windowed"] : [])
+                + (atHome() ? [] : awayArgs)
             // let the first one connect before the second asks (both talk to the same PC)
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 2.5) { try? p.run() }
         }

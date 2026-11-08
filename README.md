@@ -79,6 +79,9 @@ Moonlight as its own PC, "my-pc (<OS>) Monitor 2", on port 48089. The menu offer
 Monitor 2 or both side by side, and says which OS is running if you pick the other one.
 `pc/linux-monitor2.sh` sets up the Linux side. On a phone, use the Moonlight app and pick the
 "Monitor 2" PC for the second screen. Needs Moonlight in /Applications, paired with each host.
+Away from home (the Mac isn't on 192.168.1.x) the menu streams at 1080p60 with 15 Mbit/s: over a phone
+hotspot that measured ~45 ms and no lost frames, while the full home quality (~34 Mbit/s) gave 200 ms and
+lost over half the frames. On the phone's Moonlight, set about 15–20 Mbit/s when you're on mobile data.
 
 ## Before you use it
 
