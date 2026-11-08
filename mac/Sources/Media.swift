@@ -187,6 +187,12 @@ final class AudioSink {
     private let lock = NSLock()
     private var queued = 0
     private var started = false
+    /// Since when more audio than [high] has been waiting (0 = not too much).
+    private var behindSince: CFTimeInterval = 0
+    private var trimming = false
+    private static let target = 48_000 * 4 / 100, high = 48_000 * 6 / 100 // 40 ms, 60 ms
+    /// Audio waiting to be played, in ms (shown in the stats overlay).
+    var bufferedMs: Int { lock.lock(); defer { lock.unlock() }; return queued * 1000 / 48_000 }
     var muted = false { didSet { player.volume = muted ? 0 : 1 } }
 
     init() {
@@ -198,7 +204,16 @@ final class AudioSink {
         let frames = d.count / 4
         guard frames > 0 else { return }
         lock.lock(); let q = queued; lock.unlock()
-        if q > 48_000 * 12 / 100 { return } // >120 ms behind: drop to catch up
+        // Keep the delay low: audio arrives exactly as fast as it plays, so a backlog from a hiccup
+        // would otherwise stay forever (sound lagging behind the picture). If more than 60 ms waits
+        // for half a second, skip incoming chunks until we're back at 40 ms.
+        let now = CACurrentMediaTime()
+        if q > Self.high { if behindSince == 0 { behindSince = now } } else { behindSince = 0 }
+        if q > 48_000 * 12 / 100 || (behindSince > 0 && now - behindSince > 0.5) { trimming = true }
+        if trimming {
+            if q > Self.target { return }
+            trimming = false; behindSince = 0
+        }
 
         guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(frames)) else { return }
         buf.frameLength = AVAudioFrameCount(frames)

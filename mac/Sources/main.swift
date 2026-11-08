@@ -303,6 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         add("\(fps) fps", fps < 20 ? warn : white)
         add(" · \(transport) \(Int(rttMs)) ms", rttMs > 40 ? warn : white)
         add(" · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+        if !audio.muted { add(" · audio \(audio.bufferedMs) ms", audio.bufferedMs > 70 ? warn : white) }
         let st = stuttersLast10s()
         add(" · stutters \(st)/10 s", st > 2 ? warn : white)
         if udpActive, let u = udp { add(" · repaired \(u.repaired) · resent \(u.resentFrames) · lost \(u.lost)", u.lost > 0 ? warn : white) }
