@@ -33,6 +33,7 @@ object DisplaySize {
                 wm.javaClass.getMethod("clearForcedDisplaySize", Int::class.java).invoke(wm, Display.DEFAULT_DISPLAY)
                 Log.i("PhoneCast", "display size back to normal")
             } else {
+                Prefs.setLastShape(c, aw, ah)
                 val (w, h) = size(c, aw.toDouble() / ah)
                 wm.javaClass.getMethod("setForcedDisplaySize", Int::class.java, Int::class.java, Int::class.java)
                     .invoke(wm, Display.DEFAULT_DISPLAY, w, h)
@@ -43,6 +44,19 @@ object DisplaySize {
             Log.e("PhoneCast", "changing the display size failed", e)
             FAILED
         }
+    }
+
+    fun hasPermission(c: Context) =
+        c.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
+
+    /** The current logical screen size if it differs from the panel (shape changed), else null. */
+    fun changedSize(c: Context): Pair<Int, Int>? {
+        val d = c.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
+        val m = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION") d.getRealMetrics(m)
+        val real = listOf(m.widthPixels, m.heightPixels).sorted()
+        val panel = listOf(d.mode.physicalWidth, d.mode.physicalHeight).sorted()
+        return if (real == panel) null else maxOf(m.widthPixels, m.heightPixels) to minOf(m.widthPixels, m.heightPixels)
     }
 
     /** The largest size of [aspect] (long/short) inside the current panel, in its natural orientation. */

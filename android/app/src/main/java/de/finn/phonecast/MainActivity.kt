@@ -37,6 +37,9 @@ class MainActivity : Activity() {
     private lateinit var bitrateBtn: Button
     private lateinit var audioBtn: Button
     private lateinit var controlBtn: Button
+    private lateinit var shapeView: TextView
+    private lateinit var shapeNormalBtn: Button
+    private lateinit var shapeMacBtn: Button
 
     private val qualities = intArrayOf(1280, 1920, 2560, 0)
     private val bitrates = intArrayOf(8, 16, 24, 40)
@@ -131,6 +134,11 @@ class MainActivity : Activity() {
         }
         col.addView(card(label("Quality", 16f, bold = true), qualityBtn, bitrateBtn, audioBtn))
 
+        shapeView = label("", 14f)
+        shapeNormalBtn = button("Back to normal shape") { setShape(0, 0) }
+        shapeMacBtn = button("") { Prefs.lastShape(this)?.let { (w, h) -> setShape(w, h) } }
+        col.addView(card(label("Screen shape", 16f, bold = true), shapeView, shapeNormalBtn, shapeMacBtn))
+
         setContentView(ScrollView(this).apply { addView(col) })
     }
 
@@ -159,6 +167,19 @@ class MainActivity : Activity() {
         qualityBtn.text = "Resolution: " + if (q == 0) "native" else "${q}p long side"
         bitrateBtn.text = "Bitrate: ${Prefs.bitrateMbps(this)} Mbit/s"
         audioBtn.text = "Game audio: " + if (Prefs.audio(this)) "on" else "off"
+
+        val allowed = DisplaySize.hasPermission(this)
+        val changed = DisplaySize.changedSize(this)
+        val last = Prefs.lastShape(this)
+        shapeView.text = when {
+            !allowed -> "The Mac can fit the phone's screen shape to its display. Needs a one-time permission " +
+                "from a computer with USB debugging:\nadb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
+            changed != null -> "Changed to fit the Mac (${changed.first}×${changed.second}). Set it back before using the phone on its own."
+            else -> "Normal."
+        }
+        shapeNormalBtn.visibility = if (allowed && changed != null) View.VISIBLE else View.GONE
+        shapeMacBtn.visibility = if (allowed && changed == null && last != null) View.VISIBLE else View.GONE
+        if (last != null) shapeMacBtn.text = "Fit the Mac again (${last.first}:${last.second})"
 
         ui.removeCallbacksAndMessages(null)
         ui.postDelayed({ tick() }, 1000)
@@ -230,6 +251,15 @@ class MainActivity : Activity() {
                 .putExtra(CaptureService.EXTRA_DATA, data)
         )
         ui.postDelayed({ tick() }, 500)
+    }
+
+    private fun setShape(w: Int, h: Int) {
+        when (DisplaySize.apply(this, w, h)) {
+            DisplaySize.OK -> {}
+            DisplaySize.NO_PERMISSION -> toast("Needs the one-time permission (see above)")
+            else -> toast("Android refused to change the screen shape")
+        }
+        ui.postDelayed({ tick() }, 800)
     }
 
     private fun toast(s: String) = android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_LONG).show()

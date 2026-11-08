@@ -78,6 +78,13 @@ object Prefs {
     fun bitrateMbps(c: Context): Int = p(c).getInt("bitrate", 16)
     fun setBitrateMbps(c: Context, v: Int) = p(c).edit().putInt("bitrate", v).apply()
 
+    /** The last screen shape the Mac asked for (landscape w:h), so the phone app can re-apply it. */
+    fun lastShape(c: Context): Pair<Int, Int>? {
+        val w = p(c).getInt("shapeW", 0); val h = p(c).getInt("shapeH", 0)
+        return if (w > 0 && h > 0) w to h else null
+    }
+    fun setLastShape(c: Context, w: Int, h: Int) = p(c).edit().putInt("shapeW", w).putInt("shapeH", h).apply()
+
     fun audio(c: Context): Boolean = p(c).getBoolean("audio", true)
     fun setAudio(c: Context, v: Boolean) = p(c).edit().putBoolean("audio", v).apply()
 }

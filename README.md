@@ -61,7 +61,8 @@ needs USB debugging for that one step and the [Android platform tools](https://d
     adb shell pm grant de.finn.phonecast android.permission.WRITE_SECURE_SETTINGS
 
 It's a powerful permission, so skip this if you don't need the feature. "Phone's normal shape" in the
-same menu undoes the change. To remove the shape change from a computer: `adb shell wm size reset`.
+same menu undoes the change. Without the Mac, the phone app's **Screen shape** section has
+**Back to normal shape** (for when you unplug) and **Fit the Mac again**. To remove the shape change from a computer: `adb shell wm size reset`.
 
 ## Before you use it
 
