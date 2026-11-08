@@ -91,6 +91,8 @@ clears it. With USB debugging on, you can also read the stuck IDs and clear them
 
 **Reinstalled the app and input stopped:** turn its Accessibility service off and on again.
 
+**Stats overlay:** ⌘O (View menu) shows FPS, delay, battery temperature/power and the phone's heat level in the top-left corner while you play. Phones can't report CPU/GPU temperatures or the game's own FPS without root.
+
 **Lag:** the title bar shows FPS, delay and skipped video, and gaps are logged in
 `~/Library/Logs/PhoneCast-lag.log`. A hot phone can also lower the frame rate.
 

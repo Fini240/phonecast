@@ -27,6 +27,8 @@ class StreamServer(
         fun onSettings(maxSize: Int, bitrateMbps: Int)
         fun onResolution(w: Int, h: Int): Int
         fun controlAvailable(): Boolean
+        /** Extra phone health appended to STATS (PhoneStats). */
+        fun phoneStats(): ByteArray = ByteArray(0)
     }
 
     @Volatile private var serverSocket: ServerSocket? = null
@@ -108,7 +110,8 @@ class StreamServer(
                     c.sendControl(packet(Proto.PONG, p))
                     // heartbeat: tell the Mac whether tapping is available right now
                     c.sendControl(packet(Proto.CONTROL, byteArrayOf(if (listener.controlAvailable()) 1 else 0)))
-                    c.sendControl(packet(Proto.STATS, ByteBuffer.allocate(4).putInt(c.resyncs).array()))
+                    val extra = listener.phoneStats()
+                    c.sendControl(packet(Proto.STATS, ByteBuffer.allocate(4 + extra.size).putInt(c.resyncs).put(extra).array()))
                 } else if (t == Proto.RESOLUTION && p.size >= 4) {
                     val w = ((p[0].toInt() and 0xff) shl 8) or (p[1].toInt() and 0xff)
                     val h = ((p[2].toInt() and 0xff) shl 8) or (p[3].toInt() and 0xff)

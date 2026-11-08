@@ -43,7 +43,14 @@ struct KeyMap: Codable {
 enum Mode { case normal, game, edit }
 enum Scale: Int { case fit = 0, fill = 1, stretch = 2 }
 
+/// A label that never takes clicks (they go to the phone underneath).
+final class PassthroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 final class PhoneView: NSView {
+    /// Stats overlay in the top-left corner (⌘O).
+    let stats = PassthroughLabel(labelWithString: "")
     let video = VideoSink()
     var link: Link?
     var videoSize = CGSize(width: 1080, height: 2340) { didSet { needsLayout = true; overlay.needsDisplay = true } }
@@ -100,6 +107,14 @@ final class PhoneView: NSView {
         message.alignment = .center
         message.maximumNumberOfLines = 0
         addSubview(message)
+        stats.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        stats.textColor = .white
+        stats.maximumNumberOfLines = 0
+        stats.wantsLayer = true
+        stats.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        stats.layer?.cornerRadius = 6
+        stats.isHidden = true
+        addSubview(stats)
         video.layer.videoGravity = [.resizeAspect, .resizeAspectFill, .resize][scale.rawValue]
     }
 
@@ -115,6 +130,21 @@ final class PhoneView: NSView {
         CATransaction.commit()
         overlay.frame = bounds
         message.frame = NSRect(x: 20, y: bounds.midY - 40, width: bounds.width - 40, height: 80)
+        layoutStats()
+    }
+
+    func setStats(_ s: NSAttributedString?) {
+        stats.isHidden = s == nil
+        guard let s else { return }
+        stats.attributedStringValue = s
+        layoutStats()
+    }
+
+    private func layoutStats() {
+        let size = stats.attributedStringValue.size()
+        let w = ceil(size.width) + 14, h = ceil(size.height) + 8
+        // top-left, below the title bar / beside the notch
+        stats.frame = NSRect(x: 8, y: bounds.height - safeAreaInsets.top - h - 8, width: w, height: h)
     }
 
     func setMessage(_ s: String?) {

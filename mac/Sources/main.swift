@@ -35,6 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var gameItem: NSMenuItem!
     private var editItem: NSMenuItem!
     private var muteItem: NSMenuItem!
+    private var statsItem: NSMenuItem!
+    private var showStats = UserDefaults.standard.bool(forKey: "statsOverlay")
+    /// Phone health from STATS (PhoneStats.kt); nil until a phone that sends it is connected.
+    private struct Health { var tempC: Double; var battery: Int; var plugged: Bool; var watts: Double; var thermal: Int; var headroom: Int }
+    private var health: Health?
     private var markersItem: NSMenuItem!
     private var typingItem: NSMenuItem!
     private var scaleItems: [NSMenuItem] = []
@@ -171,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             item("Clear key map", #selector(clearMap(_:)), ""),
         ])
         muteItem = item("Mute phone audio", #selector(toggleMute(_:)), "m")
+        statsItem = item("Show stats overlay (FPS, delay, phone heat)", #selector(toggleStats(_:)), "o")
         scaleItems = [
             item("Fit — whole picture, black bars", #selector(setScale(_:)), "1"),
             item("Fill — no bars, crops the edges", #selector(setScale(_:)), "2"),
@@ -181,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             item("Full screen", #selector(fullScreen(_:)), "f"),
             item("Fit window to phone", #selector(fitWindow(_:)), "0"),
             .separator(),
-        ] + scaleItems + [.separator(), muteItem])
+        ] + scaleItems + [.separator(), muteItem, statsItem])
         resItems = resolutions.enumerated().map { i, r in let it = item(r.0, #selector(setResolution(_:)), ""); it.tag = i; return it }
         rateItems = bitrates.enumerated().map { i, b in let it = item("\(b) Mbit/s" + (b == 24 ? " (default)" : ""), #selector(setBitrate(_:)), ""); it.tag = i; return it }
         sub("Quality", [NSMenuItem(title: "Resolution", action: nil, keyEquivalent: "")] + resItems
@@ -202,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         markersItem?.state = view.showMarkers ? .on : .off
         typingItem?.state = view.typing ? .on : .off
         muteItem?.state = audio.muted ? .on : .off
+        statsItem?.state = showStats ? .on : .off
         for it in scaleItems { it.state = it.tag == view.scale.rawValue ? .on : .off }
         let res = UserDefaults.standard.integer(forKey: "resolution")
         for it in resItems { it.state = resolutions[it.tag].1 == res ? .on : .off }
@@ -256,6 +263,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     @objc func toggleEdit(_ s: Any?) { view.setMode(view.mode == .edit ? .normal : .edit) }
     @objc func toggleMarkers(_ s: Any?) { view.showMarkers.toggle(); refreshMenu() }
     @objc func toggleMute(_ s: Any?) { audio.muted.toggle(); refreshMenu() }
+    @objc func toggleStats(_ s: Any?) {
+        showStats.toggle()
+        UserDefaults.standard.set(showStats, forKey: "statsOverlay")
+        refreshMenu(); updateStats()
+    }
+
+    private static let thermalNames = ["cool", "light", "moderate", "hot — slowing down", "very hot — slowing down", "emergency", "shutting down"]
+
+    private func updateStats() {
+        guard showStats, stateText == "Connected" else { view.setStats(nil); return }
+        let white = NSColor.white, warn = NSColor.systemOrange, bad = NSColor.systemRed
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        let out = NSMutableAttributedString()
+        func add(_ s: String, _ c: NSColor = white) { out.append(NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: c])) }
+        add("\(fps) fps", fps < 20 ? warn : white)
+        add(" · \(viaUSB ? "USB" : "Wi-Fi") \(Int(rttMs)) ms", rttMs > 40 ? warn : white)
+        add(" · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+        if let h = health {
+            add("\nBattery ")
+            add(String(format: "%.1f °C", h.tempC), h.tempC >= 45 ? bad : h.tempC >= 40 ? warn : white)
+            add(" · \(h.battery)%")
+            if abs(h.watts) >= 0.1 { add(String(format: h.watts > 0 ? " · charging %.1f W" : " · using %.1f W", abs(h.watts))) }
+            else if h.plugged { add(" · plugged in") }
+            add("\nHeat ")
+            add(Self.thermalNames[min(max(h.thermal, 0), 6)], h.thermal >= 3 ? bad : h.thermal >= 2 ? warn : white)
+            if h.headroom != 255 {
+                add(" · \(h.headroom)% to throttling", h.headroom >= 100 ? bad : h.headroom >= 85 ? warn : white)
+            }
+        }
+        view.setStats(out)
+    }
     @objc func sensUp(_ s: Any?) { view.map.sens = min(5, view.map.sens * 1.12); view.map.save(); updateTitle() }
     @objc func sensDown(_ s: Any?) { view.map.sens = max(0.1, view.map.sens / 1.12); view.map.save(); updateTitle() }
     @objc func clearMap(_ s: Any?) { view.map = KeyMap(); view.map.save(); view.needsDisplay = true; view.setMode(.normal) }
@@ -271,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         ⌘0   Window size = phone
 
         ⌘B   Back          ⌘H   Home          ⌘R   Recent apps
-        ⌘N   Notifications ⌘M   Mute sound
+        ⌘N   Notifications ⌘M   Mute sound    ⌘O   Stats overlay
 
         ⌘E   Edit key map  (Esc when done) — mapped keys work right away
         ⌘G   Mouse aiming  (Esc to leave; needs a LOOK area)
@@ -595,7 +633,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             guard p.count >= 4 else { break }
             let b = [UInt8](p)
             let n = Int(b[0]) << 24 | Int(b[1]) << 16 | Int(b[2]) << 8 | Int(b[3])
-            DispatchQueue.main.async { self.resyncs = n }
+            var h: Health?
+            if b.count >= 12 {
+                let t = Int16(bitPattern: UInt16(b[4]) << 8 | UInt16(b[5]))
+                let w = Int16(bitPattern: UInt16(b[8]) << 8 | UInt16(b[9]))
+                h = Health(tempC: Double(t) / 10, battery: Int(b[6]), plugged: b[7] != 0, watts: Double(w) / 10, thermal: Int(b[10]), headroom: Int(b[11]))
+            }
+            DispatchQueue.main.async { self.resyncs = n; if h != nil { self.health = h } }
         case PT.resResult:
             let r = p.first ?? 2
             DispatchQueue.main.async { self.resolutionResult(r) }
@@ -620,6 +664,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         fps = f - lastFrames
         lastFrames = f
         updateTitle()
+        updateStats()
     }
 
     private func updateTitle() {

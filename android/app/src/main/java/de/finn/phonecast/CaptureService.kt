@@ -221,6 +221,8 @@ class CaptureService : Service(), StreamServer.Listener {
 
     override fun onResolution(w: Int, h: Int): Int = DisplaySize.apply(this, w, h)
 
+    override fun phoneStats(): ByteArray = PhoneStats.bytes(this)
+
     override fun controlAvailable(): Boolean = InputService.instance != null
 
     // ---- discovery ----
