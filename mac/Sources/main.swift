@@ -12,7 +12,7 @@ final class PhoneWindow: NSWindow {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate, NSMenuItemValidation {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu.title == "Phone screen shape" {
             menu.removeAllItems()
@@ -48,6 +48,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var rttMs = 0.0
     private var resyncs = 0
     private var lastFrameAt = 0.0
+    private var stutters: [CFTimeInterval] = []
+    private let stutterLock = NSLock()
+    private func stuttersLast10s() -> Int {
+        stutterLock.lock(); defer { stutterLock.unlock() }
+        let now = CACurrentMediaTime()
+        stutters.removeAll { now - $0 > 10 }
+        return stutters.count
+    }
     /// Wi-Fi video over UDP (nil on the cable, or until the phone offers it).
     private var udp: UdpVideoIn?
     private var udpActive = false
@@ -160,7 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         sub("PhoneCast", [quit])
         sub("Device", [
             item("Connect…", #selector(showConnect(_:)), "k"),
-            item("Disconnect", #selector(disconnect(_:)), "d"),
+            // ⇧⌘D, not ⌘D: D is "strafe right" in games, and ⌘ still held after ⌘G disconnected mid-match
+            item("Disconnect", #selector(disconnect(_:)), "d", [.command, .shift]),
             .separator(),
             item("Back", #selector(back(_:)), "b"),
             item("Home", #selector(home(_:)), "h"),
@@ -294,6 +303,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         add("\(fps) fps", fps < 20 ? warn : white)
         add(" · \(transport) \(Int(rttMs)) ms", rttMs > 40 ? warn : white)
         add(" · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+        let st = stuttersLast10s()
+        add(" · stutters \(st)/10 s", st > 2 ? warn : white)
         if udpActive, let u = udp { add(" · repaired \(u.repaired) · resent \(u.resentFrames) · lost \(u.lost)", u.lost > 0 ? warn : white) }
         if let h = health {
             add("\nBattery ")
@@ -358,7 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         ⌘+ / ⌘-   Mouse aiming faster / slower
         ⌘J   Show/hide key markers
 
-        ⌘K   Connect       ⌘D   Disconnect     ⌘I   This list
+        ⌘K   Connect       ⇧⌘D  Disconnect     ⌘I   This list
 
         Mouse: click = tap · drag = swipe · two-finger scroll = scroll
         Right-click or Esc = Back · middle-click = Home
@@ -676,6 +687,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         l.start(pin: pin)
     }
 
+    /// While mouse aiming, ⌘ plus a game key (R reload, H, D strafe…) must not reach the phone or
+    /// the connection: ⌘R/⌘H would send the game to the background, ⌘D disconnected mid-match.
+    /// Only harmless shortcuts stay active in game mode.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard view.mode == .game, let a = item.action else { return true }
+        let allowed: [Selector] = [#selector(toggleGame(_:)), #selector(toggleStats(_:)), #selector(toggleMute(_:)),
+                                   #selector(fullScreen(_:)), #selector(sensUp(_:)), #selector(sensDown(_:)),
+                                   #selector(NSApplication.terminate(_:))]
+        return allowed.contains(a)
+    }
+
     @objc func disconnect(_ s: Any?) {
         wantConnected = false
         link?.close()
@@ -688,6 +710,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         case PT.frame:
             let now = CACurrentMediaTime()
             if lastFrameAt > 0, now - lastFrameAt > 0.15 { logLag(gapMs: (now - lastFrameAt) * 1000) }
+            // stutter: a gap of 2+ missing frames while the picture is moving (fps high) — a static
+            // menu legitimately sends few frames, so only count it when the last second was busy
+            if lastFrameAt > 0, now - lastFrameAt > 0.07, fps >= 20 {
+                stutterLock.lock(); stutters.append(now); stutterLock.unlock()
+            }
             lastFrameAt = now
             view.video.frame(p)
         case PT.audio: audio.push(p)
