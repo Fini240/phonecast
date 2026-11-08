@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var statsItem: NSMenuItem!
     private var showStats = UserDefaults.standard.bool(forKey: "statsOverlay")
     /// Phone health from STATS (PhoneStats.kt); nil until a phone that sends it is connected.
-    private struct Health { var tempC: Double; var battery: Int; var plugged: Bool; var watts: Double; var thermal: Int; var headroom: Int }
+    private struct Health { var tempC: Double; var battery: Int; var plugged: Bool; var watts: Double; var thermal: Int; var headroom: Int; var cpuC: Double?; var gpuC: Double? }
     private var health: Health?
     private var markersItem: NSMenuItem!
     private var typingItem: NSMenuItem!
@@ -286,6 +286,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             add(" · \(h.battery)%")
             if abs(h.watts) >= 0.1 { add(String(format: h.watts > 0 ? " · charging %.1f W" : " · using %.1f W", abs(h.watts))) }
             else if h.plugged { add(" · plugged in") }
+            if h.cpuC != nil || h.gpuC != nil {
+                add("\n")
+                func chip(_ name: String, _ v: Double) { add(String(format: "%@ %.0f °C", name, v), v >= 85 ? bad : v >= 70 ? warn : white) }
+                if let c = h.cpuC { chip("CPU", c) }
+                if let g = h.gpuC { if h.cpuC != nil { add(" · ") }; chip("GPU", g) }
+            }
             add("\nHeat ")
             add(Self.thermalNames[min(max(h.thermal, 0), 6)], h.thermal >= 3 ? bad : h.thermal >= 2 ? warn : white)
             if h.headroom != 255 {
@@ -637,7 +643,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             if b.count >= 12 {
                 let t = Int16(bitPattern: UInt16(b[4]) << 8 | UInt16(b[5]))
                 let w = Int16(bitPattern: UInt16(b[8]) << 8 | UInt16(b[9]))
-                h = Health(tempC: Double(t) / 10, battery: Int(b[6]), plugged: b[7] != 0, watts: Double(w) / 10, thermal: Int(b[10]), headroom: Int(b[11]))
+                h = Health(tempC: Double(t) / 10, battery: Int(b[6]), plugged: b[7] != 0, watts: Double(w) / 10, thermal: Int(b[10]), headroom: Int(b[11]), cpuC: nil, gpuC: nil)
+                if b.count >= 16 {
+                    let c = Int16(bitPattern: UInt16(b[12]) << 8 | UInt16(b[13]))
+                    let g = Int16(bitPattern: UInt16(b[14]) << 8 | UInt16(b[15]))
+                    if c != Int16.min { h?.cpuC = Double(c) / 10 }
+                    if g != Int16.min { h?.gpuC = Double(g) / 10 }
+                }
             }
             DispatchQueue.main.async { self.resyncs = n; if h != nil { self.health = h } }
         case PT.resResult:
