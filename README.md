@@ -20,6 +20,11 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
 
 **Phone:**
 1. Copy `PhoneCast.apk` to the phone and open it. Android will ask you to allow installing from that app.
+   If **Google Play Protect** says "App blocked to protect your device" (with only a "Got it" button):
+   Android blocks apps from outside the Play Store that ask for Accessibility access, which PhoneCast
+   needs for mouse and keyboard. To install anyway, open the **Play Store** → your profile picture →
+   **Play Protect** → ⚙️ → turn off **Scan apps with Play Protect**, install the APK, then turn scanning
+   back on. Or install from a computer with USB debugging: `adb install PhoneCast.apk`.
 2. Open PhoneCast and tap **Start sharing**. If the dialog offers it, choose **Share entire screen**.
 
 ## Connect

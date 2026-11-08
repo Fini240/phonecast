@@ -13,8 +13,15 @@ final class UsbBridge {
     private var listenFd: Int32 = -1
     private var clientFd: Int32 = -1
     private let lock = NSLock()
+    /// libusb's macOS backend crashes (null device) if one thread resets/opens a device while another
+    /// is enumerating, or when it is used on a device that just vanished (USB debugging toggled,
+    /// cable pulled: two crashes 08.11.2026). So every libusb call except the blocking bulk
+    /// transfers runs under this lock, and devices are checked to still be attached first.
+    private let usbLock = NSRecursiveLock()
     private(set) var port: UInt16 = 0
     private(set) var running = false
+    /// The phone dropped off the bus: nothing left to reset.
+    private var gone = false
 
     // Phone makers whose devices we may poke with AOA requests (never keyboards, hubs etc.)
     private let androidVendors: Set<UInt16> = [0x04E8, 0x18D1, 0x22B8, 0x2717, 0x12D1, 0x2A70, 0x0BB4, 0x1004, 0x054C, 0x0FCE, 0x2D95, 0x05C6, 0x1949, 0x0E8D]
@@ -40,6 +47,7 @@ final class UsbBridge {
 
     /// Is an Android phone plugged in at all?
     func phonePresent() -> Bool {
+        usbLock.lock(); defer { usbLock.unlock() }
         let (devs, list) = devices()
         defer { if let list { libusb_free_device_list(list, 1) } }
         return devs.contains { androidVendors.contains($0.vid) }
@@ -47,11 +55,12 @@ final class UsbBridge {
 
     /// Switches the phone to accessory mode (if needed), opens the pipe and returns a local port. Blocking (~1–3 s).
     func start() -> UInt16? {
+        usbLock.lock(); defer { usbLock.unlock() }
         stop()
         // 1. If the phone is still in accessory mode from an earlier run, reset it so both sides start clean.
         if let acc = findAccessory() {
             var h: OpaquePointer?
-            if libusb_open(acc, &h) == 0, let h { libusb_reset_device(h); libusb_close(h) }
+            if attached(acc), libusb_open(acc, &h) == 0, let h { if attached(acc) { libusb_reset_device(h) }; libusb_close(h) }
             libusb_unref_device(acc)
             Thread.sleep(forTimeInterval: 1.5)
         }
@@ -68,11 +77,21 @@ final class UsbBridge {
         }
         guard let acc else { return nil }
         defer { libusb_unref_device(acc) }
+        gone = false
         guard openAccessory(acc) else { return nil }
         guard listen() else { stop(); return nil }
         running = true
         Thread { self.acceptLoop() }.start()
         return port
+    }
+
+    /// Is this device still on the bus? (libusb keeps detached devices alive but unusable.)
+    private func attached(_ dev: OpaquePointer) -> Bool {
+        var list: UnsafeMutablePointer<OpaquePointer?>?
+        let n = libusb_get_device_list(ctx, &list)
+        defer { if let list { libusb_free_device_list(list, 1) } }
+        guard n > 0, let list else { return false }
+        return (0..<Int(n)).contains { list[$0] == dev }
     }
 
     private func findAccessory() -> OpaquePointer? {
@@ -107,6 +126,7 @@ final class UsbBridge {
         var h: OpaquePointer?
         guard libusb_open(dev, &h) == 0, let h else { return false }
         var cfg: UnsafeMutablePointer<libusb_config_descriptor>?
+        guard attached(dev) else { libusb_close(h); return false }
         guard libusb_get_active_config_descriptor(dev, &cfg) == 0, let cfg else { libusb_close(h); return false }
         defer { libusb_free_config_descriptor(cfg) }
         // interface 0 is the accessory interface (1 may be adb)
@@ -166,7 +186,7 @@ final class UsbBridge {
                     let r = buf.withUnsafeMutableBufferPointer { p in
                         libusb_bulk_transfer(handle, epOut, p.baseAddress! + start + off, Int32(len - off), &sent, 0)
                     }
-                    if r != 0 { stop(); return }
+                    if r != 0 { if r == LIBUSB_ERROR_NO_DEVICE.rawValue { gone = true }; stop(); return }
                     off += Int(sent)
                 }
             }
@@ -181,7 +201,7 @@ final class UsbBridge {
             // which desyncs the stream. stop() resets the device, which ends this read.
             var got: Int32 = 0
             let r = libusb_bulk_transfer(handle, epIn, &buf, Int32(buf.count), &got, 0)
-            if r != 0 { break }
+            if r != 0 { if r == LIBUSB_ERROR_NO_DEVICE.rawValue { gone = true }; break }
             var off = 0
             while off < Int(got) {
                 let w = buf.withUnsafeBufferPointer { write(clientFd, $0.baseAddress! + off, Int(got) - off) }
@@ -202,9 +222,14 @@ final class UsbBridge {
         if let h = handle {
             handle = nil
             if wasRunning {
-                DispatchQueue.global().async {
-                    libusb_release_interface(h, 0)
-                    libusb_reset_device(h)
+                let skipReset = gone
+                DispatchQueue.global().async { [self] in
+                    usbLock.lock(); defer { usbLock.unlock() }
+                    let dev = libusb_get_device(h)
+                    if !skipReset, let dev, attached(dev) {
+                        libusb_release_interface(h, 0)
+                        libusb_reset_device(h)
+                    }
                     libusb_close(h)
                 }
             } else {

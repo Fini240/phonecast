@@ -378,6 +378,20 @@ final class PhoneView: NSView {
         held[name] = nil
         send(Touch.up, id, NPoint(x: b.x, y: b.y))
         freeIds.append(id)
+        // Fortnite's fire button also aims by dragging, so a touch landing on it takes over the camera
+        // from the look finger, and the look finger stays ignored until it is pressed again (pickaxe
+        // spam stopped look-around, 08.11.2026). So after a mouse button lets go, press look again.
+        if name.hasPrefix("m"), lookDown { recentreLook() }
+    }
+
+    /// Lift the look finger (with all movement so far) and put it back at the centre of the look area.
+    private func recentreLook() {
+        guard let a = map.look else { return }
+        lookFlush?.invalidate(); lookFlush = nil
+        send(Touch.up, lookId, lookPos)
+        lookPos = a
+        send(Touch.down, lookId, a)
+        lookHoldUntil = CFAbsoluteTimeGetCurrent() + 0.025
     }
 
     private func updateJoy() {
@@ -426,12 +440,7 @@ final class PhoneView: NSView {
         let s = min(videoSize.width, videoSize.height)
         let dist = hypot((lookPos.x - a.x) * videoSize.width / s, (lookPos.y - a.y) * videoSize.height / s)
         if dist > map.lookR || lookPos.x <= 0.01 || lookPos.x >= 0.99 || lookPos.y <= 0.01 || lookPos.y >= 0.99 {
-            // ran out of room: lift the finger (with all movement so far) and put it back at the centre
-            lookFlush?.invalidate(); lookFlush = nil
-            send(Touch.up, lookId, lookPos)
-            lookPos = a
-            send(Touch.down, lookId, a)
-            lookHoldUntil = CFAbsoluteTimeGetCurrent() + 0.025
+            recentreLook() // ran out of room
             return
         }
         let wait = lookHoldUntil - CFAbsoluteTimeGetCurrent()
