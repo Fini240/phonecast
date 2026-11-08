@@ -40,7 +40,8 @@ object Proto {
     const val KEYFRAME: Int = 15   // request a keyframe
     const val PING: Int = 16       // 8 bytes, echoed back as PONG
     const val SETTINGS: Int = 17   // u16 maxSize (0 = native), u8 bitrate Mbit/s
-    const val RESOLUTION: Int = 18 // u16 w, u16 h: wanted landscape shape; 0,0 = phone's normal shape
+    const val RESOLUTION: Int = 18 // u16 w, u16 h: wanted landscape shape (0,0 = phone's normal shape),
+                                   // optional u16 long side to render at (0 = the panel's own pixels)
 
     const val TOUCH_DOWN = 0
     const val TOUCH_MOVE = 1
@@ -87,6 +88,9 @@ object Prefs {
         return if (w > 0 && h > 0) w to h else null
     }
     fun setLastShape(c: Context, w: Int, h: Int) = p(c).edit().putInt("shapeW", w).putInt("shapeH", h).apply()
+    /** Long side the Mac asked to render at (0 = panel pixels). */
+    fun shapeLong(c: Context): Int = p(c).getInt("shapeLong", 0)
+    fun setShapeLong(c: Context, v: Int) = p(c).edit().putInt("shapeLong", v).apply()
 
     fun audio(c: Context): Boolean = p(c).getBoolean("audio", true)
     fun setAudio(c: Context, v: Boolean) = p(c).edit().putBoolean("audio", v).apply()

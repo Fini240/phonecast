@@ -376,7 +376,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         add("16:9", 16, 9)
         m.addItem(.separator())
         add("Phone's normal shape", 0, 0)
+        m.addItem(.separator())
+        let head = NSMenuItem(title: "Sharpness (for the shapes above)", action: nil, keyEquivalent: "")
+        m.addItem(head)
+        for (title, long) in [("Phone's own pixels (coolest)", 0), ("Sharp — 2560 px wide", 2560), ("Sharpest — 3200 px wide (hotter)", 3200)] {
+            let i = NSMenuItem(title: title, action: #selector(setSharpness(_:)), keyEquivalent: "")
+            i.target = self; i.tag = long
+            i.state = UserDefaults.standard.integer(forKey: "shapeLong") == long ? .on : .off
+            i.indentationLevel = 1
+            m.addItem(i)
+        }
         return m
+    }
+
+    /** Render the phone at more pixels than its panel has, so the Mac's Retina screen looks sharp. */
+    @objc func setSharpness(_ s: NSMenuItem) {
+        UserDefaults.standard.set(s.tag, forKey: "shapeLong")
+        // re-send the last shape with the new sharpness
+        let last = UserDefaults.standard.integer(forKey: "lastShapeTag")
+        if last != 0 { sendShape(last >> 16, last & 0xffff) }
     }
 
     @objc func showShapeMenu(_ s: Any?) {
@@ -384,8 +402,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     @objc func setShape(_ s: NSMenuItem) {
-        let w = s.tag >> 16, h = s.tag & 0xffff
-        link?.send(CT.resolution, Data([UInt8(w >> 8), UInt8(w & 0xff), UInt8(h >> 8), UInt8(h & 0xff)]))
+        UserDefaults.standard.set(s.tag, forKey: "lastShapeTag")
+        sendShape(s.tag >> 16, s.tag & 0xffff)
+    }
+
+    private func sendShape(_ w: Int, _ h: Int) {
+        let l = w == 0 ? 0 : UserDefaults.standard.integer(forKey: "shapeLong")
+        link?.send(CT.resolution, Data([UInt8(w >> 8), UInt8(w & 0xff), UInt8(h >> 8), UInt8(h & 0xff), UInt8(l >> 8), UInt8(l & 0xff)]))
     }
 
     private func resolutionResult(_ r: UInt8) {

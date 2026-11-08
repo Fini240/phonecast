@@ -25,7 +25,7 @@ class StreamServer(
         fun onClientChanged(address: String?)
         fun onInput(type: Int, payload: ByteArray)
         fun onSettings(maxSize: Int, bitrateMbps: Int)
-        fun onResolution(w: Int, h: Int): Int
+        fun onResolution(w: Int, h: Int, long: Int): Int
         fun controlAvailable(): Boolean
         /** Extra phone health appended to STATS (PhoneStats). */
         fun phoneStats(): ByteArray = ByteArray(0)
@@ -115,7 +115,8 @@ class StreamServer(
                 } else if (t == Proto.RESOLUTION && p.size >= 4) {
                     val w = ((p[0].toInt() and 0xff) shl 8) or (p[1].toInt() and 0xff)
                     val h = ((p[2].toInt() and 0xff) shl 8) or (p[3].toInt() and 0xff)
-                    c.sendControl(packet(Proto.RES_RESULT, byteArrayOf(listener.onResolution(w, h).toByte())))
+                    val long = if (p.size >= 6) ((p[4].toInt() and 0xff) shl 8) or (p[5].toInt() and 0xff) else 0
+                    c.sendControl(packet(Proto.RES_RESULT, byteArrayOf(listener.onResolution(w, h, long).toByte())))
                 } else if (t == Proto.SETTINGS && p.size >= 3) {
                     val max = ((p[0].toInt() and 0xff) shl 8) or (p[1].toInt() and 0xff)
                     listener.onSettings(max, p[2].toInt() and 0xff)

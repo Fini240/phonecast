@@ -69,6 +69,8 @@ It's a powerful permission, so skip this if you don't need the feature. "Phone's
 same menu undoes the change. Without the Mac, the phone app's **Screen shape** section has
 **Back to normal shape** (for when you unplug) and **Fit the Mac again**. To remove the shape change from a computer: `adb shell wm size reset`.
 
+**Sharpness:** the same menu can render the phone at more pixels than its screen has (Sharp = 2560 px wide, Sharpest = 3200 px), so the picture isn't blurry on a Retina display. Android allows up to 2× the panel. More pixels means more GPU work and heat; games may still draw their 3D world at a lower resolution (Fortnite: *3D Resolution* in its graphics settings).
+
 ## Before you use it
 
 - **Online games:** using a mouse and keyboard through injected touches may break a game's rules, and

@@ -219,7 +219,7 @@ class CaptureService : Service(), StreamServer.Listener {
         restartVideo()
     }
 
-    override fun onResolution(w: Int, h: Int): Int = DisplaySize.apply(this, w, h)
+    override fun onResolution(w: Int, h: Int, long: Int): Int = DisplaySize.apply(this, w, h, long)
 
     override fun phoneStats(): ByteArray = PhoneStats.bytes(this)
 
