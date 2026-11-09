@@ -33,6 +33,10 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
   PhoneCast on the phone when it asks about the USB accessory.
 - **Wi-Fi:** put both on the same trusted network, open PhoneCast on the Mac, pick the phone, and enter
   the PIN shown in the phone app.
+- **Other networks:** the phone gets a new IP on every Wi-Fi, so the Mac doesn't rely on the saved one: it
+  tries the phone it finds on the current network first, then the saved IP. Where the network keeps devices
+  apart (some school or hotel Wi-Fi), install [Tailscale](https://tailscale.com) on both and enter the
+  phone's Tailscale address in the Connect dialog (⌘K); PhoneCast falls back to it when nothing else answers.
 
 ## Mouse and keyboard
 

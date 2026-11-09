@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var link: Link?
     private var browser: NWBrowser?
     private var found: [String: NWEndpoint] = [:]
+    /// Which Wi-Fi address (see wifiCandidates) the next attempt uses; reset after a connection works.
+    private var wifiIndex = 0
+    private var linkWasReady = false
     private var wantConnected = false
     private var deviceLabel = ""
     private var stateText = "Not connected"
@@ -94,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.ping() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.watchCable() }
 
-        if UserDefaults.standard.string(forKey: "pin") != nil, savedEndpoint() != nil {
+        if UserDefaults.standard.string(forKey: "pin") != nil, !wifiCandidates().isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.showConnect(nil) }
@@ -504,18 +507,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         browser = b
     }
 
-    private func savedEndpoint() -> (NWEndpoint, String)? {
+    /// Wi-Fi addresses to try, best first. The phone's IP changes with every network (home, school…),
+    /// so one saved IP stops working elsewhere: first the phone Bonjour finds on this network, then the
+    /// saved name/IP, then the phone's Tailscale address (works where the Wi-Fi keeps devices apart, or
+    /// when the phone is on mobile data). Each failed attempt moves on to the next one.
+    private func wifiCandidates() -> [(NWEndpoint, String)] {
         if let h = ProcessInfo.processInfo.environment["PHONECAST_TEST_HOST"] {
-            return (.hostPort(host: NWEndpoint.Host(h), port: 27183), "test phone")
+            return [(.hostPort(host: NWEndpoint.Host(h), port: 27183), "test phone")]
         }
         let d = UserDefaults.standard
-        if let name = d.string(forKey: "service") {
-            return (found[name] ?? .service(name: name, type: "_phonecast._tcp", domain: "local.", interface: nil), name)
+        var out: [(NWEndpoint, String)] = []
+        var seen = Set<String>()
+        func add(_ ep: NWEndpoint, _ label: String) { if seen.insert("\(ep)").inserted { out.append((ep, label)) } }
+        let saved = d.string(forKey: "service")
+        if let saved, let ep = found[saved] { add(ep, saved) }
+        for name in found.keys.sorted() { add(found[name]!, name) }
+        if let saved { add(.service(name: saved, type: "_phonecast._tcp", domain: "local.", interface: nil), saved) }
+        if let host = d.string(forKey: "host"), !host.isEmpty { add(.hostPort(host: NWEndpoint.Host(host), port: 27183), host) }
+        if let ts = d.string(forKey: "tailnetHost"), !ts.isEmpty {
+            add(.hostPort(host: NWEndpoint.Host(ts), port: 27183), "\(ts) (Tailscale)")
         }
-        if let host = d.string(forKey: "host"), !host.isEmpty {
-            return (.hostPort(host: NWEndpoint.Host(host), port: 27183), host)
-        }
-        return nil
+        return out
     }
 
     @objc func showConnect(_ s: Any?) {
@@ -537,20 +549,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         host.placeholderString = "e.g. 192.168.1.57 (shown in the phone app)"
         let pin = NSTextField(string: d.string(forKey: "pin") ?? "")
         pin.placeholderString = "6-digit PIN from the phone app"
+        let ts = NSTextField(string: d.string(forKey: "tailnetHost") ?? "")
+        ts.placeholderString = "optional, e.g. 100.64.0.10 — used when Wi-Fi can't reach it"
         let stack = NSStackView(views: [
             NSTextField(labelWithString: "Phone:"), popup,
             NSTextField(labelWithString: "IP address:"), host,
             NSTextField(labelWithString: "PIN:"), pin,
+            NSTextField(labelWithString: "Tailscale address of the phone:"), ts,
         ])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
-        stack.frame = NSRect(x: 0, y: 0, width: 320, height: 160)
-        [popup, host, pin].forEach { $0.widthAnchor.constraint(equalToConstant: 320).isActive = true }
+        stack.frame = NSRect(x: 0, y: 0, width: 320, height: 210)
+        [popup, host, pin, ts].forEach { $0.widthAnchor.constraint(equalToConstant: 320).isActive = true }
         a.accessoryView = stack
         a.window.initialFirstResponder = pin.stringValue.isEmpty ? pin : host
 
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let p = pin.stringValue.trimmingCharacters(in: .whitespaces)
         d.set(p, forKey: "pin")
+        d.set(ts.stringValue.trimmingCharacters(in: .whitespaces), forKey: "tailnetHost")
+        wifiIndex = 0
         if let t = popup.titleOfSelectedItem, t != "IP address below" {
             d.set(t, forKey: "service"); d.removeObject(forKey: "host")
         } else {
@@ -607,7 +624,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     private func connectWifi(_ pin: String) {
-        guard let (ep, label) = savedEndpoint() else { showConnect(nil); return }
+        let c = wifiCandidates()
+        guard !c.isEmpty else { showConnect(nil); return }
+        if wifiIndex >= c.count { wifiIndex = 0 }
+        let (ep, label) = c[wifiIndex]
+        NSLog("wifi: trying \(label) (\(wifiIndex + 1) of \(c.count))")
         viaUSB = false
         connect(ep, label: label, pin: pin)
     }
@@ -639,6 +660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         udp?.stop(); udp = nil; udpActive = false
         view.releaseAll()
         deviceLabel = label
+        linkWasReady = false
         let l = Link(endpoint: ep)
         link = l
         view.link = l
@@ -656,6 +678,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                         : "Connecting to \(label)…")
                 case .ready:
                     self.retryDelay = 2
+                    self.wifiIndex = 0
+                    self.linkWasReady = true
                     self.lastPong = 0
                     self.stateText = "Connected"; self.view.setMessage(nil)
                     self.sendSettings()
@@ -670,7 +694,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                     self.audio.stop()
                     self.view.setMode(.normal)
                     self.stateText = "Disconnected"
-                    if self.wantConnected {
+                    // Never got through on this Wi-Fi address: try the next one right away; only back off
+                    // once every address has failed.
+                    let wasWifi = label != "USB cable", neverReady = !self.linkWasReady
+                    if self.wantConnected, wasWifi, neverReady, self.wifiIndex + 1 < self.wifiCandidates().count {
+                        self.wifiIndex += 1
+                        self.view.setMessage("\(label) didn't answer (\(why)) — trying the next address…")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                            guard let self, self.wantConnected, self.link === l else { return }
+                            self.connectSaved()
+                        }
+                    } else if self.wantConnected {
+                        if wasWifi && neverReady { self.wifiIndex = 0 }
                         let wait = self.retryDelay
                         self.retryDelay = min(15, self.retryDelay * 2)
                         self.view.setMessage("Lost connection (\(why))\nRetrying in \(Int(wait)) s — is sharing on in the phone app?")
