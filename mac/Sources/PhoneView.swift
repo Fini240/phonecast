@@ -246,7 +246,7 @@ final class PhoneView: NSView {
     func releaseAll() {
         link?.touch(Touch.cancelAll, 0, 0, 0)
         held.removeAll(); freeIds = [2, 3, 4, 5, 6, 7, 8]
-        joyKeys.removeAll(); joyDown = false
+        joyKeys.removeAll(); joyDown = false; stickDown = false
         lookDown = false; lookIdle?.invalidate(); lookFlush?.invalidate(); lookFlush = nil
         scrolling = false
     }
@@ -525,6 +525,74 @@ final class PhoneView: NSView {
         // up, which ate the start of each movement. It is lifted when leaving mouse aiming.
     }
 
+    // MARK: game controller (Gamepad.swift)
+
+    private var stickDown = false
+    private var padLookIdle = 0
+    private static let deadZone = 0.18
+    private static let padTest = ProcessInfo.processInfo.environment["PHONECAST_TEST_PAD"] != nil
+
+    /// A controller button: presses its mapped spot (normal + aiming mode) or binds it in the key map editor.
+    func gamepadButton(_ key: String, label: String, down: Bool) {
+        switch mode {
+        case .edit:
+            if down, pending != nil { bind(key, label: label) }
+        case .normal, .game:
+            if typing { return }
+            down ? press(key) : release(key)
+        }
+    }
+
+    /// Called at 120 Hz with both sticks (-1…1, y up).
+    func gamepadSticks(left: (x: Double, y: Double), right: (x: Double, y: Double)) {
+        let lm = hypot(left.x, left.y), rm = hypot(right.x, right.y)
+        if mode == .edit {
+            // with a spot picked: push the left stick = joystick here, right stick = look area here
+            guard let p = pending else { return }
+            if lm > 0.6 { map.joy = p; for k in KeyMap.wasdKeys { map.binds[k] = nil } }
+            else if rm > 0.6 { map.look = p }
+            else { return }
+            map.save(); pending = nil; overlay.needsDisplay = true
+            return
+        }
+        guard NSApp.isActive || Self.padTest, !typing else {
+            if stickDown, let c = map.joy { send(Touch.up, joyId, c); stickDown = false; joyDown = false }
+            return
+        }
+        // left stick -> movement joystick, analog
+        if let c = map.joy, joyKeys.isEmpty {
+            if lm < Self.deadZone {
+                if stickDown { send(Touch.up, joyId, c); stickDown = false; joyDown = false }
+            } else {
+                let k = min(1, (lm - Self.deadZone) / (1 - Self.deadZone)) / lm
+                let (ox, oy) = offset(left.x * k * map.joyR, -left.y * k * map.joyR)
+                let target = NPoint(x: c.x + ox, y: c.y + oy)
+                if !stickDown {
+                    send(Touch.down, joyId, c); stickDown = true; joyDown = true; joyTarget = target
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                        guard let self, self.stickDown, let t = self.joyTarget else { return }
+                        self.send(Touch.move, self.joyId, t)
+                    }
+                } else if joyTarget != target {     // a held stick doesn't resend the same spot 120×/s
+                    joyTarget = target
+                    send(Touch.move, joyId, target)
+                }
+            }
+        }
+        // right stick -> look; speed grows with the push (fine aim near the centre)
+        if map.look != nil {
+            if rm >= Self.deadZone {
+                padLookIdle = 0
+                let v = pow((min(1, rm) - Self.deadZone) / (1 - Self.deadZone), 1.6) * 24
+                look(right.x / rm * v, -right.y / rm * v)
+            } else if lookDown && mode == .normal {
+                // stick let go: lift the look finger after a moment (mouse aiming keeps it down)
+                padLookIdle += 1
+                if padLookIdle == 18 { send(Touch.up, lookId, lookPos); lookDown = false }
+            }
+        }
+    }
+
     // MARK: edit mode
 
     private func editClick(_ e: NSEvent, button: Int) {
@@ -629,7 +697,7 @@ final class PhoneView: NSView {
                 s.draw(at: CGPoint(x: c.x - sz.width / 2, y: c.y - sz.height / 2))
             }
 
-            for b in o.map.binds.values { marker(NPoint(x: b.x, y: b.y), b.label, .systemBlue) }
+            for (k, b) in o.map.binds { marker(NPoint(x: b.x, y: b.y), b.label, k.hasPrefix("g") ? .systemPurple : .systemBlue) }
             if let j = o.map.joy {
                 let c = o.viewPoint(j)
                 let rad = CGFloat(o.map.joyR) * min(r.width, r.height)
@@ -656,8 +724,8 @@ final class PhoneView: NSView {
 
             if editing {
                 let help = o.pending == nil
-                    ? "KEY MAP — click a button on the phone screen, then press the key or mouse button for it.\nMovement: click the middle of the joystick, then press W (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌫ over a marker: delete  ·  Esc: done"
-                    : "Now press a key, or click left/right mouse button, to bind this spot.  Esc: cancel"
+                    ? "KEY MAP — click a button on the phone screen, then press the key, mouse button or controller button for it.\nMovement: click the middle of the joystick, then press W or push the left stick (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌫ over a marker: delete  ·  Esc: done"
+                    : "Now press a key, a mouse button or a controller button to bind this spot (left stick = joystick, right stick = look area).  Esc: cancel"
                 let para = NSMutableParagraphStyle(); para.alignment = .center
                 let s = NSAttributedString(string: help, attributes: [
                     .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white, .paragraphStyle: para,

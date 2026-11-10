@@ -105,6 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         Hub.shared.start()
         UpdateCheck.shared.start()
         view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
+        Gamepad.shared.view = view
+        Gamepad.shared.onChange = { [weak self] in
+            guard let self else { return }
+            // a short note on the mirror so you know the controller is picked up
+            let note = Gamepad.shared.name.map { "🎮 \($0) connected" } ?? "🎮 Controller disconnected"
+            self.view.setStats(NSAttributedString(string: note, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white]))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.updateStats() }
+        }
+        Gamepad.shared.start()
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tickFps() }
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.ping() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.watchCable() }
@@ -115,6 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let unpaired = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil
         MainWindowController.shared.show(testPane ?? (unpaired ? .settings : nil))
         if ProcessInfo.processInfo.environment["PHONECAST_SHOW_MIRROR"] != nil { showWindow() }  // UI testing
+        if ProcessInfo.processInfo.environment["PHONECAST_TEST_PAD"] != nil {   // controller test: mirror the fake phone right away
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.castReady() }
+        }
         if Self.noUSB == false, UsbBridge.shared.phonePresent(), UserDefaults.standard.string(forKey: "pin") != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }  // cable: mirror right away
         }
@@ -769,6 +781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     /// Every few seconds: switch to the cable when it gets plugged in.
+    private var padTestRan = false
     static let noUSB = ProcessInfo.processInfo.environment["PHONECAST_NO_USB"] != nil
 
     private var lastPresent = false
@@ -945,6 +958,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         case PT.resResult:
             let r = p.first ?? 2
             DispatchQueue.main.async { self.resolutionResult(r) }
+        case PT.helloOK where ProcessInfo.processInfo.environment["PHONECAST_TEST_PAD"] != nil && !padTestRan:
+            padTestRan = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Gamepad.shared.runTestScript() }
+            fallthrough
         case PT.helloOK, PT.control:
             let on = p.first == 1
             DispatchQueue.main.async { self.view.controlAvailable = on; self.updateTitle() }

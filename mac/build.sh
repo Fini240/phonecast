@@ -13,7 +13,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macos14.0 \
   -import-objc-header Shim/shim.h -Xcc -I"$LIBUSB/include/libusb-1.0" \
   -framework AppKit -framework AVFoundation -framework CoreMedia -framework Network \
   -framework IOKit -framework CoreFoundation -framework Security \
-  -framework ScreenCaptureKit -framework VideoToolbox -framework UserNotifications -framework ServiceManagement -framework Carbon -framework SwiftUI -framework Quartz -framework Combine \
+  -framework ScreenCaptureKit -framework VideoToolbox -framework UserNotifications -framework ServiceManagement -framework Carbon -framework SwiftUI -framework Quartz -framework Combine -framework GameController \
   "$LIBUSB/lib/libusb-1.0.a" \
   Sources/*.swift -o "$APP/Contents/MacOS/PhoneCast"
 cp Info.plist "$APP/Contents/Info.plist"
