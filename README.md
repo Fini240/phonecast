@@ -5,13 +5,20 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Mirror** the phone on the Mac and control it with mouse and keyboard (USB cable or Wi-Fi, with sound),
   and **control the Mac from the phone**.
 - **Notifications** from the phone as Mac banners, with reply, clear and open-on-phone.
-- **Messages (SMS), calls, contacts, photos, phone files and apps** in one Mac window.
-- **Files** both ways (folders as .zip), **clipboard** both ways (copy on the phone lands on the Mac by itself) and links.
+- **Messages (SMS, and MMS pictures), calls, contacts, photos, phone files and apps** in one Mac window.
+- **Files** both ways (folders as .zip), **clipboard** both ways, text and pictures (copy on the phone lands on
+  the Mac by itself), and links (a link shared from the phone opens in the Mac's browser).
 - **Monitor**: battery, heat and link latency of the phone and the Mac, plus your other machines.
 - **Now playing**: the phone's music or video with play/pause and skip, in the menu bar and on Overview.
 - **Find my phone**: rings the phone at full volume, even on silent.
 - **Game controllers**: an Xbox, PlayStation or Switch Pro controller on the Mac plays phone games.
 - **New screenshots** on the phone land on the Mac (Downloads and clipboard) by themselves.
+- **Record the mirror** to a video (⇧⌘R or the record button under the mirror), saved in Movies/PhoneCast.
+- **Phone as trackpad & keyboard** for the Mac, without video (saves battery).
+- **Do Not Disturb**: when the phone is on Do Not Disturb, the Mac stays quiet too; switch it from the menu bar.
+- **Lock the Mac when the phone leaves** (optional, only when nobody is using the Mac).
+- **Updates in the app**: "Install update" on the Mac and the phone, Help → Check for updates on Windows.
+- **English and German**: the apps follow the device's language.
 - **The app icon shows the link**: the little phone's screen is lit while the phone and the computer are
   connected, dark when not (Mac Dock and menu bar, Android home screen, Windows taskbar).
 
