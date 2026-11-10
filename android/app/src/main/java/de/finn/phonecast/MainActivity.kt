@@ -649,6 +649,9 @@ class MainActivity : Activity() {
 
     private fun sendClipboard() {
         val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip
+        clip?.takeIf { it.itemCount > 0 && it.description.hasMimeType("image/*") }?.getItemAt(0)?.uri?.let { img ->
+            HubService.instance?.takeIf { it.connected }?.sendClipImage(img) ?: toast("Not connected to the Mac"); return
+        }
         val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         if (text.isNullOrEmpty()) { toast("The clipboard is empty"); return }
         HubService.instance?.sendClip(text) ?: toast("Not connected to the Mac")

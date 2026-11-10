@@ -163,6 +163,7 @@ final class HubLink {
 final class Hub: NSObject, NSMenuDelegate {
     static let shared = Hub()
     static let screenshotReq = 9001   // Extras.SCREENSHOT_REQ on the phone
+    static let clipImageReq = 9002    // HubService.CLIP_IMAGE_REQ: a picture copied on the phone
     let store = Store.shared
 
     private(set) var link: HubLink?
@@ -513,7 +514,7 @@ final class Hub: NSObject, NSMenuDelegate {
                 let size = (o["size"] as? NSNumber)?.int64Value ?? -1
                 let req = o["req"] as? Int ?? 0
                 let tid = store.beginTransfer(name: name, outgoing: false, size: size)
-                incoming[id] = IncomingFile(name: name, size: size, temp: tempReqs.contains(req)) { [weak self] f in
+                incoming[id] = IncomingFile(name: name, size: size, temp: tempReqs.contains(req) || req == Self.clipImageReq) { [weak self] f in
                     self?.store.progress(tid, f)
                 }
                 incomingReq[id] = (req, tid)
@@ -526,6 +527,13 @@ final class Hub: NSObject, NSMenuDelegate {
                 store.finishTransfer(tid, url: url)
                 tempReqs.remove(req)
                 if let then = wanted.removeValue(forKey: req) { then(url) }
+                else if req == Self.clipImageReq, let img = NSImage(contentsOf: url) {
+                    let pb = NSPasteboard.general
+                    pb.clearContents(); pb.writeObjects([img])
+                    clipFromPhone = pb.changeCount; clipCount = pb.changeCount
+                    Banners.shared.info("Picture copied from \(store.phoneName)", "Paste it anywhere (⌘V)")
+                    try? FileManager.default.removeItem(at: url)
+                }
                 else if req == Self.screenshotReq, let img = NSImage(contentsOf: url) {
                     // a new screenshot on the phone: also on the Mac's clipboard, ready to paste
                     let pb = NSPasteboard.general
@@ -575,11 +583,31 @@ final class Hub: NSObject, NSMenuDelegate {
         // skip what password managers mark as secret
         if pb.types?.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) == true { return }
         if let s = pb.string(forType: .string), !s.isEmpty, s.utf8.count < 1_000_000 { link?.send(HT.clip, Data(s.utf8)) }
+        else if let png = Self.clipboardPNG(pb) { sendClipImage(png) }
+    }
+
+    /// A copied picture as PNG (copied files are not pictures: Finder copies put file URLs, not image data).
+    static func clipboardPNG(_ pb: NSPasteboard) -> Data? {
+        if pb.types?.contains(.fileURL) == true { return nil }
+        if let d = pb.data(forType: .png) { return d }
+        guard let t = pb.data(forType: .tiff), let rep = NSBitmapImageRep(data: t) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    private func sendClipImage(_ png: Data) {
+        guard png.count < 30_000_000 else { return }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard \(f.string(from: Date())).png")
+        guard (try? png.write(to: u)) != nil else { return }
+        sendFiles([u], clip: true) { DispatchQueue.global().asyncAfter(deadline: .now() + 10) { try? FileManager.default.removeItem(at: u) } }
     }
 
     @objc func sendClipboard(_ s: Any?) {
-        guard let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
         guard connected else { Banners.shared.info("Phone not connected", ""); return }
+        if NSPasteboard.general.string(forType: .string)?.isEmpty != false, let png = Self.clipboardPNG(NSPasteboard.general) {
+            sendClipImage(png); Banners.shared.info("Sent a picture to \(store.phoneName)'s clipboard", ""); return
+        }
+        guard let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
         link?.send(HT.clip, Data(str.utf8))
         Banners.shared.info("Sent to \(store.phoneName)'s clipboard", String(str.prefix(120)))
     }
@@ -602,7 +630,7 @@ final class Hub: NSObject, NSMenuDelegate {
         if p.runModal() == .OK { sendFiles(p.urls, dir: dir, done: done) }
     }
 
-    func sendFiles(_ urls: [URL], dir: String? = nil, done: (() -> Void)? = nil) {
+    func sendFiles(_ urls: [URL], dir: String? = nil, clip: Bool = false, done: (() -> Void)? = nil) {
         guard let l = link, connected else {
             Banners.shared.info("Phone not connected", "Open PhoneCast on the phone; it connects by itself."); return
         }
@@ -631,6 +659,7 @@ final class Hub: NSObject, NSMenuDelegate {
                 let idData = Data(bytes: &idBE, count: 4)
                 var begin: [String: Any] = ["id": Int(id), "name": u.lastPathComponent, "size": size]
                 if let dir { begin["dir"] = dir }
+                if clip { begin["clip"] = true }
                 l.send(HT.fileBegin, try! JSONSerialization.data(withJSONObject: begin))
                 let window = DispatchSemaphore(value: 4)   // at most 4 chunks (1 MB) queued
                 var sent = 0, lastPct = -1, ok = true

@@ -111,6 +111,8 @@ class HubService : Service() {
         private const val CHANNEL_CAST = "cast"
         const val ACTION_SEND_FILES = "de.finn.phonecast.SEND_FILES"
         const val ACTION_SEND_TEXT = "de.finn.phonecast.SEND_TEXT"
+        /** File request id for "a copied picture" (both directions). */
+        const val CLIP_IMAGE_REQ = 9002
         const val EXTRA_URIS = "uris"
         const val EXTRA_TEXT = "text"
 
@@ -211,6 +213,16 @@ class HubService : Service() {
         if (client == null) { toast("Not connected to the Mac"); return }
         lastClip = text
         send(HubProto.CLIP, text.toByteArray()); toast("Copied to the Mac")
+    }
+
+    /** A copied picture -> the Mac's clipboard (file req CLIP_IMAGE_REQ, the Mac keeps no copy in Downloads). */
+    fun sendClipImage(u: Uri) {
+        val c = client ?: run { toast("Not connected to the Mac"); return }
+        Thread({
+            try { sendOne(c, u, CLIP_IMAGE_REQ); toast("Picture copied to the Mac") }
+            catch (e: Exception) { Log.w(TAG, "clip image", e) }
+            transfer = null; updateNotification()
+        }, "hub-clipimg").start()
     }
 
     fun castStarted() = send(HubProto.CAST_READY)
@@ -393,7 +405,8 @@ class HubService : Service() {
             HubProto.REQ -> features.handle(JSONObject(String(p)))
             HubProto.FILE_BEGIN -> {
                 val o = JSONObject(String(p))
-                files[o.getInt("id")] = Incoming(o.optString("name", "file"), o.optLong("size", -1), o.optString("dir").takeIf { it.isNotEmpty() })
+                files[o.getInt("id")] = Incoming(o.optString("name", "file"), o.optLong("size", -1), o.optString("dir").takeIf { it.isNotEmpty() },
+                    clip = o.optBoolean("clip"))
             }
             HubProto.FILE_DATA -> {
                 val id = ByteBuffer.wrap(p, 0, 4).int
@@ -427,7 +440,7 @@ class HubService : Service() {
 
     // ---- incoming files -> Download/PhoneCast ----
 
-    private inner class Incoming(val name: String, val size: Long, dir: String?) {
+    private inner class Incoming(val name: String, val size: Long, dir: String?, val clip: Boolean = false) {
         private val uri: Uri?
         private val out: OutputStream?
         private var got = 0L
@@ -471,6 +484,12 @@ class HubService : Service() {
             val u = uri ?: return
             contentResolver.update(u, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             transfer = null; updateNotification()
+            if (clip) {
+                // a picture copied on the Mac: onto this phone's clipboard, ready to paste
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newUri(contentResolver, "Picture from the Mac", u))
+                toast("Picture copied from the Mac")
+                return
+            }
             val mime = contentResolver.getType(u) ?: "*/*"
             val view = Intent(Intent.ACTION_VIEW).setDataAndType(u, mime)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)

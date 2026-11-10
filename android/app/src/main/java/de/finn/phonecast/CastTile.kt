@@ -57,8 +57,14 @@ class ClipActivity : android.app.Activity() {
         // passwords from password managers are marked sensitive: never send those on their own
         val sensitive = android.os.Build.VERSION.SDK_INT >= 33 &&
             clip?.description?.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true
-        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         val hub = HubService.instance
+        // a copied picture goes to the Mac's clipboard as a picture
+        val img = clip?.takeIf { it.itemCount > 0 && it.description.hasMimeType("image/*") }?.getItemAt(0)?.uri
+        if (img != null && !sensitive) {
+            if (hub?.connected == true) hub.sendClipImage(img)
+            finish(); overridePendingTransition(0, 0); return
+        }
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         when {
             text.isNullOrEmpty() -> if (!auto) android.widget.Toast.makeText(this, "The clipboard is empty", android.widget.Toast.LENGTH_SHORT).show()
             auto && (sensitive || text == hub?.lastClip) -> {}
