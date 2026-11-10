@@ -7,7 +7,7 @@ sealed class ConnectDialog : Form
 {
     readonly ComboBox phone = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
     readonly TextBox host = new() { Width = 340, PlaceholderText = "e.g. 192.168.1.57 (shown in the phone app)" };
-    readonly TextBox pin = new() { Width = 340, PlaceholderText = "6-digit PIN from the phone app" };
+    readonly TextBox pin = new() { Width = 340, PlaceholderText = "6-digit PIN from the phone app (not needed after QR pairing)" };
     readonly TextBox tail = new() { Width = 340, PlaceholderText = "optional, e.g. 100.64.0.10 — used when Wi-Fi can't reach it" };
     const string ByIp = "IP address below";
 
@@ -27,7 +27,7 @@ sealed class ConnectDialog : Form
         Font = new Font("Segoe UI", 9.5f);
         var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Padding = new Padding(14), WrapContents = false };
         Label L(string t, bool bold = false) => new() { Text = t, AutoSize = true, Margin = new Padding(0, 8, 0, 2), Font = bold ? new Font(Font, FontStyle.Bold) : Font };
-        flow.Controls.Add(L("Open PhoneCast on the phone and tap Start sharing. Phones on this Wi-Fi show up automatically;\na phone plugged in by USB cable is used first.", false));
+        flow.Controls.Add(L("Open PhoneCast on the phone and tap Start sharing. Phones on this Wi-Fi show up automatically;\na phone plugged in by USB cable is used first. Easier and safer than the PIN: Device → Pair with QR code (Ctrl+P).", false));
         flow.Controls.Add(L("Phone:"));
         foreach (var f in found) phone.Items.Add(f);
         phone.Items.Add(ByIp);

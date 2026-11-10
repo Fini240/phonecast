@@ -7,7 +7,7 @@ namespace PhoneCast;
 static class PT
 {
     public const byte Format = 0, Config = 1, Frame = 2, Audio = 3, HelloOK = 4, HelloBad = 5, Control = 6, Pong = 7, ResResult = 8,
-        Stats = 14, Stopped = 19, UdpToken = 20, UdpOn = 21, UdpOff = 22;
+        Stats = 14, Stopped = 19, UdpToken = 20, UdpOn = 21, UdpOff = 22, Nonce = 23;
 }
 
 static class CT
@@ -19,6 +19,9 @@ static class TouchA { public const byte Down = 0, Move = 1, Up = 2, CancelAll = 
 static class GlobalA { public const byte Back = 1, Home = 2, Recents = 3, Notifications = 4, QuickSettings = 5, Power = 6, Lock = 7, Screenshot = 8, Split = 9, VolUp = 10, VolDown = 11, Mute = 12, Torch = 13; }
 
 enum LinkState { Connecting, Ready, BadPin, Closed }
+
+/// How this computer logs in: QR pairing (Q1, proven in both directions) and/or the PIN.
+sealed record Login(string Pin, string PairId, byte[] PairKey, bool UseQr);
 
 /// One TCP connection to the phone. In: [u8 type][u32 len][payload]. Out: [u8 type][u16 len][payload].
 sealed class Link
@@ -37,13 +40,24 @@ sealed class Link
 
     public Link(string host, int port) { this.host = host; this.port = port; }
 
-    public void Start(string pin)
+    /// The login actually used: true = QR pairing (the phone proved itself too).
+    public bool UsedQr { get; private set; }
+
+    public void Start(Login login)
     {
         OnState?.Invoke(LinkState.Connecting, "");
-        new Thread(() => Run(pin)) { IsBackground = true, Name = "link" }.Start();
+        new Thread(() => Run(login)) { IsBackground = true, Name = "link" }.Start();
     }
 
-    void Run(string pin)
+    static byte[] Hmac(byte[] key, params byte[][] parts)
+    {
+        using var h = new System.Security.Cryptography.HMACSHA256(key);
+        var all = parts.SelectMany(x => x).ToArray();
+        return h.ComputeHash(all);
+    }
+    static string Hex(byte[] b) => Convert.ToHexString(b).ToLowerInvariant();
+
+    void Run(Login login)
     {
         try
         {
@@ -55,8 +69,33 @@ sealed class Link
             var ep = tcp.Client.RemoteEndPoint as IPEndPoint;
             Remote = ep?.Address.IsIPv4MappedToIPv6 == true ? ep.Address.MapToIPv4() : ep?.Address;
             stream = tcp.GetStream();
-            Send(CT.Hello, Encoding.UTF8.GetBytes(pin));
             var head = new byte[5];
+
+            // Newer phones send a NONCE first; older ones wait for HELLO. Give it 1.5 s.
+            byte[] nonce = null;
+            tcp.Client.ReceiveTimeout = 1500;
+            try
+            {
+                if (ReadFull(head, 5) && head[0] == PT.Nonce)
+                {
+                    int nl = head[1] << 24 | head[2] << 16 | head[3] << 8 | head[4];
+                    nonce = new byte[nl];
+                    if (nl > 64 || !ReadFull(nonce, nl)) { Finish("bad packet"); return; }
+                }
+                else if (head[0] != 0 || head[1] != 0) { Finish("unexpected first packet"); return; }
+            }
+            catch (IOException) { /* old phone: no nonce */ }
+            tcp.Client.ReceiveTimeout = 0;
+
+            byte[] proofWant = null;
+            if (login.UseQr && nonce != null && login.PairKey != null)
+            {
+                UsedQr = true;
+                Send(CT.Hello, Encoding.UTF8.GetBytes($"Q1:{login.PairId}:{Hex(Hmac(login.PairKey, nonce, Encoding.ASCII.GetBytes("phonecast-mirror")))}"));
+                proofWant = Hmac(login.PairKey, nonce, Encoding.ASCII.GetBytes("phonecast-phone"));
+            }
+            else Send(CT.Hello, Encoding.UTF8.GetBytes(login.Pin ?? ""));
+
             while (!closed)
             {
                 if (!ReadFull(head, 5)) { Finish("phone closed the connection"); return; }
@@ -64,6 +103,12 @@ sealed class Link
                 if (len < 0 || len > 64 << 20) { Finish("bad packet"); return; }
                 var body = new byte[len];
                 if (len > 0 && !ReadFull(body, len)) { Finish("read error"); return; }
+                if (head[0] == PT.HelloOK && proofWant != null)
+                {
+                    // the phone has to prove it knows the secret too (no fake phone on the network)
+                    if (body.Length < 33 || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(body.AsSpan(1, 32), proofWant))
+                    { Finish("this isn't the phone you paired (its proof didn't match)"); return; }
+                }
                 Deliver(head[0], body);
             }
         }

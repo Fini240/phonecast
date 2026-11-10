@@ -196,6 +196,7 @@ sealed unsafe partial class App
         switch (sc)
         {
             case 14: ShowConnect(); return true;                                     // K
+            case 19: ShowPairing(); return true;                                     // P
             case 7: if (shift) { Disconnect(); return true; } return false;          // Shift+D
             case 5: link?.Send(CT.Global, new[] { GlobalA.Back }); return true;      // B
             case 11: link?.Send(CT.Global, new[] { GlobalA.Home }); return true;     // H

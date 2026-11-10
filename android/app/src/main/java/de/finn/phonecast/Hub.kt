@@ -54,12 +54,13 @@ object HubProto {
     const val PORT = 27185
     const val SERVICE_TYPE = "_phonecasthub._tcp"
 
-    const val HELLO = 1          // mac->phone: json {pin, name}
+    const val HELLO = 1          // mac->phone: json {name, pin?, qr?, proof?} (qr = QR pairing id, see Auth)
     const val HELLO_OK = 2       // phone->mac: json {name}
     const val HELLO_BAD = 3
     const val PING = 4           // either way, echoed as PONG
     const val PONG = 5
     const val STATUS = 6         // json, both ways
+    const val NONCE = 7          // phone->mac, first packet: 16 random bytes for the QR proofs (Auth)
 
     const val NOTIF = 10         // phone->mac json
     const val NOTIF_GONE = 11    // phone->mac utf8 key
@@ -308,12 +309,24 @@ class HubService : Service() {
             s.tcpNoDelay = true
             s.soTimeout = 10_000
             val input = DataInputStream(s.getInputStream().buffered(64 * 1024))
+            // a fresh nonce first, for QR-paired computers' proofs (older Macs just send HELLO anyway)
+            val nonce = Auth.nonce()
+            s.getOutputStream().apply { write(ByteBuffer.allocate(5 + nonce.size).put(HubProto.NONCE.toByte()).putInt(nonce.size).put(nonce).array()); flush() }
             val (t, p) = readPacket(input)
             val hello = try { JSONObject(String(p)) } catch (_: Exception) { JSONObject() }
-            if (t != HubProto.HELLO || !Auth.checkPin(this, hello.optString("pin"))) {
-                Log.w(TAG, "rejected ${s.inetAddress}: bad pin")
-                // "locked" = too many wrong PINs lately: the Mac waits and tries again instead of giving up
-                val why = if (Auth.locked()) "locked".toByteArray() else ByteArray(0)
+            val qrId = hello.optString("qr")
+            val qr = if (t == HubProto.HELLO && qrId.isNotEmpty()) Auth.checkHubQr(this, qrId, hello.optString("proof"), nonce) else null
+            val pin = hello.optString("pin")
+            val pinOk = qr == null && t == HubProto.HELLO && pin.isNotEmpty() && Auth.checkPin(this, pin)
+            if (qr == null && !pinOk) {
+                Log.w(TAG, "rejected ${s.inetAddress}: ${if (qrId.isNotEmpty() && pin.isEmpty()) "unknown QR pairing" else "bad pin"}")
+                // "locked" = too many wrong PINs lately: the Mac waits and tries again instead of giving up;
+                // "qr" = this computer's QR code wasn't scanned (or was removed): fall back to the PIN
+                val why = when {
+                    Auth.locked() -> "locked"
+                    qrId.isNotEmpty() && pin.isEmpty() -> "qr"
+                    else -> ""
+                }.toByteArray()
                 s.getOutputStream().write(ByteBuffer.allocate(5 + why.size).put(HubProto.HELLO_BAD.toByte()).putInt(why.size).put(why).array())
                 s.close(); return
             }
@@ -321,9 +334,11 @@ class HubService : Service() {
             c = Client(s)
             client?.close()
             client = c
-            macName = hello.optString("name", "Mac")
+            macName = hello.optString("name", qr?.name ?: "Mac")
             // the mirror key: lets the mirror connect without sending the PIN in the clear
-            c.control(HubProto.HELLO_OK, JSONObject().put("name", deviceName()).put("mirrorKey", Prefs.token(this)).toString().toByteArray())
+            val ok = JSONObject().put("name", deviceName()).put("mirrorKey", Prefs.token(this))
+            if (qr != null) ok.put("proof", Auth.hubPhoneProof(qr, nonce)).put("qr", true)
+            c.control(HubProto.HELLO_OK, ok.toString().toByteArray())
             if (CaptureService.instance != null) c.control(HubProto.CAST_READY, ByteArray(0))
             NotifListener.instance?.connected()
             updateNotification()
