@@ -57,7 +57,8 @@ sealed class HubLink
                 // after the first pairing only that phone's key is accepted
                 return pinned == null || pinned == seenFp;
             });
-            ssl.AuthenticateAsClient(new SslClientAuthenticationOptions { TargetHost = "PhoneCast", EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13 });
+            // the OS picks the newest TLS; the phone itself only accepts TLS 1.3
+            ssl.AuthenticateAsClient(new SslClientAuthenticationOptions { TargetHost = "PhoneCast" });
             tcp.ReceiveTimeout = 1500;
             byte[] nonce = null;
             var (pt, pp) = Read();
@@ -105,7 +106,7 @@ sealed class HubLink
                 OnPacket?.Invoke(type, p);
             }
         }
-        catch (Exception e) { Finish(closed ? "closed" : e.Message); }
+        catch (Exception e) { Finish(closed ? "closed" : e.InnerException != null ? e.Message + " / " + e.InnerException.Message + " " + e.InnerException.HResult.ToString("X") : e.Message); }
     }
 
     void PingLoop()
