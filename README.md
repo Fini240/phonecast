@@ -201,6 +201,8 @@ When `homeNetworkPrefix` is set and the Mac isn't on that network, the menu stre
   (see Install). Only allow the features you use. The Mac keeps the PIN and keys in its app settings.
 - **PC page:** only appears once you enter a Hermes dashboard address in
   Settings; it shows that PC's stats and passes on wake / sleep / boot / lights requests to the dashboard.
+  Since 0.3.1 it also has the dashboard's own Chat, Builder and Studio pages as tabs (phone and Mac), drawn
+  in PhoneCast's colours. They need a dashboard with the `?embed=` views (hermes-dashboard 5eaabc3 or newer).
 - **Accessibility access:** this permission lets PhoneCast tap and type on your phone, so only install
   builds you trust.
 

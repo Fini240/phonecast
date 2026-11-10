@@ -64,6 +64,26 @@ final class PcDashboard: ObservableObject {
 
     // convenience
     var pc: [String: Any] { stats["pc"] as? [String: Any] ?? [:] }
+    /// Installed Strata models (the dashboard probes the PC for them).
+    var strataModels: [(id: String, label: String)] {
+        (stats["strata_models"] as? [[String: Any]] ?? []).compactMap { m in
+            (m["id"] as? String).map { ($0, m["label"] as? String ?? $0) }
+        }
+    }
+    /// "engine" is {active, model, state} while the PC runs Linux, null on Windows.
+    var engineText: String {
+        guard let e = stats["engine"] as? [String: Any], let active = e["active"] as? String else {
+            return os == "windows" ? tr("Windows (no switch)") : "—"
+        }
+        switch active {
+        case "strata":
+            let label = strataModels.first { $0.id == e["model"] as? String }?.label ?? "Strata"
+            let st = e["state"] as? String
+            return label + (st != nil && st != "ready" ? " · \(st!)" : "")
+        case "h3": return tr("Making a video")
+        default: return active.capitalized
+        }
+    }
     var online: Bool { stats["online"] as? Bool ?? false }
     var os: String { pc["os"] as? String ?? "" }
 }
@@ -73,7 +93,36 @@ private func gb(_ v: Any?) -> String { num(v).map { String(format: "%.1f GB", $0
 private func pct(_ v: Any?) -> String { num(v).map { String(format: "%.0f %%", $0) } ?? "—" }
 private func temp(_ v: Any?) -> String { num(v).map { String(format: "%.0f °C", $0) } ?? "—" }
 
+/// The PC page: native controls, plus the dashboard's own Chat, Builder and Studio pages.
 struct PcView: View {
+    @ObservedObject var d = PcDashboard.shared
+    @AppStorage("pcSub") private var sub = "control"
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Picker("", selection: $sub) {
+                    Text("Control").tag("control")
+                    Text("Chat").tag("chat")
+                    Text("Builder").tag("builder")
+                    Text("Studio").tag("studio")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                Spacer()
+                if sub != "control" {
+                    Button { PcWeb.shared.reload(sub) } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless).help("Reload this page")
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            Divider()
+            if sub == "control" || d.base.isEmpty { PcControlView() }
+            else { PcWebView(kind: sub, base: d.base) }
+        }
+    }
+}
+
+struct PcControlView: View {
     @ObservedObject var d = PcDashboard.shared
     @State private var confirm: (title: String, path: String, body: [String: Any])?
 
@@ -84,7 +133,7 @@ struct PcView: View {
                     Text("PC").font(.largeTitle.bold())
                     Spacer()
                     Button { NSWorkspace.shared.open(URL(string: d.base)!) } label: { Label("Full dashboard", systemImage: "safari") }
-                        .help("Studio (video and pictures), agent chat and everything else")
+                        .help("The whole dashboard in the browser")
                 }
                 if !d.reachable {
                     Text("Dashboard not reachable at \(d.base) (\(d.lastError ?? "…")). Is the dashboard running, and Tailscale on?")
@@ -110,10 +159,15 @@ struct PcView: View {
 
     private var statusPanel: some View {
         Panel(title: d.online ? "Running \(d.os.capitalized)" : "Asleep or off", symbol: d.online ? "desktopcomputer" : "moon.zzz") {
-            if let b = d.stats["boot"] as? [String: Any], let m = b["message"] as? String { Row("Last boot", m) }
+            if let b = d.stats["boot"] as? [String: Any] {
+                if let to = b["target"] as? String, let ph = b["phase"] as? String, !["idle", "done"].contains(ph) {
+                    HStack { ProgressView().controlSize(.small); Text("Switching to \(to.capitalized): \(ph)") }
+                }
+                if let m = b["message"] as? String { Row("Last boot", m) }
+            }
             if let up = num(d.pc["uptime"]) { Row("Up for", Duration.seconds(up).formatted(.units(allowed: [.days, .hours, .minutes], width: .abbreviated))) }
             if let m = d.pc["cpu_model"] as? String { Row("CPU", m) }
-            if let t = d.stats["engine"] as? String { Row("AI engine", t) }
+            Row("AI engine", d.engineText)
             if let busy = d.busy { HStack { ProgressView().controlSize(.small); Text(busy + "…") } }
         }
     }
@@ -187,7 +241,13 @@ struct PcView: View {
             HStack {
                 Text("Engine").foregroundStyle(.secondary)
                 Button("Ollama") { d.post("engine", ["engine": "ollama"], label: "Switching to Ollama") }
-                Button("Strata") { d.post("engine", ["engine": "strata"], label: "Switching to Strata") }
+                if d.strataModels.isEmpty {
+                    Button("Strata") { d.post("engine", ["engine": "strata"], label: "Switching to Strata") }
+                }
+                ForEach(d.strataModels, id: \.id) { m in
+                    Button(m.label) { d.post("engine", ["engine": "strata", "model": m.id], label: "Switching to \(m.label)") }
+                        .help("Strata takes about 80 s to load")
+                }
             }
             .disabled(!d.online || d.os != "linux")
             if let t = d.stats["tokens"] as? [String: Any] {

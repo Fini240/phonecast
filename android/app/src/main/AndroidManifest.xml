@@ -52,6 +52,7 @@
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
             android:exported="true"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
 
         <!-- Two launcher entries with different icons; LauncherIcon.kt enables one at a time:

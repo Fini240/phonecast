@@ -205,6 +205,7 @@ class Ui(private val a: Activity) {
                 }
             }, LinearLayout.LayoutParams(-1, -2))
         }
+        init { if (t.isEmpty()) head.visibility = View.GONE }
         fun refresh() {
             val cur = get()
             // a value set elsewhere (by the Mac) that isn't one of the buttons: say so in the heading

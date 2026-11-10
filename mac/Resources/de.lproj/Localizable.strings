@@ -176,3 +176,10 @@
 "Connecting over the USB cable…\n(If the phone asks to open PhoneCast for this USB device, tap OK / Always.)" = "Verbinde über das USB-Kabel…\n(Fragt das Handy, ob PhoneCast für dieses USB-Gerät geöffnet werden soll, tippe auf OK / Immer.)";
 "Wrong PIN" = "Falsche PIN"; "Wrong PIN — check the PIN in the phone app" = "Falsche PIN – prüfe die PIN in der Handy-App"; "Disconnected" = "Getrennt";
 "Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over Tailscale." = "Öffne PhoneCast auf dem Handy. Es verbindet sich im selben WLAN oder über Tailscale von selbst.";
+
+/* v0.3.1: dashboard pages in the PC page */
+"Chat" = "Chat"; "Builder" = "Builder"; "Studio" = "Studio"; "Reload this page" = "Seite neu laden";
+"The whole dashboard in the browser" = "Das ganze Dashboard im Browser";
+"Windows (no switch)" = "Windows (kein Wechsel)"; "Making a video" = "Erstellt ein Video";
+"Strata takes about 80 s to load" = "Strata braucht ca. 80 s zum Laden";
+"Switching to %@: %@" = "Wechsel zu %@: %@";

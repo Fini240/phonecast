@@ -52,6 +52,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dashWeb = DashWeb(this)
+        pcSub = getSharedPreferences("ui", MODE_PRIVATE).getString("pcsub", "control")!!
         current = savedInstanceState?.getString("tab") ?: getSharedPreferences("ui", MODE_PRIVATE).getString("tab", "home")!!
         buildUi()
         HubService.start(this)
@@ -76,6 +78,13 @@ class MainActivity : Activity() {
     override fun onPause() { super.onPause(); LauncherIcon.appVisible = false; ui.removeCallbacksAndMessages(null) }
 
     private lateinit var u: Ui
+    /** The dashboard's Chat/Builder/Studio pages inside the PC tab; outlives UI rebuilds. */
+    private lateinit var dashWeb: DashWeb
+    /** Which part of the PC tab shows: "control" (native) or a dashboard view ("chat", "builder", "studio"). */
+    private var pcSub = "control"
+    private var pcHolder: FrameLayout? = null
+    private var pcNative: View? = null
+    private var pcSeg: Ui.Segmented<String>? = null
 
     private fun dp(v: Int) = u.dp(v)
 
@@ -84,7 +93,7 @@ class MainActivity : Activity() {
         // folding/unfolding or dark mode: rebuild so the columns and colours match
         val nowWide = newConfig.screenWidthDp >= 600
         val nowDark = (newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        if (nowWide != u.wide || nowDark != u.dark) { updaters.clear(); pages.clear(); tabViews.clear(); buildUi() }
+        if (nowWide != u.wide || nowDark != u.dark) { updaters.clear(); pages.clear(); tabViews.clear(); pcHolder = null; buildUi() }
     }
 
     private fun buildUi() {
@@ -95,7 +104,7 @@ class MainActivity : Activity() {
 
         pages["home"] = homePage()
         pages["mac"] = macPage()
-        pages["pc"] = pcPage()
+        pages["pc"] = pcContainer()
         pages["cast"] = castPage()
         pages["settings"] = settingsPage()
         pages.values.forEach { content.addView(it, FrameLayout.LayoutParams(-1, -1)) }
@@ -136,7 +145,11 @@ class MainActivity : Activity() {
         // the page starts below the status bar; the bar's colour runs down behind the gesture area
         root.setOnApplyWindowInsetsListener { v, ins ->
             val sb = ins.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
-            v.setPadding(sb.left, sb.top, sb.right, 0)
+            // keyboard up (the chat's composer, a text field): the page ends above it and the tab bar steps aside
+            val ime = ins.getInsets(android.view.WindowInsets.Type.ime()).bottom
+            val kb = ime > sb.bottom
+            bar.visibility = if (kb) View.GONE else View.VISIBLE
+            v.setPadding(sb.left, sb.top, sb.right, if (kb) ime else 0)
             bar.setPadding(0, dp(10), 0, dp(10) + sb.bottom)
             ins
         }
@@ -314,10 +327,49 @@ class MainActivity : Activity() {
 
     // ---- PC ----
 
+    /** The PC tab: a switch at the top between the native controls and the dashboard's own Chat, Builder and Studio. */
+    private fun pcContainer(): View {
+        pcNative = pcPage()
+        val seg = u.Segmented("", listOf("Control" to "control", "Chat" to "chat", "Builder" to "builder", "Studio" to "studio"),
+            { pcSub }, { showPc(it) })
+        pcSeg = seg
+        val holder = FrameLayout(this)
+        pcHolder = holder
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(u.bg)
+            addView(seg.view.apply { setPadding(dp(16), dp(4), dp(16), dp(4)) }, LinearLayout.LayoutParams(-1, -2))
+            addView(holder, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        showPc(pcSub)
+        return col
+    }
+
+    private fun showPc(sub: String) {
+        val holder = pcHolder ?: return
+        pcSub = if (sub in listOf("chat", "builder", "studio") && Dashboard.base.isNotEmpty()) sub else "control"
+        getSharedPreferences("ui", MODE_PRIVATE).edit().putString("pcsub", pcSub).apply()
+        holder.removeAllViews()
+        val v = if (pcSub == "control") pcNative!! else dashWeb.view(pcSub, Dashboard.base, u)
+        (v.parent as? android.view.ViewGroup)?.removeView(v)
+        holder.addView(v, FrameLayout.LayoutParams(-1, -1))
+        pcSeg?.refresh()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        // inside a dashboard view: back in the page first, then back to the controls
+        if (current == "pc" && pcSub != "control") { if (!dashWeb.back(pcSub)) showPc("control"); return }
+        @Suppress("DEPRECATION") super.onBackPressed()
+    }
+
     private fun pcPage(): View {
         val status = u.Status()
         val stats = u.Rows()
         val ai = u.Rows()
+        val tokens = u.Rows()
+        val engines = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        var enginesSig = ""
         val msg = u.label("", 13f, secondary = true)
         fun act(path: String, body: org.json.JSONObject, ask: String? = null) {
             val go = {
@@ -351,12 +403,48 @@ class MainActivity : Activity() {
                 add(Ui.Row("RAM", gb(pc.optDouble("mem_used", 0.0)) + " / " + gb(pc.optDouble("mem_total", 0.0))))
                 pc.optLong("uptime", -1).takeIf { it >= 0 }?.let { add(Ui.Row("Up for", if (it > 3600) "${it / 3600} h ${it % 3600 / 60} min" else "${it / 60} min")) }
             })
+            // "engine" is {active, model, state} while the PC runs Linux, null on Windows
+            val eng = st?.optJSONObject("engine")
+            val strata = st?.optJSONArray("strata_models")
+            val strataList = (0 until (strata?.length() ?: 0)).map { strata!!.getJSONObject(it) }
             ai.set(st?.let { s ->
                 val models = s.optJSONArray("ollama")
                 val names = (0 until (models?.length() ?: 0)).joinToString(", ") { models!!.getJSONObject(it).optString("name") }
-                listOf(Ui.Row("Engine", s.optString("engine").takeIf { it.isNotEmpty() && it != "null" } ?: "—"),
-                    Ui.Row("Loaded", names.ifEmpty { "nothing" }))
+                val active = eng?.optString("active")?.takeIf { it.isNotEmpty() && it != "null" }
+                val label = strataList.firstOrNull { it.optString("id") == eng?.optString("model") }?.optString("label")
+                buildList {
+                    add(Ui.Row("Engine", when {
+                        active == null -> if (Dashboard.os == "windows") tr("Windows (no switch)") else "—"
+                        active == "strata" -> listOfNotNull("Strata", label, eng.optString("state").takeIf { it.isNotEmpty() && it != "null" && it != "ready" }).joinToString(" · ")
+                        active == "h3" -> tr("Making a video")
+                        else -> active.replaceFirstChar { it.uppercase() }
+                    }))
+                    add(Ui.Row("Loaded", names.ifEmpty { "nothing" }))
+                    s.optJSONObject("boot")?.let { b ->
+                        val ph = b.optString("phase")
+                        val to = b.optString("target").takeIf { it.isNotEmpty() && it != "null" }
+                        if (to != null && ph !in listOf("", "null", "idle", "done")) add(Ui.Row("Switching OS", "${to.replaceFirstChar { it.uppercase() }} · $ph"))
+                    }
+                }
             } ?: emptyList())
+            // engine buttons: Ollama plus each installed Strata model (rebuilt only when that list changes)
+            val sig = strataList.joinToString { it.optString("id") } + "|" + (eng?.optString("active") ?: "") + (eng?.optString("model") ?: "")
+            if (sig != enginesSig) {
+                enginesSig = sig
+                engines.removeAllViews()
+                val items = mutableListOf<Pair<String, () -> Unit>>("Ollama" to { act("engine", j("engine" to "ollama")) })
+                if (strataList.isEmpty()) items += "Strata" to { act("engine", j("engine" to "strata")) }
+                strataList.forEach { m -> items += m.optString("label", "Strata") to { act("engine", j("engine" to "strata", "model" to m.optString("id"))) } }
+                engines.addView(u.grid(2, *items.toTypedArray()))
+            }
+            val t = st?.optJSONObject("tokens")
+            tokens.set(if (t == null) emptyList() else buildList {
+                fun m(v: Double) = if (v >= 1e6) "%.1f M".format(v / 1e6) else "%.0f k".format(v / 1e3)
+                add(Ui.Row("In", m(t.optDouble("in", 0.0)) + tr(" · {0} cached", m(t.optDouble("cache_read", 0.0)))))
+                add(Ui.Row("Out", m(t.optDouble("out", 0.0))))
+                add(Ui.Row("Calls", tr("{0} in {1} sessions", t.optInt("calls"), t.optInt("sessions"))))
+                t.optJSONObject("current")?.let { c -> add(Ui.Row("Last session", "${c.optString("model")} · ${c.optInt("calls")} " + tr("calls"))) }
+            })
         }
         return u.page("PC",
             u.card(status.view, stats.view),
@@ -378,10 +466,8 @@ class MainActivity : Activity() {
                 0xFF22C55E.toInt() to { act("rgb", j("color" to "green")) },
                 off = { act("rgb", j("color" to "off")) },
             ), u.tonal("Lights follow the PC's load") { act("rgbauto", j("on" to true)) }),
-            u.card(u.title("AI"), ai.view, u.grid(2,
-                "Ollama" to { act("engine", j("engine" to "ollama")) },
-                "Strata" to { act("engine", j("engine" to "strata")) },
-            ), u.hint("Switching engines works while the PC runs Linux.")),
+            u.card(u.title("AI"), ai.view, engines, u.hint("Switching engines works while the PC runs Linux. Strata takes about 80 s to load.")),
+            u.card(u.title("Hermes tokens"), tokens.view),
             u.card(u.title("Use the PC"),
                 u.label("Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad.", 14f, secondary = true),
                 u.primary("Open Moonlight") { openMoonlight() },
@@ -683,6 +769,7 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (dashWeb.onPermission(requestCode, grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)) return
         if (requestCode == REQ_PERMS) askCapture()
         if (requestCode == REQ_FEATURES) HubService.instance?.features?.startCallWatch()
     }
@@ -701,6 +788,7 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (dashWeb.onResult(requestCode, resultCode, data)) return
         if (requestCode == REQ_FILES) {
             if (resultCode != RESULT_OK || data == null) return
             val uris = ArrayList<Uri>()

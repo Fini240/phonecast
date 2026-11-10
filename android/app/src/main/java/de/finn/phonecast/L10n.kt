@@ -76,6 +76,12 @@ private val DE = mapOf(
     "Start Windows" to "Windows starten", "Restart into Windows?" to "In Windows neu starten?",
     "Monitors & lights" to "Monitore & Licht", "Monitors on" to "Monitore an", "Monitors off" to "Monitore aus", "Off" to "Aus", "On" to "An",
     "Lights follow the PC's load" to "Licht folgt der PC-Auslastung",
+    "Control" to "Steuern", "Chat" to "Chat", "Builder" to "Builder", "Studio" to "Studio",
+    "Windows (no switch)" to "Windows (kein Wechsel)", "Making a video" to "Erstellt ein Video", "Switching OS" to "Wechselt System",
+    "Switching engines works while the PC runs Linux. Strata takes about 80 s to load." to "Die Engine lässt sich wechseln, solange der PC Linux nutzt. Strata braucht ca. 80 s zum Laden.",
+    "Hermes tokens" to "Hermes-Tokens", "In" to "Rein", "Out" to "Raus", "Calls" to "Aufrufe", " · {0} cached" to " · {0} aus Cache",
+    "{0} in {1} sessions" to "{0} in {1} Sitzungen", "Last session" to "Letzte Sitzung", "calls" to "Aufrufe",
+    "Saving {0} to Downloads" to "Speichere {0} in Downloads",
     "AI" to "KI", "Switching engines works while the PC runs Linux." to "Die Engine lässt sich wechseln, solange der PC Linux nutzt.",
     "Use the PC" to "PC benutzen",
     "Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad." to
