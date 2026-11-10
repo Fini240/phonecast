@@ -146,6 +146,8 @@ class HubService : Service() {
     private val fileIds = AtomicInteger(1)
     lateinit var features: Features
         private set
+    lateinit var extras: Extras
+        private set
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -169,6 +171,8 @@ class HubService : Service() {
             Thread({ statusLoop() }, "hub-status").start()
             features = Features(this, this)
             features.startCallWatch()
+            extras = Extras(this, this)
+            extras.start()
         }
         when (intent?.action) {
             ACTION_SEND_FILES -> {
@@ -176,7 +180,13 @@ class HubService : Service() {
                     else @Suppress("DEPRECATION") intent.getParcelableArrayListExtra(EXTRA_URIS)
                 uris?.let { sendFiles(it) }
             }
-            ACTION_SEND_TEXT -> intent.getStringExtra(EXTRA_TEXT)?.let { sendClip(it) }
+            ACTION_SEND_TEXT -> intent.getStringExtra(EXTRA_TEXT)?.let { t ->
+                // a shared link opens in the Mac's browser; other text goes to its clipboard
+                val url = t.trim()
+                if (Regex("^https?://\\S+$").matches(url) && client != null) sendJson(HubProto.EVENT, JSONObject().put("e", "open").put("url", url))
+                else sendClip(t)
+            }
+            Extras.ACTION_STOP_RING -> if (::extras.isInitialized) extras.ring(false)
         }
         return START_STICKY
     }
@@ -343,6 +353,7 @@ class HubService : Service() {
             NotifListener.instance?.connected()
             updateNotification()
             pushStatus()
+            extras.connected()
 
             val files = HashMap<Int, Incoming>()
             try {

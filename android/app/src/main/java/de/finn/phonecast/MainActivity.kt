@@ -500,6 +500,7 @@ class MainActivity : Activity() {
         val notif = u.Status(16f)
         val notifBtn = u.tonal("Allow notification access") { openNotificationAccess() }
         val clip = u.SwitchRow("Copy to the Mac automatically", { Prefs.autoClip(this) }) { on -> Prefs.setAutoClip(this, on); tick() }
+        val shots = u.SwitchRow("Send new screenshots to the Mac", { Prefs.autoShots(this) }) { on -> Prefs.setAutoShots(this, on); tick() }
         val featRows = u.Rows()
         val dashView = u.label("", 14f, secondary = true)
         val featBtn = u.primary("Allow messages, calls, contacts & photos") { requestFeatures() }
@@ -513,6 +514,7 @@ class MainActivity : Activity() {
             if (NotifListener.instance != null) notif.set(u.green, "Notifications go to the Mac", "")
             else notif.set(u.grey, "Notifications stay on the phone", "")
             u.gone(notifBtn, NotifListener.instance != null)
+            shots.refresh("They land in Downloads/PhoneCast and on the Mac's clipboard")
             clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs mouse & keyboard turned on (Cast tab)" else "Copy here, paste on the Mac")
             val p = HubService.instance?.let { try { it.features.perms() } catch (_: Exception) { null } }
             if (p != null) {
@@ -568,7 +570,7 @@ class MainActivity : Activity() {
                             .setPositiveButton("New PIN") { _, _ -> Prefs.newPin(this); toast("New PIN made"); tick() }
                             .setNegativeButton("Cancel", null).show()
                     })),
-            u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view),
+            u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view, shots.view),
             u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn,
                 u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
             u.card(u.title("PC dashboard (optional)"), dashView,

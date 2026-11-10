@@ -126,6 +126,10 @@ object Prefs {
     fun shapeLong(c: Context): Int = p(c).getInt("shapeLong", 0)
     fun setShapeLong(c: Context, v: Int) = p(c).edit().putInt("shapeLong", v).apply()
 
+    /** New screenshots go to the Mac by themselves. */
+    fun autoShots(c: Context): Boolean = p(c).getBoolean("autoShots", true)
+    fun setAutoShots(c: Context, v: Boolean) = p(c).edit().putBoolean("autoShots", v).apply()
+
     fun audio(c: Context): Boolean = p(c).getBoolean("audio", true)
     fun setAudio(c: Context, v: Boolean) = p(c).edit().putBoolean("audio", v).apply()
 }

@@ -74,6 +74,8 @@ class Features(private val ctx: Context, private val hub: HubService) {
         "file.delete" -> deletePath(p.getString("path"))
         "apps" -> apps()
         "app.open" -> openApp(p.getString("pkg"))
+        "media.cmd" -> hub.extras.mediaCmd(p.getString("a"))
+        "phone.ring" -> hub.extras.ring(p.optBoolean("on", true))
         else -> throw IllegalArgumentException("unknown request $m")
     }
 

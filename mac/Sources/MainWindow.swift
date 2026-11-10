@@ -214,6 +214,7 @@ struct OverviewView: View {
                         Row("Mac screen on the phone", store.phoneControlsMac ? "in use" : "not in use")
                     }
                 }
+                if store.connected, let np = store.nowPlaying { NowPlayingCard(np: np) }
                 HStack(spacing: 10) {
                     Button { Hub.shared.mirror() } label: {
                         Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle").padding(.horizontal, 6)
@@ -223,6 +224,9 @@ struct OverviewView: View {
                     Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files…", systemImage: "square.and.arrow.up") }
                     Button { Hub.shared.sendClipboard(nil) } label: { Label("Send clipboard", systemImage: "doc.on.clipboard") }
                     Button { nav.section = .messages } label: { Label("New message", systemImage: "square.and.pencil") }
+                    Button { Hub.shared.ring(!store.ringing) } label: {
+                        Label(store.ringing ? "Stop ringing" : "Find phone", systemImage: store.ringing ? "bell.slash" : "bell.and.waves.left.and.right")
+                    }
                 }
                 .controlSize(.large)
                 .disabled(!store.connected)
@@ -240,6 +244,33 @@ struct OverviewView: View {
             }
             .padding(24)
         }
+    }
+}
+
+/// What the phone is playing, with play/pause and skip (v0.3).
+struct NowPlayingCard: View {
+    let np: Store.NowPlaying
+    var body: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let art = np.art { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
+                else { Image(systemName: "music.note").font(.title2).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary) }
+            }
+            .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(np.title).font(.headline).lineLimit(1)
+                Text([np.artist, np.app].filter { !$0.isEmpty }.joined(separator: " · ")).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            HStack(spacing: 18) {
+                Button { Hub.shared.mediaCommand("prev") } label: { Image(systemName: "backward.fill") }
+                Button { Hub.shared.mediaCommand("toggle") } label: { Image(systemName: np.playing ? "pause.fill" : "play.fill").font(.title2) }
+                Button { Hub.shared.mediaCommand("next") } label: { Image(systemName: "forward.fill") }
+            }
+            .buttonStyle(.plain).font(.title3)
+        }
+        .padding(12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

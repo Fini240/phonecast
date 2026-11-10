@@ -162,6 +162,7 @@ final class HubLink {
 /// UI state lives in `Store`; this class talks to the phone.
 final class Hub: NSObject, NSMenuDelegate {
     static let shared = Hub()
+    static let screenshotReq = 9001   // Extras.SCREENSHOT_REQ on the phone
     let store = Store.shared
 
     private(set) var link: HubLink?
@@ -489,7 +490,23 @@ final class Hub: NSObject, NSMenuDelegate {
             else { done(.failure(HubError(message: o["message"] as? String ?? "Failed", permission: o["error"] as? String == "permission"))) }
         case HT.event:
             guard let o = json(p) else { return }
-            if o["e"] as? String == "call" { store.callEvent(o) }
+            switch o["e"] as? String {
+            case "call": store.callEvent(o)
+            case "media":
+                if let t = o["title"] as? String, !t.isEmpty {
+                    let art = (o["art"] as? String).flatMap { Data(base64Encoded: $0) }.flatMap(NSImage.init(data:))
+                    store.nowPlaying = Store.NowPlaying(title: t, artist: o["artist"] as? String ?? "", app: o["app"] as? String ?? "",
+                                                        playing: o["playing"] as? Bool ?? false, art: art ?? (store.nowPlaying?.title == t ? store.nowPlaying?.art : nil))
+                } else { store.nowPlaying = nil }
+            case "ring": store.ringing = o["on"] as? Bool ?? false
+            case "open":
+                // a link shared on the phone: open it in the Mac's browser (web links only)
+                if let s = o["url"] as? String, let u = URL(string: s), ["http", "https"].contains(u.scheme?.lowercased() ?? "") {
+                    NSWorkspace.shared.open(u)
+                    Banners.shared.info("Opened a link from \(store.phoneName)", u.host ?? s)
+                }
+            default: break
+            }
         case HT.fileBegin:
             if let o = json(p), let id = o["id"] as? Int {
                 let name = o["name"] as? String ?? "file"
@@ -509,6 +526,13 @@ final class Hub: NSObject, NSMenuDelegate {
                 store.finishTransfer(tid, url: url)
                 tempReqs.remove(req)
                 if let then = wanted.removeValue(forKey: req) { then(url) }
+                else if req == Self.screenshotReq, let img = NSImage(contentsOf: url) {
+                    // a new screenshot on the phone: also on the Mac's clipboard, ready to paste
+                    let pb = NSPasteboard.general
+                    pb.clearContents(); pb.writeObjects([img, url as NSURL])
+                    clipFromPhone = pb.changeCount; clipCount = pb.changeCount
+                    Banners.shared.file(url, from: store.phoneName + " · screenshot, copied")
+                }
                 else { Banners.shared.file(url, from: store.phoneName) }
             }
         case HT.fileCancel:
@@ -689,10 +713,19 @@ final class Hub: NSObject, NSMenuDelegate {
         if let t = store.transfers.first(where: { $0.state == .running }) { info("\(t.outgoing ? "Sending" : "Receiving") \(t.name) \(Int(t.progress * 100)) %") }
         m.addItem(.separator())
         _ = act("Open PhoneCast", #selector(openMain(_:)))
+        if connected, let np = store.nowPlaying {
+            m.addItem(.separator())
+            info("♫ \(np.title)" + (np.artist.isEmpty ? "" : " — \(np.artist)"))
+            act("Previous", #selector(mediaCmd(_:))).representedObject = "prev"
+            act(np.playing ? "Pause" : "Play", #selector(mediaCmd(_:))).representedObject = "toggle"
+            act("Next", #selector(mediaCmd(_:))).representedObject = "next"
+            m.addItem(.separator())
+        }
         _ = act(store.phoneCasting ? "Show phone screen" : "Mirror phone", #selector(castPhone(_:)))
         _ = act("Send files to phone…", #selector(chooseFiles(_:)))
         _ = act("Send clipboard to phone", #selector(sendClipboard(_:)))
         act("Mute notifications", #selector(toggleMute(_:))).state = store.muteAll ? .on : .off
+        _ = act(store.ringing ? "Stop ringing phone" : "Ring phone (find it)", #selector(ringPhone(_:)))
         m.addItem(.separator())
         for r in store.devices { info(r.name + "   " + (r.ms.map { "● \(Int($0.rounded())) ms" } ?? "○ offline")) }
         m.addItem(.separator())
@@ -701,6 +734,26 @@ final class Hub: NSObject, NSMenuDelegate {
 
     @objc func openMain(_ s: Any?) { onOpenMain?() }
     @objc func toggleMute(_ s: Any?) { store.muteAll.toggle() }
+
+    // MARK: v0.3: media control + find my phone
+
+    @objc func mediaCmd(_ s: Any?) {
+        let a = ((s as? NSMenuItem)?.representedObject as? String) ?? (s as? String) ?? "toggle"
+        mediaCommand(a)
+    }
+    func mediaCommand(_ a: String) {
+        guard connected else { return }
+        request("media.cmd", ["a": a]) { _ in }
+        if a == "toggle", var np = store.nowPlaying { np.playing.toggle(); store.nowPlaying = np }   // feels instant; the phone confirms
+    }
+    @objc func ringPhone(_ s: Any?) { ring(!store.ringing) }
+    func ring(_ on: Bool) {
+        guard connected else { Banners.shared.info("Phone not connected", "It can only ring while PhoneCast is connected."); return }
+        request("phone.ring", ["on": on]) { [weak self] r in
+            if case .failure(let e) = r { Banners.shared.info("Couldn't ring the phone", e.message) }
+            else { self?.store.ringing = on }
+        }
+    }
     @objc func castPhone(_ s: Any?) { mirror() }
 
     /// Show the phone's screen: connect if it's already sharing, otherwise ask it to start.

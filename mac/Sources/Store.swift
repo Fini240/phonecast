@@ -54,6 +54,11 @@ final class Store: ObservableObject {
     @Published var macStats: [String: Any] = [:]
     @Published var devices: [DeviceProbes.Result] = []
 
+    // v0.3: what the phone is playing, and whether it's ringing (Find my phone)
+    struct NowPlaying: Equatable { var title, artist, app: String; var playing: Bool; var art: NSImage? }
+    @Published var nowPlaying: NowPlaying?
+    @Published var ringing = false
+
     // notifications
     @Published var notifications: [PhoneNotif] = []
     @Published var icons: [String: NSImage] = [:]
