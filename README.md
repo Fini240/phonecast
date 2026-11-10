@@ -18,6 +18,8 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Do Not Disturb**: when the phone is on Do Not Disturb, the Mac stays quiet too; switch it from the menu bar.
 - **Lock the Mac when the phone leaves** (optional, only when nobody is using the Mac).
 - **Updates in the app**: "Install update" on the Mac and the phone, Help → Check for updates on Windows.
+- **Windows too**: the Windows app mirrors and links (notifications, clipboard, files, now playing, ring);
+  the phone can be linked to a Mac and a PC at the same time.
 - **English and German**: the apps follow the device's language.
 - **The app icon shows the link**: the little phone's screen is lit while the phone and the computer are
   connected, dark when not (Mac Dock and menu bar, Android home screen, Windows taskbar).

@@ -1,7 +1,8 @@
 # PhoneCast for Windows
 
-The Windows version of the PhoneCast viewer. It works with the same phone app as the Mac version:
-screen, sound, mouse and keyboard, the key map and mouse aiming. It connects over Wi-Fi, Tailscale
+The Windows version of PhoneCast. It works with the same phone app as the Mac version:
+screen, sound, mouse and keyboard, the key map and mouse aiming, plus the link (notifications,
+clipboard, files, now playing, ring phone). It connects over Wi-Fi, Tailscale
 or a USB cable (USB tethering).
 
 ## Install
@@ -16,6 +17,21 @@ or a USB cable (USB tethering).
 
 Windows SmartScreen may warn the first time, because the app isn't signed. Click "More info",
 then "Run anyway".
+
+## The link: notifications, clipboard, files
+
+Besides the mirror, the PC stays linked to the phone over Wi-Fi or Tailscale (the same pairing):
+
+- **Notifications** from the phone pop up on the PC; click one to reply, open it on the phone or dismiss it.
+- **The tray icon** lists recent notifications and shows what the phone is playing, with play/pause and
+  skip, plus **Ring phone** to find it.
+- **Clipboard both ways**, text and pictures (Ctrl+Shift+C sends the PC's clipboard).
+- **Files both ways:** drop files on the window or use Link → Send files; files from the phone land in
+  `Downloads\PhoneCast`. New screenshots on the phone arrive by themselves (and go on the clipboard).
+- **Calls:** answer or decline from the PC (the call itself stays on the phone).
+- **Web links** shared from the phone ("PhoneCast to Mac") open in the PC's browser.
+
+The phone can be linked to a Mac and a PC at the same time.
 
 ## USB cable (lowest delay)
 
