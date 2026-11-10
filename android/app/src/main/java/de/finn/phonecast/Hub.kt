@@ -524,6 +524,9 @@ class HubService : Service() {
         }
     }
 
+    /** Send the status now (after a change the Mac made, e.g. Do Not Disturb). */
+    fun refreshStatus() { Thread({ try { pushStatus() } catch (_: Exception) {} }, "hub-status-now").start() }
+
     private fun pushStatus() {
         val o = JSONObject()
         o.put("name", deviceName())
@@ -556,6 +559,9 @@ class HubService : Service() {
         o.put("casting", CaptureService.instance != null)
         o.put("control", InputService.instance != null)
         o.put("notifications", NotifListener.instance != null)
+        // Do Not Disturb: the Mac stays quiet too
+        val filter = getSystemService(NotificationManager::class.java).currentInterruptionFilter
+        o.put("dnd", filter != NotificationManager.INTERRUPTION_FILTER_ALL && filter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN)
         o.put("perms", features.perms())
         transfer?.let { o.put("transfer", it) }
         sendJson(HubProto.STATUS, o)

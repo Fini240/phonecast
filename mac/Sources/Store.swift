@@ -69,6 +69,9 @@ final class Store: ObservableObject {
     @Published var appNames: [String: String] = (UserDefaults.standard.dictionary(forKey: "appNames") as? [String: String]) ?? [:] {
         didSet { UserDefaults.standard.set(appNames, forKey: "appNames") }
     }
+    /// Phone on Do Not Disturb -> no phone banners on the Mac either (they still land in the list).
+    @Published var followPhoneDnd = UserDefaults.standard.object(forKey: "followPhoneDnd") as? Bool ?? true { didSet { UserDefaults.standard.set(followPhoneDnd, forKey: "followPhoneDnd") } }
+    var phoneDnd: Bool { phoneStatus["dnd"] as? Bool ?? false }
     @Published var quietHours = UserDefaults.standard.bool(forKey: "quietHours") { didSet { UserDefaults.standard.set(quietHours, forKey: "quietHours") } }
     @Published var quietFrom = UserDefaults.standard.object(forKey: "quietFrom") as? Int ?? 22 { didSet { UserDefaults.standard.set(quietFrom, forKey: "quietFrom") } }
     @Published var quietTo = UserDefaults.standard.object(forKey: "quietTo") as? Int ?? 7 { didSet { UserDefaults.standard.set(quietTo, forKey: "quietTo") } }
@@ -140,7 +143,7 @@ final class Store: ObservableObject {
         NSLog("hub: notification from \(n.app): \(n.title)")
         // SMS threads change with every message: keep Messages fresh
         if pkg.contains("messag") || pkg.contains("mms") { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.loadThreads() } }
-        if !muteAll && !quietNow && !mutedApps.contains(pkg) { Banners.shared.show(n, icon: icons[pkg]) }
+        if !muteAll && !quietNow && !(followPhoneDnd && phoneDnd) && !mutedApps.contains(pkg) { Banners.shared.show(n, icon: icons[pkg]) }
     }
 
     func removeNotification(_ key: String) {

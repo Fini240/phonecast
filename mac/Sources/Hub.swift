@@ -754,6 +754,7 @@ final class Hub: NSObject, NSMenuDelegate {
         _ = act("Send files to phone…", #selector(chooseFiles(_:)))
         _ = act("Send clipboard to phone", #selector(sendClipboard(_:)))
         act("Mute notifications", #selector(toggleMute(_:))).state = store.muteAll ? .on : .off
+        if connected { act("Do Not Disturb on phone", #selector(togglePhoneDnd(_:))).state = store.phoneDnd ? .on : .off }
         _ = act(store.ringing ? "Stop ringing phone" : "Ring phone (find it)", #selector(ringPhone(_:)))
         m.addItem(.separator())
         for r in store.devices { info(r.name + "   " + (r.ms.map { "● \(Int($0.rounded())) ms" } ?? "○ offline")) }
@@ -776,6 +777,13 @@ final class Hub: NSObject, NSMenuDelegate {
         if a == "toggle", var np = store.nowPlaying { np.playing.toggle(); store.nowPlaying = np }   // feels instant; the phone confirms
     }
     @objc func ringPhone(_ s: Any?) { ring(!store.ringing) }
+    @objc func togglePhoneDnd(_ s: Any?) {
+        let on = !store.phoneDnd
+        store.phoneStatus["dnd"] = on            // feels instant; the phone's status confirms
+        request("dnd.set", ["on": on]) { r in
+            if case .failure(let e) = r { Banners.shared.info("Couldn't change Do Not Disturb", e.permission ? "Turn on notification access in the PhoneCast app on the phone." : e.message) }
+        }
+    }
     func ring(_ on: Bool) {
         guard connected else { Banners.shared.info("Phone not connected", "It can only ring while PhoneCast is connected."); return }
         request("phone.ring", ["on": on]) { [weak self] r in

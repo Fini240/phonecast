@@ -976,6 +976,7 @@ struct SettingsView: View {
             Section("Notifications") {
                 Toggle("Show banners", isOn: Binding(get: { !store.muteAll }, set: { store.muteAll = !$0 }))
                 Toggle("Play a sound", isOn: $store.notifSound)
+                Toggle("Quiet while the phone is on Do Not Disturb", isOn: $store.followPhoneDnd)
                 Toggle("Quiet hours", isOn: $store.quietHours)
                 if store.quietHours {
                     HStack {

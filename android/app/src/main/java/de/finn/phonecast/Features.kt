@@ -76,6 +76,13 @@ class Features(private val ctx: Context, private val hub: HubService) {
         "app.open" -> openApp(p.getString("pkg"))
         "media.cmd" -> hub.extras.mediaCmd(p.getString("a"))
         "phone.ring" -> hub.extras.ring(p.optBoolean("on", true))
+        "dnd.set" -> {
+            // the notification listener may switch Do Not Disturb without any extra permission
+            val nl = NotifListener.instance ?: throw SecurityException("notification access")
+            nl.requestInterruptionFilter(if (p.optBoolean("on")) android.service.notification.NotificationListenerService.INTERRUPTION_FILTER_PRIORITY
+                else android.service.notification.NotificationListenerService.INTERRUPTION_FILTER_ALL)
+            Thread.sleep(300); hub.refreshStatus(); true
+        }
         else -> throw IllegalArgumentException("unknown request $m")
     }
 
