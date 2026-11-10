@@ -40,7 +40,7 @@
 
     <application
         android:label="PhoneCast"
-        android:icon="@android:drawable/ic_menu_slideshow"
+        android:icon="@mipmap/ic_launcher_on"
         android:theme="@android:style/Theme.DeviceDefault"
         android:allowBackup="false"
         android:usesCleartextTraffic="true">
@@ -132,7 +132,7 @@
             android:name=".CastTile"
             android:exported="true"
             android:label="Cast to Mac"
-            android:icon="@android:drawable/ic_menu_slideshow"
+            android:icon="@mipmap/ic_launcher_on"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />

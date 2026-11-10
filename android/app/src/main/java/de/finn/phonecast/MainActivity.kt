@@ -431,12 +431,12 @@ class MainActivity : Activity() {
     private fun castPage(): View {
         val status = u.Status()
         val startBtn = u.primary("") { toggleCast() }
-        val control = u.Status()
+        val control = u.Status(16f)
         val controlBtn = u.tonal("") { openAccessibility() }
         val res = u.Segmented("Resolution (long side)", listOf("1280" to 1280, "1920" to 1920, "2560" to 2560, "Native" to 0),
-            { Prefs.maxSize(this) }) { v -> Prefs.setMaxSize(this, v); CaptureService.instance?.restartVideo() }
+            { Prefs.maxSize(this) }, { v -> Prefs.setMaxSize(this, v); CaptureService.instance?.restartVideo() }) { "$it px, set by the computer" }
         val rate = u.Segmented("Bitrate (Mbit/s)", listOf("8" to 8, "16" to 16, "24" to 24, "40" to 40),
-            { Prefs.bitrateMbps(this) }) { v -> Prefs.setBitrateMbps(this, v); CaptureService.instance?.restartVideo() }
+            { Prefs.bitrateMbps(this) }, { v -> Prefs.setBitrateMbps(this, v); CaptureService.instance?.restartVideo() }) { "$it, set by the computer" }
         val audio = u.SwitchRow("Game audio", { Prefs.audio(this) }) { on ->
             Prefs.setAudio(this, on); tick()
             if (CaptureService.instance != null) toast("Takes effect next time you start sharing")
@@ -497,7 +497,7 @@ class MainActivity : Activity() {
         val pinView = u.label("", 34f, bold = true).apply { letterSpacing = 0.18f; setTextIsSelectable(true); setPadding(0, dp(4), 0, dp(2)) }
         val addrRows = u.Rows()
         val keyView = u.mono()
-        val notif = u.Status()
+        val notif = u.Status(16f)
         val notifBtn = u.tonal("Allow notification access") { openNotificationAccess() }
         val clip = u.SwitchRow("Copy to the Mac automatically", { Prefs.autoClip(this) }) { on -> Prefs.setAutoClip(this, on); tick() }
         val featRows = u.Rows()

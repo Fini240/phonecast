@@ -191,8 +191,9 @@ final class Hub: NSObject, NSMenuDelegate {
 
     func start() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "smartphone", accessibilityDescription: "PhoneCast")
-            ?? NSImage(systemSymbolName: "iphone", accessibilityDescription: "PhoneCast")
+        let glyph = Bundle.main.image(forResource: "MenuGlyph")
+        glyph?.isTemplate = true                       // follows the menu bar's light/dark colour
+        statusItem.button?.image = glyph ?? NSImage(systemSymbolName: "smartphone", accessibilityDescription: "PhoneCast")
         statusItem.button?.imagePosition = .imageLeading
         let m = NSMenu(); m.delegate = self; statusItem.menu = m
         store.objectWillChange.sink { [weak self] _ in
@@ -661,7 +662,13 @@ final class Hub: NSObject, NSMenuDelegate {
             b.appearsDisabled = true
         }
         b.toolTip = connected ? "\(store.phoneName) connected" : "Phone not connected"
+        // Dock icon: blue while the phone is connected, grey when not
+        if dockShowsConnected != connected {
+            dockShowsConnected = connected
+            if let img = Bundle.main.image(forResource: connected ? "DockOn" : "DockOff") { NSApp.applicationIconImage = img }
+        }
     }
+    private var dockShowsConnected: Bool?
 
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()

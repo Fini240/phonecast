@@ -270,7 +270,7 @@ class CaptureService : Service(), StreamServer.Listener {
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_slideshow)
+            .setSmallIcon(R.drawable.ic_stat_phonecast)
             .setContentTitle("PhoneCast is sharing your screen")
             .setContentText(text)
             .setContentIntent(open)

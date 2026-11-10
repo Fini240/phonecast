@@ -17,7 +17,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macos14.0 \
   "$LIBUSB/lib/libusb-1.0.a" \
   Sources/*.swift -o "$APP/Contents/MacOS/PhoneCast"
 cp Info.plist "$APP/Contents/Info.plist"
-[ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/"
+cp Resources/* "$APP/Contents/Resources/"   # icons: AppIcon.icns, Dock on/off, menu bar glyph
 SIGN_ID=${PHONECAST_SIGN_ID:-$(cat .sign-id 2>/dev/null)}
 codesign --force --deep -s "${SIGN_ID:--}" "$APP" 2>/dev/null || codesign --force --deep -s - "$APP"
 if [ -n "$NO_INSTALL" ]; then echo "Built $APP"; exit 0; fi

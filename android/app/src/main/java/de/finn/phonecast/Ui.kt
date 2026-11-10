@@ -129,7 +129,10 @@ class Ui(private val a: Activity) {
         columnCount = cols
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) }
         for ((t, f) in items) addView(tonal(t, f).apply {
-            textSize = 14f
+            // one line, shrinking a little in narrow cells (cover screen) instead of wrapping
+            maxLines = 1; setPadding(dp(6), dp(10), dp(6), dp(10))
+            val symbol = t.length <= 2 && t.any { it.code > 0x2000 }
+            setAutoSizeTextTypeUniformWithConfiguration(11, if (symbol) 22 else 14, 1, TypedValue.COMPLEX_UNIT_SP)
             layoutParams = GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f)).apply {
                 width = 0; setMargins(dp(4), dp(4), dp(4), dp(4))
             }
@@ -153,8 +156,9 @@ class Ui(private val a: Activity) {
         val sub = label("", 13f, secondary = true)
         private var updating = false
         private val sw = Switch(a).apply {
-            thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(onAccent, if (dark) 0xFF8E9099.toInt() else Color.WHITE))
-            trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(accent, if (dark) 0xFF3A3C43.toInt() else 0xFFC9CBD2.toInt()))
+            // "on" must read as on: bright accent thumb on an accent track (the track drawable dims it)
+            thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(accent, if (dark) 0xFFB9BBC2.toInt() else Color.WHITE))
+            trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(accent, if (dark) 0xFF5A5D66.toInt() else 0xFFB4B7BF.toInt()))
             setOnCheckedChangeListener { _, on -> if (!updating) set(on) }
         }
         val view = LinearLayout(a).apply {
@@ -176,12 +180,14 @@ class Ui(private val a: Activity) {
 
     // ---- segmented choice ----
 
-    inner class Segmented<T>(t: String, private val options: List<kotlin.Pair<String, T>>, private val get: () -> T, private val set: (T) -> Unit) {
+    inner class Segmented<T>(private val t: String, private val options: List<kotlin.Pair<String, T>>, private val get: () -> T, private val set: (T) -> Unit,
+                             private val other: ((T) -> String)? = null) {
         private val cells = ArrayList<TextView>()
+        private val head = label(t, 14f, secondary = true).apply { setPadding(0, 0, 0, dp(6)) }
         val view = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(8), 0, dp(6))
-            addView(label(t, 14f, secondary = true).apply { setPadding(0, 0, 0, dp(6)) })
+            addView(head)
             addView(LinearLayout(a).apply {
                 orientation = LinearLayout.HORIZONTAL
                 background = rounded(Color.TRANSPARENT, 20, stroke = if (dark) 0xFF4A4D55.toInt() else 0xFFC4C6CD.toInt())
@@ -201,6 +207,8 @@ class Ui(private val a: Activity) {
         }
         fun refresh() {
             val cur = get()
+            // a value set elsewhere (by the Mac) that isn't one of the buttons: say so in the heading
+            head.text = if (other != null && options.none { it.second == cur }) "$t · now ${other.invoke(cur)}" else t
             options.forEachIndexed { i, (_, v) ->
                 val on = v == cur
                 cells[i].background = if (on) rounded(tonalBg, 17) else ripple(null, 17)
@@ -245,9 +253,9 @@ class Ui(private val a: Activity) {
     // ---- status header ----
 
     /** Big status line with a coloured dot and a secondary line under it. */
-    inner class Status {
+    inner class Status(size: Float = 20f) {
         private val dot = View(a)
-        val head = label("", 20f, bold = true)
+        val head = label("", size, bold = true)
         val sub = label("", 14f, secondary = true)
         val view = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL

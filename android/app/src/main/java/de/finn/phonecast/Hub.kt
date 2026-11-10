@@ -551,7 +551,7 @@ class HubService : Service() {
         val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val text = transfer ?: if (client != null) "Connected to ${macName ?: "the Mac"}" else "Waiting for the Mac"
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(if (client != null) R.drawable.ic_stat_phonecast else R.drawable.ic_stat_phonecast_off)
             .setContentTitle("PhoneCast link")
             .setContentText(text)
             .setContentIntent(open)
