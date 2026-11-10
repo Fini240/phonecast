@@ -292,6 +292,8 @@ class MainActivity : Activity() {
                 u.title("Control the Mac"),
                 u.label("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll.", 14f, secondary = true),
                 u.primary("Open the Mac's screen") { openMacControl() },
+                u.tonal("Trackpad & keyboard only") { openMacControl(trackpad = true) },
+                u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection."),
             ),
             u.card(u.title("Keys"), u.grid(3,
                 "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
@@ -305,9 +307,9 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun openMacControl() {
+    private fun openMacControl(trackpad: Boolean = false) {
         if (HubService.instance?.connected != true) { toast("The Mac isn't connected"); return }
-        startActivity(Intent(this, MacViewActivity::class.java))
+        startActivity(Intent(this, MacViewActivity::class.java).putExtra(MacViewActivity.EXTRA_TRACKPAD, trackpad))
     }
 
     // ---- PC ----

@@ -222,6 +222,36 @@ final class MacScreen: NSObject, SCStreamOutput, SCStreamDelegate {
         case 5: // key
             guard b.count >= 4 else { return }
             key(CGKeyCode(Int(b[1]) << 8 | Int(b[2])), b[3])
+        case 6: // trackpad: move by dx, dy points from where the cursor is
+            guard b.count >= 5 else { return }
+            let dx = Double(Int16(bitPattern: UInt16(b[1]) << 8 | UInt16(b[2])))
+            let dy = Double(Int16(bitPattern: UInt16(b[3]) << 8 | UInt16(b[4])))
+            let cur = CGEvent(source: nil)?.location ?? lastPos
+            var p = CGPoint(x: cur.x + dx, y: cur.y + dy)
+            // stay on a screen (any of them)
+            let all = NSScreen.screens.map { s -> CGRect in
+                let f = s.frame, top = NSScreen.screens.first?.frame.maxY ?? f.maxY
+                return CGRect(x: f.minX, y: top - f.maxY, width: f.width, height: f.height)
+            }
+            if !all.contains(where: { $0.contains(p) }), let near = all.min(by: { hypot($0.midX - p.x, $0.midY - p.y) < hypot($1.midX - p.x, $1.midY - p.y) }) {
+                p = CGPoint(x: min(max(p.x, near.minX), near.maxX - 1), y: min(max(p.y, near.minY), near.maxY - 1))
+            }
+            lastPos = p
+            CGEvent(mouseEventSource: src, mouseType: leftDown ? .leftMouseDragged : .mouseMoved, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+        case 7: // trackpad: button at the cursor
+            guard b.count >= 3 else { return }
+            let p = CGEvent(source: nil)?.location ?? lastPos
+            var e4 = Data([b[2] == 1 ? 1 : 2, b[1]])
+            let ux = Int((p.x - bounds.minX) / max(1, bounds.width - 1) * 65535), uy = Int((p.y - bounds.minY) / max(1, bounds.height - 1) * 65535)
+            if bounds.contains(p) {
+                e4.append(contentsOf: [UInt8(ux >> 8 & 0xff), UInt8(ux & 0xff), UInt8(uy >> 8 & 0xff), UInt8(uy & 0xff)])
+                input(e4)   // same click logic (double clicks, drags) as a normal tap
+            } else {
+                let right = b[1] == 1, down = b[2] == 1
+                if !right { leftDown = down }
+                CGEvent(mouseEventSource: src, mouseType: right ? (down ? .rightMouseDown : .rightMouseUp) : (down ? .leftMouseDown : .leftMouseUp),
+                        mouseCursorPosition: p, mouseButton: right ? .right : .left)?.post(tap: .cghidEventTap)
+            }
         default: break
         }
     }

@@ -97,6 +97,8 @@ object HubProto {
     const val IN_SCROLL = 3      // i16 dx, i16 dy (pixels)
     const val IN_TEXT = 4        // u8 mods, utf8
     const val IN_KEY = 5         // u16 mac keycode, u8 mods
+    const val IN_REL = 6         // i16 dx, i16 dy (Mac points): trackpad move from where the cursor is
+    const val IN_HERE = 7        // u8 button, u8 down: click where the cursor is (trackpad)
 
     const val MOD_CMD = 1; const val MOD_OPT = 2; const val MOD_CTRL = 4; const val MOD_SHIFT = 8
 }

@@ -57,6 +57,10 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
 
     private var mods = 0
     private val modViews = HashMap<Int, TextView>()
+    /** Trackpad & keyboard only: no video from the Mac (saves battery and data). */
+    private val trackpad by lazy { intent.getBooleanExtra(EXTRA_TRACKPAD, false) }
+
+    companion object { const val EXTRA_TRACKPAD = "trackpad" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +79,14 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
             it.hide(WindowInsets.Type.systemBars())
             it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        surfaceView.setOnTouchListener { _, e -> onTouch(e); true }
+        surfaceView.setOnTouchListener { _, e -> if (trackpad) onTrackpad(e) else onTouch(e); true }
+        if (trackpad) {
+            surfaceView.setZOrderOnTop(false)
+            root.setBackgroundColor(Color.rgb(24, 25, 28))
+            surfaceView.alpha = 0f
+            msg.setTextColor(Color.argb(150, 255, 255, 255)); msg.textSize = 15f
+            msg.text = "Trackpad\n\nOne finger: move   ·   tap: click\nTwo fingers: scroll   ·   two-finger tap: right click\nHold, then move: drag"
+        }
     }
 
     override fun onStart() {
@@ -85,6 +96,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
             msg.text = "Not connected to the Mac.\nOpen PhoneCast on the Mac first (it connects by itself)."
             return
         }
+        if (trackpad) return
         hub.screenSink = { type, p -> onPacket(type, p) }
         val dm = resources.displayMetrics
         val long = maxOf(dm.widthPixels, dm.heightPixels).coerceIn(1280, 2560)
@@ -93,7 +105,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onStop() {
         super.onStop()
-        HubService.instance?.let { it.screenSink = null; it.send(HubProto.SCREEN_STOP) }
+        if (!trackpad) HubService.instance?.let { it.screenSink = null; it.send(HubProto.SCREEN_STOP) }
         releaseCodec()
     }
 
@@ -283,6 +295,66 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
                 if (dragging) button(false, 0, e.x, e.y)
                 dragging = false
             }
+        }
+    }
+
+    // ---- trackpad mode ----
+
+    private var tpLastX = 0f; private var tpLastY = 0f
+    private var tpRestX = 0f; private var tpRestY = 0f
+    private var tpDrag = false
+    private val tpHold = Runnable { if (!moved && !twoFinger) { tpDrag = true; here(0, true); vibrate() } }
+
+    private fun here(btn: Int, down: Boolean) = input(byteArrayOf(HubProto.IN_HERE.toByte(), btn.toByte(), if (down) 1 else 0))
+
+    private fun onTrackpad(e: MotionEvent) {
+        val d = resources.displayMetrics.density
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = e.x; downY = e.y; tpLastX = e.x; tpLastY = e.y
+                moved = false; twoFinger = false; twoMoved = false; tpDrag = false
+                surfaceView.postDelayed(tpHold, 450)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) {
+                surfaceView.removeCallbacks(tpHold)
+                twoFinger = true
+                lastMidX = (e.getX(0) + e.getX(1)) / 2; lastMidY = (e.getY(0) + e.getY(1)) / 2
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (twoFinger && e.pointerCount >= 2) {
+                    val mx = (e.getX(0) + e.getX(1)) / 2; val my = (e.getY(0) + e.getY(1)) / 2
+                    scrollRestX += (mx - lastMidX) / d * 2; scrollRestY += (my - lastMidY) / d * 2
+                    lastMidX = mx; lastMidY = my
+                    val dx = scrollRestX.toInt(); val dy = scrollRestY.toInt()
+                    if (abs(dx) >= 1 || abs(dy) >= 1) {
+                        twoMoved = true; scrollRestX -= dx; scrollRestY -= dy
+                        input(byteArrayOf(HubProto.IN_SCROLL.toByte()), ByteBuffer.allocate(4).putShort(dx.toShort()).putShort(dy.toShort()).array())
+                    }
+                    return
+                }
+                if (twoFinger) return
+                if (!moved && hypot(e.x - downX, e.y - downY) > 6 * d) { moved = true; if (!tpDrag) surfaceView.removeCallbacks(tpHold) }
+                // dp -> Mac points with acceleration: slow moves are precise, fast flicks cross the screen
+                val ddx = (e.x - tpLastX) / d; val ddy = (e.y - tpLastY) / d
+                tpLastX = e.x; tpLastY = e.y
+                val gain = 1.3f + 0.09f * hypot(ddx, ddy)
+                tpRestX += ddx * gain; tpRestY += ddy * gain
+                val dx = tpRestX.toInt(); val dy = tpRestY.toInt()
+                if (dx != 0 || dy != 0) {
+                    tpRestX -= dx; tpRestY -= dy
+                    input(byteArrayOf(HubProto.IN_REL.toByte()), ByteBuffer.allocate(4).putShort(dx.toShort()).putShort(dy.toShort()).array())
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                surfaceView.removeCallbacks(tpHold)
+                when {
+                    tpDrag -> here(0, false)
+                    twoFinger -> if (!twoMoved) { here(1, true); here(1, false) }
+                    !moved -> { here(0, true); here(0, false) }
+                }
+                tpDrag = false
+            }
+            MotionEvent.ACTION_CANCEL -> { surfaceView.removeCallbacks(tpHold); if (tpDrag) here(0, false); tpDrag = false }
         }
     }
 
