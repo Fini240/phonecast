@@ -177,7 +177,7 @@ final class PhoneView: NSView {
     }
 
     func setMessage(_ s: String?) {
-        message.stringValue = s ?? ""
+        message.stringValue = s.map { tr($0) } ?? ""
         message.isHidden = s == nil
     }
 

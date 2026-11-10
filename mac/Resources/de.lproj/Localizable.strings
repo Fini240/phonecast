@@ -1,0 +1,178 @@
+/* PhoneCast Mac app, German. Keys are the English texts (see L10n.swift). */
+
+/* sidebar */
+"Overview" = "Übersicht"; "Mirror" = "Spiegeln"; "PC" = "PC"; "Notifications" = "Mitteilungen"; "Messages" = "Nachrichten";
+"Calls" = "Anrufe"; "Contacts" = "Kontakte"; "Photos" = "Fotos"; "Files" = "Dateien"; "Apps" = "Apps"; "Transfers" = "Übertragungen"; "Settings" = "Einstellungen";
+
+/* banners */
+"From %@: %@" = "Von %1$@: %2$@";
+"Saved in Downloads/PhoneCast" = "Gespeichert in Downloads/PhoneCast";
+"Copied from %@" = "Von %@ kopiert";
+"Link from %@" = "Link von %@";
+"Reply…" = "Antworten…"; "Send" = "Senden"; "Reply" = "Antworten"; "Open on phone" = "Auf dem Handy öffnen"; "Clear" = "Entfernen";
+"Incoming call" = "Eingehender Anruf"; "On a call" = "Im Gespräch"; "Answering picks up on the phone" = "Annehmen nimmt auf dem Handy ab";
+"Decline" = "Ablehnen"; "Answer" = "Annehmen"; "End call" = "Auflegen";
+"Show in Finder" = "Im Finder zeigen";
+"Paste it anywhere (⌘V)" = "Überall einfügen (⌘V)";
+"Opened a link from %@" = "Link von %@ geöffnet";
+"Picture copied from %@" = "Bild von %@ kopiert";
+
+/* link state */
+"Looking for the phone…" = "Suche das Handy…";
+"Not paired yet: scan the QR code in Settings with PhoneCast on the phone" = "Noch nicht gekoppelt: Scanne den QR-Code in den Einstellungen mit PhoneCast auf dem Handy";
+"Not paired" = "Nicht gekoppelt";
+"Pairing cancelled — scan the QR code in Settings" = "Koppeln abgebrochen – scanne den QR-Code in den Einstellungen";
+"Something answered as your phone but couldn't prove the QR pairing — not connected" = "Etwas hat sich als dein Handy gemeldet, konnte die QR-Kopplung aber nicht beweisen – nicht verbunden";
+"Wrong PIN (or too many tries: wait 5 minutes) — check Settings" = "Falsche PIN (oder zu viele Versuche: 5 Minuten warten) – prüfe die Einstellungen";
+"The phone disconnected." = "Das Handy hat die Verbindung getrennt.";
+"The phone is locked for a few minutes after wrong PINs — trying again…" = "Das Handy ist nach falschen PINs ein paar Minuten gesperrt – versuche es erneut…";
+
+/* pairing alert */
+"Pair with this phone?" = "Mit diesem Handy koppeln?";
+"Open PhoneCast on the phone → Settings. Its link key must be exactly:\n\n%@\n\nIf it's different, something else on this network is pretending to be your phone: don't pair." = "Öffne PhoneCast auf dem Handy → Einstellungen. Der Verbindungsschlüssel muss genau so lauten:\n\n%@\n\nWenn er anders ist, gibt sich etwas in diesem Netzwerk als dein Handy aus: nicht koppeln.";
+"Same key, pair" = "Gleicher Schlüssel, koppeln"; "Different / cancel" = "Anders / abbrechen";
+
+/* hub messages */
+"The phone isn't connected." = "Das Handy ist nicht verbunden.";
+"Couldn't get it from the phone" = "Konnte es nicht vom Handy holen";
+"Failed" = "Fehlgeschlagen";
+"Phone not connected" = "Handy nicht verbunden";
+"Open PhoneCast on the phone; it connects by itself." = "Öffne PhoneCast auf dem Handy; es verbindet sich von selbst.";
+"Couldn't change Do Not Disturb" = "Nicht stören ließ sich nicht ändern";
+"Turn on notification access in the PhoneCast app on the phone." = "Schalte den Mitteilungszugriff in der PhoneCast-App auf dem Handy ein.";
+"It can only ring while PhoneCast is connected." = "Es kann nur klingeln, solange PhoneCast verbunden ist.";
+"Couldn't ring the phone" = "Das Handy konnte nicht klingeln";
+"Message not sent" = "Nachricht nicht gesendet"; "Allow Messages in the phone app." = "Erlaube Nachrichten in der Handy-App.";
+
+/* menu bar menu */
+"Open PhoneCast" = "PhoneCast öffnen"; "Previous" = "Zurück"; "Pause" = "Pause"; "Play" = "Abspielen"; "Next" = "Weiter";
+"Show phone screen" = "Handy-Bildschirm zeigen"; "Mirror phone" = "Handy spiegeln";
+"Send files to phone…" = "Dateien ans Handy senden…"; "Send clipboard to phone" = "Zwischenablage ans Handy senden";
+"Mute notifications" = "Mitteilungen stumm"; "Do Not Disturb on phone" = "Nicht stören am Handy";
+"Stop ringing phone" = "Klingeln beenden"; "Ring phone (find it)" = "Handy klingeln lassen (finden)";
+"○ offline" = "○ offline"; "Quit PhoneCast" = "PhoneCast beenden";
+
+/* overview */
+"Connected" = "Verbunden"; "Not connected" = "Nicht verbunden";
+"Link" = "Verbindung"; "Battery" = "Akku"; " · charging" = " · lädt"; "Temperature" = "Temperatur"; "Heat" = "Wärme";
+"normal" = "normal"; "warm" = "warm"; "hot" = "heiß"; "throttling" = "drosselt"; "very hot" = "sehr heiß"; "emergency" = "Notfall"; "shutdown" = "schaltet ab";
+"cool" = "kühl"; "light" = "leicht"; "moderate" = "mittel";
+"Network" = "Netzwerk"; "Free storage" = "Freier Speicher"; "Screen" = "Bildschirm";
+"shared with this Mac" = "mit diesem Mac geteilt"; "not shared" = "nicht geteilt";
+"This Mac" = "Dieser Mac"; " · on power" = " · am Strom"; "CPU" = "CPU"; "Memory" = "Arbeitsspeicher";
+"Mac screen on the phone" = "Mac-Bildschirm am Handy"; "in use" = "in Benutzung"; "not in use" = "nicht in Benutzung";
+"Show mirror" = "Spiegel zeigen"; "Send files…" = "Dateien senden…"; "Send clipboard" = "Zwischenablage senden"; "New message" = "Neue Nachricht";
+"Stop ringing" = "Klingeln beenden"; "Find phone" = "Handy finden";
+"Devices" = "Geräte"; "offline" = "offline";
+"Time to open a connection, every 5 s. Edit the list in Settings." = "Zeit für einen Verbindungsaufbau, alle 5 s. Die Liste änderst du in den Einstellungen.";
+"PhoneCast %@ is available" = "PhoneCast %@ ist verfügbar";
+"You have %@. The phone app shows its own update button." = "Du hast %@. Die Handy-App zeigt einen eigenen Update-Knopf.";
+"What's new" = "Was ist neu"; "Install update" = "Update installieren";
+"Downloading %@…" = "Lade %@…"; "Installing %@…" = "Installiere %@…";
+"Update failed" = "Update fehlgeschlagen";
+
+/* mirror page, notifications, messages, calls */
+"The phone is sharing its screen" = "Das Handy teilt seinen Bildschirm"; "Mirror the phone" = "Handy spiegeln";
+"Mute all" = "Alle stumm"; "Quiet hours" = "Ruhezeiten"; "Clear all" = "Alle entfernen"; "No notifications" = "Keine Mitteilungen";
+"Cancel" = "Abbrechen"; "Copy text" = "Text kopieren"; "Search" = "Suchen"; "Refresh" = "Aktualisieren"; "You: " = "Du: ";
+"SMS from the phone. Pick a conversation or start a new one.\nChats in WhatsApp, Signal or RCS are answered from Notifications." = "SMS vom Handy. Wähle eine Unterhaltung oder beginne eine neue.\nChats in WhatsApp, Signal oder RCS beantwortest du über Mitteilungen.";
+"Call from the phone" = "Über das Handy anrufen"; "Click to open" = "Zum Öffnen klicken";
+"Text message" = "SMS"; "To: name or number" = "An: Name oder Nummer"; "Message" = "Nachricht";
+"Incoming: " = "Eingehend: "; "On a call: " = "Im Gespräch: "; "End" = "Auflegen"; "Number to call" = "Nummer zum Anrufen"; "Call" = "Anrufen";
+"Calls are placed and answered on the phone; talk with the phone or its headset." = "Anrufe laufen über das Handy; du sprichst über das Handy oder sein Headset.";
+"Call back" = "Zurückrufen"; "Text" = "SMS schreiben";
+
+/* photos, files, apps, transfers */
+"Open" = "Öffnen"; "Save to Downloads" = "In Downloads sichern"; "Deselect" = "Auswahl aufheben"; "Select" = "Auswählen"; "Phone" = "Handy";
+"Upload here…" = "Hierher hochladen…"; "Size" = "Größe"; "Modified" = "Geändert"; "Quick Look" = "Übersicht";
+"Download as .zip" = "Als .zip laden"; "Download" = "Laden"; "Delete on phone…" = "Auf dem Handy löschen…";
+"Double-click to open · drop files here to upload into this folder" = "Doppelklick zum Öffnen · Dateien hierher ziehen, um sie in diesen Ordner zu laden";
+"Delete “%@” on the phone?" = "„%@“ auf dem Handy löschen?";
+"The folder and everything in it is deleted. This can't be undone." = "Der Ordner und alles darin wird gelöscht. Das lässt sich nicht rückgängig machen.";
+"This can't be undone." = "Das lässt sich nicht rückgängig machen."; "Delete" = "Löschen";
+"Search apps" = "Apps suchen"; "Click an app to open it on the phone and show it here." = "Klicke eine App an, um sie auf dem Handy zu öffnen und hier zu zeigen.";
+"Send files or folders…" = "Dateien oder Ordner senden…"; "Open Downloads/PhoneCast" = "Downloads/PhoneCast öffnen"; "Drop files here" = "Dateien hier ablegen";
+"Sent to phone" = "An das Handy gesendet"; "Received" = "Empfangen";
+
+/* settings */
+"Pair a phone" = "Handy koppeln"; "Scan this with PhoneCast on the phone" = "Scanne das mit PhoneCast auf dem Handy";
+"Phone app → Settings → “Scan computer's QR code”. Both sides then prove a shared key to each other on every connection: no PIN to type, and nothing secret crosses the network." = "Handy-App → Einstellungen → „QR-Code eines Computers scannen“. Danach beweisen sich beide Seiten bei jeder Verbindung einen gemeinsamen Schlüssel: keine PIN tippen, und nichts Geheimes geht übers Netzwerk.";
+"New QR code (phones paired by QR must scan again)" = "Neuer QR-Code (per QR gekoppelte Handys müssen neu scannen)";
+"Or pair with the PIN" = "Oder mit der PIN koppeln"; "PIN (shown in the phone app)" = "PIN (steht in der Handy-App)";
+"Phone IP address (optional, found automatically on the same Wi-Fi)" = "IP-Adresse des Handys (optional, im selben WLAN automatisch gefunden)";
+"Phone Tailscale address (optional, for other networks)" = "Tailscale-Adresse des Handys (optional, für andere Netzwerke)";
+"Save and connect" = "Speichern und verbinden"; "Security" = "Sicherheit";
+"The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted to keep it as fast as possible; away from home, Tailscale encrypts it." = "Die Verbindung (Mitteilungen, Nachrichten, Dateien, Zwischenablage) ist mit TLS 1.3 verschlüsselt. Vergleiche diesen Schlüssel einmal mit dem in der Handy-App. Das Spiegeln weist sich mit einem Schlüssel aus, der über diese Verbindung kam, daher geht die PIN nie im Klartext übers Netz. Das Spiegel-Video ist für maximale Geschwindigkeit nicht verschlüsselt; unterwegs verschlüsselt Tailscale es.";
+"Forget phone key (after reinstalling PhoneCast on the phone)" = "Handy-Schlüssel vergessen (nach Neuinstallation von PhoneCast auf dem Handy)";
+"Show banners" = "Banner zeigen"; "Play a sound" = "Ton abspielen";
+"Quiet while the phone is on Do Not Disturb" = "Still, solange das Handy auf „Nicht stören“ steht";
+"From" = "Von"; "to" = "bis"; "Clipboard" = "Zwischenablage";
+"Copy to the phone automatically when I copy on the Mac" = "Automatisch aufs Handy kopieren, wenn ich am Mac kopiere";
+"From the phone: Share → “PhoneCast to Mac”, or the “Clipboard to Mac” Quick Settings tile. Android doesn't let apps read the clipboard in the background." = "Vom Handy: Teilen → „PhoneCast to Mac“ oder die Schnelleinstellung „Clipboard to Mac“. Android lässt Apps die Zwischenablage im Hintergrund nicht lesen.";
+"Lock this Mac when the phone leaves" = "Mac sperren, wenn das Handy weg ist";
+"Lock the Mac when the phone is gone and nobody is using the Mac" = "Mac sperren, wenn das Handy weg ist und niemand den Mac benutzt";
+"After" = "Nach";
+"Locks only when the phone's link has been gone that long AND the Mac's keyboard and mouse haven't been touched for that long, so it never locks while you work. Needs Accessibility (below)." = "Sperrt nur, wenn die Verbindung zum Handy so lange weg ist UND Tastatur und Maus des Macs so lange nicht benutzt wurden – also nie, während du arbeitest. Braucht Bedienungshilfen (unten).";
+"PC (Hermes dashboard)" = "PC (Hermes-Dashboard)";
+"Dashboard address, e.g. http://100.x.y.z:8765 (empty = no PC page)" = "Dashboard-Adresse, z. B. http://100.x.y.z:8765 (leer = keine PC-Seite)";
+"Use its Tailscale address: the dashboard only accepts controls from Tailscale devices. The phone gets it too." = "Nimm seine Tailscale-Adresse: Das Dashboard nimmt Befehle nur von Tailscale-Geräten an. Das Handy bekommt sie auch.";
+"Save" = "Speichern"; "Devices to watch" = "Überwachte Geräte"; "One per line: name, then host:port" = "Eins pro Zeile: Name, dann host:port";
+"Open PhoneCast at login" = "PhoneCast beim Anmelden öffnen";
+"Missing ones are allowed in the PhoneCast app on the phone." = "Fehlende erlaubst du in der PhoneCast-App auf dem Handy.";
+"Allow…" = "Erlauben…";
+
+/* mirror bar */
+"Back (Esc / right-click)" = "Zurück (Esc / Rechtsklick)"; "Home (middle-click)" = "Startseite (Mittelklick)"; "Recent apps" = "Letzte Apps";
+"Pull down notifications" = "Mitteilungen herunterziehen"; "Quick settings" = "Schnelleinstellungen";
+"Volume down" = "Leiser"; "Volume up" = "Lauter"; "Mute / unmute" = "Stumm / Ton an"; "Lock the phone (ends sharing)" = "Handy sperren (beendet das Teilen)";
+"Flashlight" = "Taschenlampe"; "Open an app on the phone" = "Eine App auf dem Handy öffnen";
+"Send files to the phone (or drop them on it)" = "Dateien ans Handy senden (oder darauf ziehen)"; "Send the Mac's clipboard to the phone" = "Zwischenablage des Macs ans Handy senden";
+"Typing mode: keys type text instead of game keys (⌘T)" = "Schreibmodus: Tasten schreiben Text statt Spieltasten (⌘T)";
+"Mouse aiming (⌘G)" = "Zielen mit der Maus (⌘G)"; "Edit key map (⌘E)" = "Tastenbelegung bearbeiten (⌘E)";
+"Stats: FPS, delay, heat (⌘O)" = "Statistik: FPS, Verzögerung, Wärme (⌘O)"; "Screenshot to the Desktop" = "Bildschirmfoto auf den Schreibtisch";
+"Record the mirror to a video (⇧⌘R)" = "Spiegel als Video aufnehmen (⇧⌘R)"; "Full screen (⌘F)" = "Vollbild (⌘F)";
+
+/* PC page */
+"Full dashboard" = "Ganzes Dashboard"; "Studio (video and pictures), agent chat and everything else" = "Studio (Video und Bilder), Agent-Chat und alles andere";
+"Do it" = "Ausführen"; "Anything unsaved on the PC may be lost." = "Nicht Gespeichertes auf dem PC kann verloren gehen.";
+"Asleep or off" = "Schläft oder aus"; "Last boot" = "Letzter Start"; "Up for" = "Läuft seit"; "AI engine" = "KI-Engine";
+"Graphics" = "Grafik"; "Busy" = "Auslastung"; "Video memory" = "Grafikspeicher"; "Power" = "Leistung"; "Fan" = "Lüfter";
+"Processor & memory" = "Prozessor & Speicher"; "CPU temperature" = "CPU-Temperatur"; "Clock" = "Takt"; "RAM" = "RAM"; "Whole PC" = "Ganzer PC";
+"Control" = "Steuerung"; "Waking the PC" = "PC wird geweckt"; "Wake" = "Aufwecken"; "Put the PC to sleep?" = "PC in den Ruhezustand schicken?";
+"Sleep" = "Ruhezustand"; "Shut the PC down?" = "PC herunterfahren?"; "Shut down" = "Herunterfahren"; "Start into" = "Starten in";
+"Restart into Linux?" = "In Linux neu starten?"; "Restart into Windows?" = "In Windows neu starten?";
+"Monitors" = "Monitore"; "On" = "An"; "Monitors on" = "Monitore an"; "Off" = "Aus"; "Monitors off" = "Monitore aus";
+"Lights" = "Licht"; "Lights off" = "Licht aus"; "Follow load" = "Folgt der Auslastung"; "Stream" = "Streamen";
+"Monitor 1" = "Monitor 1"; "Monitor 2" = "Monitor 2"; "Both" = "Beide";
+"Controls work from Tailscale devices only (the dashboard refuses everything else)." = "Die Steuerung klappt nur von Tailscale-Geräten (das Dashboard lehnt alles andere ab).";
+"AI" = "KI"; "Loaded models" = "Geladene Modelle"; "Engine" = "Engine"; "Switching to Ollama" = "Wechsle zu Ollama"; "Switching to Strata" = "Wechsle zu Strata";
+"Hermes tokens" = "Hermes-Tokens";
+
+/* recording */
+"Recording failed" = "Aufnahme fehlgeschlagen"; "Nothing to record" = "Nichts aufzunehmen"; "Mirror the phone first." = "Spiegle zuerst das Handy.";
+"the mirror recording" = "der Spiegel-Aufnahme";
+
+/* mirror window menus */
+"Phone screen shape" = "Bildschirmform des Handys"; "Not connected\n⌘K to connect" = "Nicht verbunden\n⌘K zum Verbinden"; "Connecting…" = "Verbinde…";
+"Device" = "Gerät"; "Connect…" = "Verbinden…"; "Disconnect" = "Trennen"; "Back" = "Zurück"; "Home" = "Startseite";
+"Mouse aiming (game mode)" = "Zielen mit der Maus (Spielmodus)"; "Keys type text (instead of buttons)" = "Tasten schreiben Text (statt Knöpfe)";
+"Edit key map" = "Tastenbelegung bearbeiten"; "Show key markers in game mode" = "Tastenmarker im Spielmodus zeigen"; "Game" = "Spiel";
+"Mouse-look faster" = "Maus-Umsehen schneller"; "Mouse-look slower" = "Maus-Umsehen langsamer"; "Clear key map" = "Tastenbelegung löschen";
+"Mute phone audio" = "Handy-Ton stumm"; "Show stats overlay (FPS, delay, phone heat)" = "Statistik einblenden (FPS, Verzögerung, Handy-Wärme)";
+"Record the mirror" = "Spiegel aufnehmen"; "Stop recording" = "Aufnahme beenden";
+"Fit — whole picture, black bars" = "Einpassen – ganzes Bild, schwarze Ränder"; "Fill — no bars, crops the edges" = "Füllen – keine Ränder, schneidet ab";
+"Stretch — no bars, distorts" = "Strecken – keine Ränder, verzerrt"; "View" = "Darstellung"; "Full screen" = "Vollbild"; "Fit window to phone" = "Fenster ans Handy anpassen";
+" (default)" = " (Standard)"; "Quality" = "Qualität"; "Resolution" = "Auflösung"; "Bitrate" = "Bitrate"; "Help" = "Hilfe"; "Keyboard shortcuts" = "Tastenkürzel";
+"Loading apps…" = "Lade Apps…"; "Phone link not connected" = "Handy-Verbindung nicht aktiv";
+"Mouse aiming on — the mouse now turns the camera.\nEsc to stop. To move the aiming area: ⌘E, then ⌃-click." = "Zielen mit der Maus an – die Maus dreht jetzt die Kamera.\nEsc zum Beenden. Zielbereich verschieben: ⌘E, dann ⌃-Klick.";
+"PhoneCast shortcuts" = "PhoneCast-Tastenkürzel"; "Shortcuts (⌘I)" = "Tastenkürzel (⌘I)"; "Sharpness (for the shapes above)" = "Schärfe (für die Formen oben)";
+"The phone needs one permission first" = "Das Handy braucht zuerst eine Erlaubnis";
+"Turn on USB debugging once and run:\n\nadb shell pm grant de.finn.phonecast android.permission.WRITE_SECURE_SETTINGS\n\nIt stays granted after you turn USB debugging off again." = "Schalte einmalig USB-Debugging ein und führe aus:\n\nadb shell pm grant de.finn.phonecast android.permission.WRITE_SECURE_SETTINGS\n\nDie Erlaubnis bleibt, auch wenn du USB-Debugging wieder ausschaltest.";
+"The phone couldn't change its screen shape" = "Das Handy konnte seine Bildschirmform nicht ändern";
+"Android refused the change. You can still set it with adb: adb shell wm size" = "Android hat die Änderung abgelehnt. Mit adb geht es trotzdem: adb shell wm size";
+"Connect to your phone" = "Mit deinem Handy verbinden";
+"Open PhoneCast on the phone and tap Start sharing. Phones on this Wi-Fi show up automatically." = "Öffne PhoneCast auf dem Handy und tippe auf Teilen. Handys in diesem WLAN erscheinen automatisch.";
+"Connect" = "Verbinden"; "Phone:" = "Handy:"; "IP address:" = "IP-Adresse:"; "PIN:" = "PIN:"; "Tailscale address of the phone:" = "Tailscale-Adresse des Handys:";
+"Connecting over the USB cable…\n(If the phone asks to open PhoneCast for this USB device, tap OK / Always.)" = "Verbinde über das USB-Kabel…\n(Fragt das Handy, ob PhoneCast für dieses USB-Gerät geöffnet werden soll, tippe auf OK / Immer.)";
+"Wrong PIN" = "Falsche PIN"; "Wrong PIN — check the PIN in the phone app" = "Falsche PIN – prüfe die PIN in der Handy-App"; "Disconnected" = "Getrennt";
+"Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over Tailscale." = "Öffne PhoneCast auf dem Handy. Es verbindet sich im selben WLAN oder über Tailscale von selbst.";

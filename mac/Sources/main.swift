@@ -14,7 +14,7 @@ final class PhoneWindow: NSWindow {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate, NSMenuItemValidation {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu.title == "Phone screen shape" {
+        if menu.title == tr("Phone screen shape") {
             menu.removeAllItems()
             for i in shapeMenu().items { i.menu?.removeItem(i); menu.addItem(i) }
         }
@@ -223,11 +223,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private func buildMenu() {
         let main = NSMenu()
         func sub(_ title: String, _ items: [NSMenuItem]) {
-            let m = NSMenu(title: title); items.forEach(m.addItem)
+            let m = NSMenu(title: tr(title)); items.forEach(m.addItem)
             let i = NSMenuItem(); i.submenu = m; main.addItem(i)
         }
         func item(_ t: String, _ a: Selector?, _ k: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
-            let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.keyEquivalentModifierMask = mods; i.target = self; return i
+            let i = NSMenuItem(title: tr(t), action: a, keyEquivalent: k); i.keyEquivalentModifierMask = mods; i.target = self; return i
         }
         let quit = NSMenuItem(title: "Quit PhoneCast", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         sub("PhoneCast", [quit])
@@ -271,8 +271,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         rateItems = bitrates.enumerated().map { i, b in let it = item("\(b) Mbit/s" + (b == 24 ? " (default)" : ""), #selector(setBitrate(_:)), ""); it.tag = i; return it }
         sub("Quality", [NSMenuItem(title: "Resolution", action: nil, keyEquivalent: "")] + resItems
             + [.separator(), NSMenuItem(title: "Bitrate", action: nil, keyEquivalent: "")] + rateItems)
-        let shape = NSMenuItem(title: "Phone screen shape", action: nil, keyEquivalent: "")
-        shape.submenu = NSMenu(title: "Phone screen shape")
+        let shape = NSMenuItem(title: tr("Phone screen shape"), action: nil, keyEquivalent: "")
+        shape.submenu = NSMenu(title: tr("Phone screen shape"))
         shape.submenu?.delegate = self
         main.items.last?.submenu?.addItem(.separator())
         main.items.last?.submenu?.addItem(shape)
@@ -341,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         case "record": toggleRecord(nil)
         case "shape": showShapeMenu(nil)
         case "quality":
-            if let q = NSApp.mainMenu?.items.first(where: { $0.submenu?.title == "Quality" })?.submenu {
+            if let q = NSApp.mainMenu?.items.first(where: { $0.submenu?.title == tr("Quality") })?.submenu {
                 q.popUp(positioning: nil, at: NSPoint(x: 0, y: from.bounds.height), in: from)
             }
         default: break
@@ -518,7 +518,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     @objc func showShortcuts(_ s: Any?) {
         if view.mode == .game { view.setMode(.normal) }
         let a = NSAlert()
-        a.messageText = "PhoneCast shortcuts"
+        a.messageText = tr("PhoneCast shortcuts")
         a.informativeText = """
         ⌘F   Full screen on / off
         ⌘1   Fit (whole picture)      ⌘2   Fill (no bars)      ⌘3   Stretch
@@ -625,11 +625,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         if r == 0 { return }
         let a = NSAlert()
         if r == 1 {
-            a.messageText = "The phone needs one permission first"
-            a.informativeText = "Turn on USB debugging once and run:\n\nadb shell pm grant de.finn.phonecast android.permission.WRITE_SECURE_SETTINGS\n\nIt stays granted after you turn USB debugging off again."
+            a.messageText = tr("The phone needs one permission first")
+            a.informativeText = tr("Turn on USB debugging once and run:\n\nadb shell pm grant de.finn.phonecast android.permission.WRITE_SECURE_SETTINGS\n\nIt stays granted after you turn USB debugging off again.")
         } else {
-            a.messageText = "The phone couldn't change its screen shape"
-            a.informativeText = "Android refused the change. You can still set it with adb: adb shell wm size"
+            a.messageText = tr("The phone couldn't change its screen shape")
+            a.informativeText = tr("Android refused the change. You can still set it with adb: adb shell wm size")
         }
         a.runModal()
     }
@@ -694,9 +694,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         if view.mode == .game { view.setMode(.normal) }
         let d = UserDefaults.standard
         let a = NSAlert()
-        a.messageText = "Connect to your phone"
-        a.informativeText = "Open PhoneCast on the phone and tap Start sharing. Phones on this Wi-Fi show up automatically."
-        a.addButton(withTitle: "Connect"); a.addButton(withTitle: "Cancel")
+        a.messageText = tr("Connect to your phone")
+        a.informativeText = tr("Open PhoneCast on the phone and tap Start sharing. Phones on this Wi-Fi show up automatically.")
+        a.addButton(withTitle: tr("Connect")); a.addButton(withTitle: tr("Cancel"))
 
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         let names = found.keys.sorted()
@@ -1015,7 +1015,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             parts.append("\(Int(view.videoSize.width))×\(Int(view.videoSize.height)) · \(fps) fps · \(transport) \(Int(rttMs)) ms · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
             if !view.controlAvailable { parts.append("view only — turn on mouse & keyboard in the phone app") }
         } else {
-            parts.append(stateText)
+            parts.append(tr(stateText))
         }
         switch view.mode {
         case .game: parts.append("MOUSE AIMING (Esc to exit) · speed \(String(format: "%.1f", view.map.sens))×")

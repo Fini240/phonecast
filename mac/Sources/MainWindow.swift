@@ -65,7 +65,7 @@ struct MainView: View {
             List(selection: Binding(get: { nav.section }, set: { if let s = $0 { nav.section = s } })) {
                 PhoneHeader()
                 ForEach(Pane.allCases.filter { $0 != .pc || hasPc }) { s in
-                    Label(s.rawValue, systemImage: s.symbol)
+                    Label(tr(s.rawValue), systemImage: s.symbol)
                         .badge(badge(s))
                         .tag(s)
                 }
@@ -132,9 +132,9 @@ struct Placeholder: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: symbol).font(.system(size: 34)).foregroundStyle(.tertiary)
-            Text(title).font(.title3.weight(.semibold))
-            Text(text).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
-            if let action { Button(action.0, action: action.1).padding(.top, 4) }
+            Text(tr(title)).font(.title3.weight(.semibold))
+            Text(tr(text)).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
+            if let action { Button(tr(action.0), action: action.1).padding(.top, 4) }
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -151,7 +151,7 @@ struct Gate<Content: View>: View {
     var body: some View {
         if !store.connected {
             Placeholder(symbol: "antenna.radiowaves.left.and.right.slash", title: "Phone not connected",
-                        text: "Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over Tailscale.\n\(store.linkState)")
+                        text: tr("Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over Tailscale.") + "\n" + tr(store.linkState))
         } else if let perm, store.perms[perm] == false || store.errors[section] == "permission" {
             Placeholder(symbol: "lock", title: "Allow \(what) on the phone",
                         text: "In the PhoneCast app on the phone, tap “\(perm == "files" ? "Allow browsing phone files from the Mac" : "Allow messages, calls, contacts & photos")”.")
@@ -199,7 +199,7 @@ struct OverviewView: View {
                             Row("Free storage", (s["freeGB"] as? Double).map { String(format: "%.0f GB", $0) } ?? "—")
                             Row("Screen", store.phoneCasting ? "shared with this Mac" : "not shared")
                         } else {
-                            Text(store.linkState).foregroundStyle(.secondary)
+                            Text(tr(store.linkState)).foregroundStyle(.secondary)
                         }
                     }
                     Panel(title: Host.current().localizedName ?? "This Mac", symbol: "laptopcomputer") {
@@ -280,7 +280,7 @@ struct Panel<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: symbol).font(.headline)
+            Label(tr(title), systemImage: symbol).font(.headline)
             content
         }
         .padding(14)
@@ -295,7 +295,7 @@ struct BarRow: View {
     init(_ k: String, _ frac: Double, _ v: String, tint: Color) { self.k = k; self.frac = frac; self.v = v; self.tint = tint }
     var body: some View {
         HStack(spacing: 10) {
-            Text(k).foregroundStyle(.secondary)
+            Text(tr(k)).foregroundStyle(.secondary)
             Spacer(minLength: 12)
             Capsule().fill(.quaternary).frame(width: 70, height: 6)
                 .overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 70 * max(0.04, min(1, frac)), height: 6) }
@@ -308,7 +308,7 @@ struct Row: View {
     let k: String, v: String
     init(_ k: String, _ v: String) { self.k = k; self.v = v }
     var body: some View {
-        HStack { Text(k).foregroundStyle(.secondary); Spacer(); Text(v).monospacedDigit() }.font(.callout)
+        HStack { Text(tr(k)).foregroundStyle(.secondary); Spacer(); Text(tr(v)).monospacedDigit() }.font(.callout)
     }
 }
 
@@ -814,9 +814,9 @@ struct FilesView: View {
     }
     private func delete(_ f: PhoneFile) {
         let a = NSAlert()
-        a.messageText = "Delete “\(f.name)” on the phone?"
-        a.informativeText = f.dir ? "The folder and everything in it is deleted. This can't be undone." : "This can't be undone."
-        a.addButton(withTitle: "Delete"); a.addButton(withTitle: "Cancel")
+        a.messageText = tr("Delete “%@” on the phone?", f.name)
+        a.informativeText = tr(f.dir ? "The folder and everything in it is deleted. This can't be undone." : "This can't be undone.")
+        a.addButton(withTitle: tr("Delete")); a.addButton(withTitle: tr("Cancel"))
         a.buttons[0].hasDestructiveAction = true
         if a.runModal() == .alertFirstButtonReturn { Hub.shared.request("file.delete", ["path": join(f.name)]) { _ in refresh() } }
     }
@@ -948,7 +948,7 @@ struct SettingsView: View {
                         Text("Scan this with PhoneCast on the phone").font(.headline)
                         Text("Phone app → Settings → “Scan computer's QR code”. Both sides then prove a shared key to each other on every connection: no PIN to type, and nothing secret crosses the network.")
                             .font(.callout).foregroundStyle(.secondary)
-                        Text(store.linkState).font(.caption).foregroundStyle(store.connected ? .green : .secondary)
+                        Text(tr(store.linkState)).font(.caption).foregroundStyle(store.connected ? .green : .secondary)
                         Button("New QR code (phones paired by QR must scan again)") {
                             Pairing.reset(); qr = Pairing.qrImage(size: 360); Hub.shared.pairingChanged()
                         }
@@ -961,7 +961,7 @@ struct SettingsView: View {
                 TextField("Phone IP address (optional, found automatically on the same Wi-Fi)", text: $host)
                 TextField("Phone Tailscale address (optional, for other networks)", text: $tailnet)
                 HStack {
-                    Text(store.linkState).foregroundStyle(.secondary).font(.caption)
+                    Text(tr(store.linkState)).foregroundStyle(.secondary).font(.caption)
                     Spacer()
                     Button("Save and connect") {
                         let d = UserDefaults.standard

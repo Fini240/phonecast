@@ -36,8 +36,8 @@ final class Banners {
 
     func file(_ url: URL, from phone: String) {
         present(key: UUID().uuidString, sticky: false) { close in
-            SimpleBanner(symbol: "arrow.down.doc.fill", title: "From \(phone): \(url.lastPathComponent)",
-                         text: "Saved in Downloads/PhoneCast", buttons: [
+            SimpleBanner(symbol: "arrow.down.doc.fill", title: tr("From %@: %@", phone, url.lastPathComponent),
+                         text: tr("Saved in Downloads/PhoneCast"), buttons: [
                             ("Show in Finder", { NSWorkspace.shared.activateFileViewerSelecting([url]) }),
                             ("Open", { NSWorkspace.shared.open(url) }),
                          ], close: close)
@@ -48,7 +48,7 @@ final class Banners {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let link = URL(string: t).flatMap { $0.scheme?.hasPrefix("http") == true ? $0 : nil }
         present(key: UUID().uuidString, sticky: false) { close in
-            SimpleBanner(symbol: link == nil ? "doc.on.clipboard.fill" : "link", title: link == nil ? "Copied from \(phone)" : "Link from \(phone)",
+            SimpleBanner(symbol: link == nil ? "doc.on.clipboard.fill" : "link", title: link == nil ? tr("Copied from %@", phone) : tr("Link from %@", phone),
                          text: String(t.prefix(240)), buttons: link.map { u in [("Open link", { NSWorkspace.shared.open(u) })] } ?? [], close: close)
         }
     }
@@ -281,13 +281,13 @@ struct SimpleBanner: View {
                     .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .top) {
-                        Text(title).font(.headline).lineLimit(2)
+                        Text(tr(title)).font(.headline).lineLimit(2)
                         Spacer()
                         if hover { CloseButton(action: close) }
                     }
-                    if !text.isEmpty { Text(text).font(.callout).foregroundStyle(.secondary).lineLimit(4) }
+                    if !text.isEmpty { Text(tr(text)).font(.callout).foregroundStyle(.secondary).lineLimit(4) }
                     if !buttons.isEmpty {
-                        HStack { ForEach(buttons.indices, id: \.self) { i in Button(buttons[i].0) { buttons[i].1(); close() } } }
+                        HStack { ForEach(buttons.indices, id: \.self) { i in Button(tr(buttons[i].0)) { buttons[i].1(); close() } } }
                             .controlSize(.small).padding(.top, 2)
                     }
                 }

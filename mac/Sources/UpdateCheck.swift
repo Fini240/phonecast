@@ -49,14 +49,14 @@ final class UpdateCheck: ObservableObject {
     /// (so macOS keeps PhoneCast's permissions where it can) -> swap the app -> restart.
     func install() {
         guard installing == nil, let zip = zipURL, let v = latest else { if let url { NSWorkspace.shared.open(url) }; return }
-        installing = "Downloading \(v)…"
+        installing = tr("Downloading %@…", v)
         URLSession.shared.downloadTask(with: zip) { tmp, _, err in
             guard let tmp else { return self.fail(err?.localizedDescription ?? "Download failed") }
             let work = FileManager.default.temporaryDirectory.appendingPathComponent("phonecast-update-\(UUID().uuidString)")
             try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
             let z = work.appendingPathComponent("update.zip")
             try? FileManager.default.moveItem(at: tmp, to: z)
-            DispatchQueue.main.async { self.installing = "Installing \(v)…" }
+            DispatchQueue.main.async { self.installing = tr("Installing %@…", v) }
             guard Self.run("/usr/bin/ditto", ["-x", "-k", z.path, work.path]) == 0 else { return self.fail("Couldn't unpack the update") }
             let newApp = work.appendingPathComponent("PhoneCast.app")
             guard let b = Bundle(url: newApp), b.bundleIdentifier == Bundle.main.bundleIdentifier,
@@ -87,7 +87,7 @@ final class UpdateCheck: ObservableObject {
     private func fail(_ why: String) {
         DispatchQueue.main.async {
             self.installing = nil
-            Banners.shared.info("Update failed", why + ". You can download it from GitHub instead.")
+            Banners.shared.info("Update failed", why)
         }
     }
 
@@ -118,7 +118,7 @@ struct UpdateBanner: View {
                 Image(systemName: "arrow.down.circle.fill").font(.title3).foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("PhoneCast \(v) is available").font(.headline)
-                    Text(up.installing ?? "You have \(UpdateCheck.current). The phone app shows its own update button.")
+                    Text(up.installing ?? tr("You have %@. The phone app shows its own update button.", UpdateCheck.current))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

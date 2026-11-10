@@ -71,11 +71,11 @@ final class MirrorBar: NSVisualEffectView {
                 let sep = NSBox(); sep.boxType = .separator
                 v = sep
             } else {
-                let b = NSButton(image: NSImage(systemSymbolName: it.symbol, accessibilityDescription: it.tip) ?? NSImage(), target: self, action: #selector(tap(_:)))
+                let b = NSButton(image: NSImage(systemSymbolName: it.symbol, accessibilityDescription: tr(it.tip)) ?? NSImage(), target: self, action: #selector(tap(_:)))
                 b.identifier = NSUserInterfaceItemIdentifier(it.id)
                 b.isBordered = false
                 b.imageScaling = .scaleProportionallyDown
-                b.toolTip = it.tip
+                b.toolTip = tr(it.tip)
                 b.refusesFirstResponder = true   // keys keep going to the phone
                 buttons[it.id] = b
                 v = b
@@ -137,7 +137,7 @@ final class MirrorBar: NSVisualEffectView {
             m.addItem(i)
         }
         for it in Self.items {
-            if it.id == "|" { m.addItem(.separator()) } else { add(it.tip, it.id, it.symbol) }
+            if it.id == "|" { m.addItem(.separator()) } else { add(tr(it.tip), it.id, it.symbol) }
         }
         m.addItem(.separator())
         add("Power menu", "power", "power")

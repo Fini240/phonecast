@@ -384,9 +384,9 @@ final class Hub: NSObject, NSMenuDelegate {
             let a = fp.index(fp.startIndex, offsetBy: i); return String(fp[a..<fp.index(a, offsetBy: 4)])
         }.joined(separator: " ")
         let a = NSAlert()
-        a.messageText = "Pair with this phone?"
-        a.informativeText = "Open PhoneCast on the phone → Settings. Its link key must be exactly:\n\n\(short)\n\nIf it's different, something else on this network is pretending to be your phone: don't pair."
-        a.addButton(withTitle: "Same key, pair"); a.addButton(withTitle: "Different / cancel")
+        a.messageText = tr("Pair with this phone?")
+        a.informativeText = tr("Open PhoneCast on the phone → Settings. Its link key must be exactly:\n\n%@\n\nIf it's different, something else on this network is pretending to be your phone: don't pair.", short)
+        a.addButton(withTitle: tr("Same key, pair")); a.addButton(withTitle: tr("Different / cancel"))
         NSApp.activate(ignoringOtherApps: true)
         let ok = a.runModal() == .alertFirstButtonReturn
         asking = false
@@ -504,7 +504,7 @@ final class Hub: NSObject, NSMenuDelegate {
                 // a link shared on the phone: open it in the Mac's browser (web links only)
                 if let s = o["url"] as? String, let u = URL(string: s), ["http", "https"].contains(u.scheme?.lowercased() ?? "") {
                     NSWorkspace.shared.open(u)
-                    Banners.shared.info("Opened a link from \(store.phoneName)", u.host ?? s)
+                    Banners.shared.info(tr("Opened a link from %@", store.phoneName), u.host ?? s)
                 }
             default: break
             }
@@ -531,7 +531,7 @@ final class Hub: NSObject, NSMenuDelegate {
                     let pb = NSPasteboard.general
                     pb.clearContents(); pb.writeObjects([img])
                     clipFromPhone = pb.changeCount; clipCount = pb.changeCount
-                    Banners.shared.info("Picture copied from \(store.phoneName)", "Paste it anywhere (⌘V)")
+                    Banners.shared.info(tr("Picture copied from %@", store.phoneName), "Paste it anywhere (⌘V)")
                     try? FileManager.default.removeItem(at: url)
                 }
                 else if req == Self.screenshotReq, let img = NSImage(contentsOf: url) {
@@ -730,9 +730,9 @@ final class Hub: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()
-        func info(_ s: String) { let i = NSMenuItem(title: s, action: nil, keyEquivalent: ""); i.isEnabled = false; m.addItem(i) }
+        func info(_ s: String) { let i = NSMenuItem(title: tr(s), action: nil, keyEquivalent: ""); i.isEnabled = false; m.addItem(i) }
         func act(_ s: String, _ sel: Selector, _ target: AnyObject? = nil) -> NSMenuItem {
-            let i = NSMenuItem(title: s, action: sel, keyEquivalent: ""); i.target = target ?? self; m.addItem(i); return i
+            let i = NSMenuItem(title: tr(s), action: sel, keyEquivalent: ""); i.target = target ?? self; m.addItem(i); return i
         }
         if connected {
             info("\(store.phoneName)  ●  \(store.rttMs >= 0 ? "\(Int(store.rttMs.rounded())) ms" : "")  ·  \(store.phoneSummary)")

@@ -160,8 +160,8 @@ extension AppDelegate {
 
     private func pcAlert(_ title: String, _ text: String) {
         let a = NSAlert()
-        a.messageText = title
-        a.informativeText = text
+        a.messageText = tr(title)
+        a.informativeText = tr(text)
         a.runModal()
     }
 }
