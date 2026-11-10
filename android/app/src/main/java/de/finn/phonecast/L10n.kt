@@ -82,6 +82,9 @@ private val DE = mapOf(
     "Hermes tokens" to "Hermes-Tokens", "In" to "Rein", "Out" to "Raus", "Calls" to "Aufrufe", " · {0} cached" to " · {0} aus Cache",
     "{0} in {1} sessions" to "{0} in {1} Sitzungen", "Last session" to "Letzte Sitzung", "calls" to "Aufrufe",
     "Saving {0} to Downloads" to "Speichere {0} in Downloads",
+    "Updates" to "Updates", "Check for updates" to "Nach Updates suchen", "Checking…" to "Suche…", "PhoneCast {0}" to "PhoneCast {0}",
+    "PhoneCast {0} is out — see Home" to "PhoneCast {0} ist da – siehe Start", "Up to date ({0})" to "Aktuell ({0})",
+    "Couldn't reach GitHub ({0})" to "GitHub nicht erreichbar ({0})",
     "AI" to "KI", "Switching engines works while the PC runs Linux." to "Die Engine lässt sich wechseln, solange der PC Linux nutzt.",
     "Use the PC" to "PC benutzen",
     "Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad." to

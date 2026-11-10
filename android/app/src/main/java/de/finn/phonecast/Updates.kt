@@ -4,7 +4,7 @@ import android.content.Context
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** Once a day: is there a newer PhoneCast release on GitHub? (Shown on the Home tab.) */
+/** Is there a newer PhoneCast release on GitHub? Asked when the app opens (at most hourly) or from Settings. (Shown on the Home tab.) */
 object Updates {
     @Volatile var latest: String? = null
     @Volatile var url: String? = null
@@ -14,15 +14,23 @@ object Updates {
 
     fun current(c: Context): String = try { c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "0" } catch (_: Exception) { "0" }
 
-    fun checkDaily(c: Context) {
+    @Volatile private var checking = false
+
+    /**
+     * Ask GitHub for the latest release. On its own at most once an hour (the API allows 60 calls an hour);
+     * [force] (the Settings button) asks now. [done] gets a short result on the main thread.
+     */
+    fun check(c: Context, force: Boolean = false, done: ((String) -> Unit)? = null) {
         val prefs = c.getSharedPreferences("ui", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         // remember the last answer so the card shows right away
         prefs.getString("updLatest", null)?.let { if (newer(it, current(c))) { latest = it; url = prefs.getString("updUrl", null); apkUrl = prefs.getString("updApk", null) } }
-        if (now - prefs.getLong("updChecked", 0) < 24 * 3600_000L) return
+        if (checking || (!force && now - prefs.getLong("updChecked", 0) < 3600_000L)) return
+        checking = true
         val app = c.applicationContext
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
         Thread {
-            try {
+            val msg = try {
                 val con = URL("https://api.github.com/repos/Fini240/phonecast/releases/latest").openConnection() as HttpURLConnection
                 con.connectTimeout = 10_000; con.readTimeout = 10_000
                 con.setRequestProperty("Accept", "application/vnd.github+json")
@@ -34,8 +42,11 @@ object Updates {
                     .firstOrNull { it.optString("name").endsWith(".apk") }?.optString("browser_download_url")
                 app.getSharedPreferences("ui", Context.MODE_PRIVATE).edit()
                     .putLong("updChecked", now).putString("updLatest", v).putString("updUrl", page).putString("updApk", apk).apply()
-                if (newer(v, current(app))) { latest = v; url = page; apkUrl = apk } else latest = null
-            } catch (_: Exception) {}
+                if (newer(v, current(app))) { latest = v; url = page; apkUrl = apk; tr("PhoneCast {0} is out — see Home", v) }
+                else { latest = null; tr("Up to date ({0})", current(app)) }
+            } catch (e: Exception) { tr("Couldn't reach GitHub ({0})", e.message) }
+            finally { checking = false }
+            done?.let { d -> main.post { d(msg) } }
         }.start()
     }
 

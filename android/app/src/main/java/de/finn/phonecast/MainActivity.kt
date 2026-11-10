@@ -74,7 +74,7 @@ class MainActivity : Activity() {
         if (CaptureService.instance == null) toggleCast()
     }
 
-    override fun onResume() { super.onResume(); LauncherIcon.appVisible = true; tick() }
+    override fun onResume() { super.onResume(); LauncherIcon.appVisible = true; Updates.check(this); tick() }
     override fun onPause() { super.onPause(); LauncherIcon.appVisible = false; ui.removeCallbacksAndMessages(null) }
 
     private lateinit var u: Ui
@@ -241,7 +241,6 @@ class MainActivity : Activity() {
                 updateBtn.alpha = if (Updates.installing == null) 1f else 0.5f
             }
         }
-        Updates.checkDaily(this)
         return u.page("PhoneCast",
             updateCard,
             u.card(status.view,
@@ -590,6 +589,7 @@ class MainActivity : Activity() {
     // ---- Settings ----
 
     private fun settingsPage(): View {
+        val updMsg = u.label("", 14f, secondary = true)
         val pinView = u.label("", 34f, bold = true).apply { letterSpacing = 0.18f; setTextIsSelectable(true); setPadding(0, dp(4), 0, dp(2)) }
         val addrRows = u.Rows()
         val keyView = u.mono()
@@ -671,6 +671,11 @@ class MainActivity : Activity() {
                 u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
             u.card(u.title("PC dashboard (optional)"), dashView,
                 u.tonal("Set the dashboard address…") { askDashboard() }),
+            u.card(u.title("Updates"), updMsg.apply { text = tr("PhoneCast {0}", Updates.current(this@MainActivity)) },
+                u.tonal("Check for updates") {
+                    updMsg.text = tr("Checking…")
+                    Updates.check(this, force = true) { m -> updMsg.text = m; tick() }
+                }),
         )
     }
 
