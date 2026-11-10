@@ -54,6 +54,7 @@ sealed unsafe partial class App
     }
     string lastTether = "";
     double lastPingAt;
+    bool tetherProbing;
 
     /// Windows gives the phone's tethering adapter the same priority as the home network, so part of the
     /// PC's internet would go through the phone (mobile data, extra delay). Offer once to lower it.
@@ -175,6 +176,24 @@ sealed unsafe partial class App
             if (appeared) new Thread(CheckTetherRoute) { IsBackground = true }.Start();
             if (appeared && wantConnected && deviceLabel != TetherLabel && Settings.Str("pin") is string pin0)
             { wifiIndex = 0; ConnectWifi(pin0); return; }
+        }
+        // On Wi-Fi while the tethering cable is there (the phone wasn't ready on the cable yet when
+        // we connected): switch over as soon as the phone answers on the cable.
+        if (tg != "" && stateText == "Connected" && deviceLabel != TetherLabel && !tetherProbing && Settings.Str("pin") is string pin1)
+        {
+            tetherProbing = true;
+            var gw = tg.Split(',')[0];
+            new Thread(() =>
+            {
+                bool ok = false;
+                try { using var c = new System.Net.Sockets.TcpClient(); ok = c.ConnectAsync(gw, 27183).Wait(1500) && c.Connected; } catch { }
+                Post(() =>
+                {
+                    tetherProbing = false;
+                    if (ok && stateText == "Connected" && deviceLabel != TetherLabel)
+                    { Log("cable: the phone answers on the tethering cable, switching to it"); wifiIndex = 0; ConnectWifi(pin1); }
+                });
+            }) { IsBackground = true }.Start();
         }
         if (!UseAoa || NoUsb || !UsbBridge.Shared.Loaded) return;
         // libusb can hang on a phone that is half-way through switching: never wait on it forever
