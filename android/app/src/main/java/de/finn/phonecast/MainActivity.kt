@@ -514,8 +514,39 @@ class MainActivity : Activity() {
             dashView.text = if (Dashboard.base.isEmpty()) "Not set. With a Hermes dashboard the PC tab shows the PC and its controls."
                 else Dashboard.base + if (Prefs.dashboard(this).isEmpty()) "  (from the Mac)" else ""
         }
+        val pairsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        var shownPairs = ""
+        updaters += {
+            val pairs = Auth.pairs(this).values.sortedBy { it.name.lowercase() }
+            val sig = pairs.joinToString { it.id }
+            if (sig != shownPairs) {       // rebuild the rows only when the list changed
+                shownPairs = sig
+                pairsBox.removeAllViews()
+                if (pairs.isEmpty()) pairsBox.addView(label("No computer paired by QR yet.", 13f, alpha = 0.7f))
+                for (pr in pairs) pairsBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(label("● " + pr.name, 15f), LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(Button(this@MainActivity).apply {
+                        text = "Remove"; isAllCaps = false
+                        setOnClickListener {
+                            AlertDialog.Builder(this@MainActivity).setTitle("Remove ${pr.name}?")
+                                .setMessage("It can't connect without scanning again (or the PIN).")
+                                .setPositiveButton("Remove") { _, _ -> Auth.removePair(this@MainActivity, pr.id); tick() }
+                                .setNegativeButton("Cancel", null).show()
+                        }
+                    })
+                })
+            }
+        }
         return page("Settings",
-            card(label("Pairing PIN (enter it on the Mac once)", 13f, alpha = 0.7f), pinView, addrView, keyView,
+            card(label("Pair a computer", 16f, bold = true),
+                label("On the Mac or PC: PhoneCast → Settings shows a QR code. Scan it here: no PIN needed, and both sides prove a shared key on every connection.", 13f, alpha = 0.7f),
+                button("Scan computer's QR code") {
+                    Pairing.scan(this) { ok, msg -> toast(msg); if (ok) tick() }
+                },
+                pairsBox),
+            card(label("Or pair with the PIN (enter it on the computer once)", 13f, alpha = 0.7f), pinView, addrView, keyView,
                 button("New PIN (unpairs every Mac)") { Prefs.newPin(this); toast("New PIN. Enter it on the Mac again."); tick() }),
             card(label("On the Mac", 16f, bold = true), notifBtn, clipBtn),
             card(label("PC (Hermes dashboard)", 16f, bold = true), dashView,
