@@ -29,6 +29,15 @@ sealed unsafe partial class App
                     }
                     break;
                 }
+            case Sdl.DROPFILE:
+                {
+                    // files dropped on the window go to the phone
+                    var ptr = Sdl.Ptr(ref e, 8);
+                    var path = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ptr);
+                    Sdl.SDL_free(ptr);
+                    if (!string.IsNullOrEmpty(path)) { dropped.Add(path); After(0.15, FlushDrops); }
+                    break;
+                }
             case Sdl.KEYDOWN: KeyDown(Sdl.I32(ref e, 16), Sdl.U8(ref e, 13) != 0, Sdl.U16(ref e, 24)); break;
             case Sdl.KEYUP: KeyUp(Sdl.I32(ref e, 16)); break;
             case Sdl.TEXTINPUT:
@@ -58,6 +67,14 @@ sealed unsafe partial class App
     }
 
     void Send(byte a, byte id, NPoint p) => link?.Touch(a, id, p.x, p.y);
+
+    readonly List<string> dropped = new();
+    void FlushDrops()
+    {
+        if (dropped.Count == 0) return;
+        var all = dropped.Distinct().ToArray(); dropped.Clear();
+        SendFiles(all);
+    }
 
     // ---------- modes ----------
 
@@ -198,6 +215,7 @@ sealed unsafe partial class App
             case 14: ShowConnect(); return true;                                     // K
             case 19: ShowPairing(); return true;                                     // P
             case 7: if (shift) { Disconnect(); return true; } return false;          // Shift+D
+            case 6: if (shift) { SendClipboard(); return true; } return false;       // Shift+C
             case 5: link?.Send(CT.Global, new[] { GlobalA.Back }); return true;      // B
             case 11: link?.Send(CT.Global, new[] { GlobalA.Home }); return true;     // H
             case 21: link?.Send(CT.Global, new[] { GlobalA.Recents }); return true;  // R

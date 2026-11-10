@@ -128,7 +128,8 @@ sealed unsafe partial class App
         Log($"window {w}x{h}, hwnd {hwnd}, renderer {(ren != IntPtr.Zero ? "ok" : Sdl.Error)}");
 
         mdns.Start();
-        double nextFps = Now + 1, nextPing = Now + 0.5, nextCable = Now + 3, nextLog = Now + 5;
+        double nextFps = Now + 1, nextPing = Now + 0.5, nextCable = Now + 3, nextLog = Now + 5, nextHub = Now + 2;
+        UpdateTray();
         double autoExit = double.TryParse(Environment.GetEnvironmentVariable("PHONECAST_AUTOEXIT"), out var ae) ? Now + ae : 0;
         if (Settings.Str("pin") != null && WifiCandidates().Count > 0) After(1.2, ConnectSaved);
         else After(1.2, () => ShowConnect());
@@ -156,11 +157,13 @@ sealed unsafe partial class App
             if (now >= nextFps) { nextFps = now + 1; TickFps(); }
             if (now >= nextPing) { nextPing = now + 0.5; Ping(); }
             if (now >= nextCable) { nextCable = now + 3; WatchCable(); }
+            if (now >= nextHub) { nextHub = now + 3; HubTick(); }
             if (now >= nextLog) { nextLog = now + 5; if (stateText == "Connected") Log($"stats: {videoW}x{videoH} {fps} fps {Transport} rtt {rttMs:0} ms decode {dec.DecodeMs:0.0} ms ({(dec.Hardware ? "hw" : "sw")}) skipped {resyncs} audio {audio.BufferedMs} ms" + (udp != null && udpActive ? $" udp lost {udp.Lost} repaired {udp.Repaired} resent {udp.ResentFrames}" : "")); }
             if (autoExit > 0 && now > autoExit) quit = true;
             if (overlayDirty) { RedrawOverlay(); needRender = true; }
             if (needRender) Render();
         }
+        HubShutdown();
         SaveWindow();
         link?.Close();
         UsbBridge.Shared.Stop();

@@ -6,7 +6,9 @@ namespace PhoneCast;
 /// Small JSON settings file in %APPDATA%\PhoneCast (the Windows twin of the Mac's UserDefaults).
 static class Settings
 {
-    static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PhoneCast");
+    /// PHONECAST_SETTINGS_DIR: a separate settings folder (tests), else %APPDATA%\PhoneCast.
+    static readonly string Dir = Environment.GetEnvironmentVariable("PHONECAST_SETTINGS_DIR") is string d && d != ""
+        ? d : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PhoneCast");
     static readonly string FilePath = Path.Combine(Dir, "settings.json");
     static JsonObject root = Load();
 

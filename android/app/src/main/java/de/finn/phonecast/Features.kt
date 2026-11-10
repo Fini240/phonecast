@@ -40,10 +40,12 @@ class Features(private val ctx: Context, private val hub: HubService) {
     private fun has(p: String) = ctx.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     /** Runs on its own thread per request (queries can take a moment). */
-    fun handle(req: JSONObject) {
+    /** [origin]: the computer that asked; the answer (and any file it asked for) goes back to it only. */
+    fun handle(req: JSONObject, origin: Any? = null) {
         val id = req.optInt("id")
         val p = req.optJSONObject("p") ?: JSONObject()
         Thread({
+            hub.origin.set(origin)
             val out = JSONObject().put("id", id)
             try {
                 out.put("data", call(req.optString("m"), p)).put("ok", true)
@@ -53,7 +55,7 @@ class Features(private val ctx: Context, private val hub: HubService) {
                 Log.w(TAG, "request ${req.optString("m")}", e)
                 out.put("ok", false).put("error", "failed").put("message", e.message ?: e.toString())
             }
-            hub.sendJson(HubProto.RESP, out)
+            hub.sendJsonTo(origin, HubProto.RESP, out)
         }, "feat-$id").start()
     }
 
