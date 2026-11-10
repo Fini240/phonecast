@@ -539,6 +539,7 @@ sealed unsafe partial class App
         ShapeWhole = 80, Shape169, ShapeNormal, Sharp0 = 90, Sharp2560, Sharp3200,
         InstallUsbDk = 100, Help = 110, Pair = 111, CheckUpdates = 112,
         DecCpu = 130, DecGpu,
+        LinkClip = 140, LinkFiles, LinkRing, LinkPlay, LinkNext, LinkPrev,
         QuickSettings = 120, LockPhone, Screenshot, VolUp, VolDown, MutePhone, PowerMenu,
     }
 
@@ -580,6 +581,10 @@ sealed unsafe partial class App
         q.Add((0, "#Sharpness (for the shapes above)"));
         q.Add((M.Sharp0, "Phone's own pixels (coolest)")); q.Add((M.Sharp2560, "Sharp — 2560 px wide")); q.Add((M.Sharp3200, "Sharpest — 3200 px wide (hotter)"));
         shapeMenu = Sub("&Quality", q.ToArray());
+        Sub("&Link",
+            (M.LinkClip, "Send clipboard to the phone\tCtrl+Shift+C"), (M.LinkFiles, "Send files to the phone… (or drop them on the window)"), (0, "-"),
+            (M.LinkPlay, "Play / pause the phone's music"), (M.LinkNext, "Next track"), (M.LinkPrev, "Previous track"), (0, "-"),
+            (M.LinkRing, "Ring the phone"));
         Sub("&Help", (M.Help, "Keyboard shortcuts\tCtrl+I"), (M.CheckUpdates, "Check for updates…"));
         Win32.SetMenu(hwnd, menuBar);
         RefreshMenu();
@@ -625,6 +630,12 @@ sealed unsafe partial class App
                 dec.UseHardware(m == M.DecGpu);
                 Log($"decoder: {(dec.Hardware ? "D3D11 hardware" : "software")} (menu)");
                 RefreshMenu(); break;
+            case M.LinkClip: SendClipboard(); break;
+            case M.LinkFiles: SendFilesDialog(); break;
+            case M.LinkRing: RingPhone(); break;
+            case M.LinkPlay: MediaCmd("toggle"); break;
+            case M.LinkNext: MediaCmd("next"); break;
+            case M.LinkPrev: MediaCmd("prev"); break;
             case M.Quit: var q = new Sdl.Event { type = Sdl.QUIT }; Sdl.SDL_PushEvent(ref q); break;
             case M.EditMap: SetMode(mode == Mode.Edit ? Mode.Normal : Mode.Edit); break;
             case M.Game: ToggleGame(); break;

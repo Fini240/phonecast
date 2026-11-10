@@ -55,6 +55,8 @@ static unsafe class Sdl
     [DllImport(L)] public static extern uint SDL_GetWindowFlags(IntPtr w);
     [DllImport(L)] public static extern void SDL_ShowWindow(IntPtr w);
     [DllImport(L)] public static extern void SDL_RaiseWindow(IntPtr w);
+    [DllImport(L)] public static extern void SDL_free(IntPtr p);
+    public const uint DROPFILE = 0x1000;
     [DllImport(L)] public static extern int SDL_GetWindowDisplayIndex(IntPtr w);
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int x, y, w, h; }
     [DllImport(L)] public static extern int SDL_GetDisplayBounds(int i, out Rect r);

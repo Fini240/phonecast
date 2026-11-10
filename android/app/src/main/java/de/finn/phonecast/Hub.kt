@@ -54,7 +54,7 @@ object HubProto {
     const val PORT = 27185
     const val SERVICE_TYPE = "_phonecasthub._tcp"
 
-    const val HELLO = 1          // mac->phone: json {name, pin?, qr?, proof?} (qr = QR pairing id, see Auth)
+    const val HELLO = 1          // mac->phone: json {name, os?, pin?, qr?, proof?} (qr = QR pairing id, see Auth; os "windows" for the PC)
     const val HELLO_OK = 2       // phone->mac: json {name}
     const val HELLO_BAD = 3
     const val PING = 4           // either way, echoed as PONG
@@ -127,12 +127,13 @@ class HubService : Service() {
         }
     }
 
-    /** What the Mac last told us about itself (and the devices it watches). */
+    /** What the Mac last told us about itself (and the devices it watches). Windows PCs don't count:
+     *  this feeds the phone's Mac tab. */
     @Volatile var macStatus: JSONObject? = null
         private set
-    @Volatile var macName: String? = null
-        private set
-    val connected: Boolean get() = client != null
+    /** Every connected computer's name ("Finn's MacBook Air + Finn-Windows"), null when none. */
+    val macName: String? get() = clients.map { it.name }.takeIf { it.isNotEmpty() }?.joinToString(" + ")
+    val connected: Boolean get() = clients.isNotEmpty()
     @Volatile var transfer: String? = null   // "Sending photo.jpg 40 %" for the UI
         private set
 
@@ -142,7 +143,14 @@ class HubService : Service() {
     /** The activity showing the Mac's screen (gets SCREEN_* packets). */
     @Volatile var screenSink: ((Int, ByteArray) -> Unit)? = null
 
-    @Volatile private var client: Client? = null
+    /** Every connected computer (a Mac and a Windows PC can be linked at the same time). Things the
+     *  phone announces (notifications, status, clipboard, events) go to all of them; answers to a
+     *  request and the files it asked for go back to the one that asked ([origin]). */
+    private val clients = java.util.concurrent.CopyOnWriteArrayList<Client>()
+    /** The computer whose request this thread is answering (set by Features for its request thread). */
+    val origin = ThreadLocal<Any?>()
+    /** The computer showing its screen on this phone (SCREEN_* packets), if any. */
+    @Volatile private var screenClient: Client? = null
     @Volatile private var running = false
     private var serverSocket: ServerSocket? = null
     private var nsdListener: NsdManager.RegistrationListener? = null
@@ -187,7 +195,7 @@ class HubService : Service() {
             ACTION_SEND_TEXT -> intent.getStringExtra(EXTRA_TEXT)?.let { t ->
                 // a shared link opens in the Mac's browser; other text goes to its clipboard
                 val url = t.trim()
-                if (Regex("^https?://\\S+$").matches(url) && client != null) sendJson(HubProto.EVENT, JSONObject().put("e", "open").put("url", url))
+                if (Regex("^https?://\\S+$").matches(url) && connected) sendJson(HubProto.EVENT, JSONObject().put("e", "open").put("url", url))
                 else sendClip(t)
             }
             Extras.ACTION_STOP_RING -> if (::extras.isInitialized) extras.ring(false)
@@ -200,7 +208,7 @@ class HubService : Service() {
         instance = null
         if (::features.isInitialized) features.stopCallWatch()
         try { serverSocket?.close() } catch (_: Exception) {}
-        client?.close()
+        clients.forEach { it.close() }
         nsdListener?.let { try { getSystemService(NsdManager::class.java).unregisterService(it) } catch (_: Exception) {} }
         multicastLock?.release()
         super.onDestroy()
@@ -208,20 +216,29 @@ class HubService : Service() {
 
     // ---- public API (any thread) ----
 
-    fun send(type: Int, payload: ByteArray = ByteArray(0)) { client?.control(type, payload) }
+    fun send(type: Int, payload: ByteArray = ByteArray(0)) { clients.forEach { it.control(type, payload) } }
     fun sendJson(type: Int, o: JSONObject) = send(type, o.toString().toByteArray())
+    /** To the computer [to] (an [origin]); to every computer when [to] is null. */
+    fun sendJsonTo(to: Any?, type: Int, o: JSONObject) {
+        val c = to as? Client
+        if (c != null) c.control(type, o.toString().toByteArray()) else sendJson(type, o)
+    }
+
+    /** Who a file goes to: the computer that asked, else every connected one. */
+    private fun targets(): List<Client> = (origin.get() as? Client)?.let { listOf(it) } ?: clients.toList()
 
     fun sendClip(text: String) {
-        if (client == null) { toast("Not connected to the Mac"); return }
+        if (!connected) { toast("Not connected to the Mac"); return }
         lastClip = text
         send(HubProto.CLIP, text.toByteArray()); toast("Copied to the Mac")
     }
 
     /** A copied picture -> the Mac's clipboard (file req CLIP_IMAGE_REQ, the Mac keeps no copy in Downloads). */
     fun sendClipImage(u: Uri) {
-        val c = client ?: run { toast("Not connected to the Mac"); return }
+        val to = clients.toList()
+        if (to.isEmpty()) { toast("Not connected to the Mac"); return }
         Thread({
-            try { sendOne(c, u, CLIP_IMAGE_REQ); toast("Picture copied to the Mac") }
+            try { to.forEach { sendOne(it, u, CLIP_IMAGE_REQ) }; toast("Picture copied to the Mac") }
             catch (e: Exception) { Log.w(TAG, "clip image", e) }
             transfer = null; updateNotification()
         }, "hub-clipimg").start()
@@ -231,11 +248,11 @@ class HubService : Service() {
     fun castStopped() = send(HubProto.CAST_STOPPED)
 
     fun sendFiles(uris: List<Uri>) {
-        val c = client
-        if (c == null) { toast("Not connected to the Mac"); return }
+        val to = clients.toList()
+        if (to.isEmpty()) { toast("Not connected to the Mac"); return }
         Thread({
-            for (u in uris) {
-                if (client !== c) break
+            for (c in to) for (u in uris) {
+                if (c !in clients) break
                 try { sendOne(c, u) } catch (e: Exception) { Log.w(TAG, "send $u", e); toast("Couldn't send a file: ${e.message}") }
             }
             transfer = null; updateNotification()
@@ -261,13 +278,14 @@ class HubService : Service() {
 
     /** The Mac asked for a photo/video ([req] = its request id, so it knows where the file belongs). */
     fun sendUriAsFile(u: Uri, req: Int) {
-        val c = client ?: return
-        Thread({ try { sendOne(c, u, req) } catch (e: Exception) { Log.w(TAG, "send $u", e) }; transfer = null; updateNotification() }, "hub-get").start()
+        val to = targets()
+        if (to.isEmpty()) return
+        Thread({ for (c in to) try { sendOne(c, u, req) } catch (e: Exception) { Log.w(TAG, "send $u", e) }; transfer = null; updateNotification() }, "hub-get").start()
     }
 
     /** A file or folder from the phone's storage (folders arrive as a .zip). */
     fun sendPathAsFile(rel: String, req: Int) {
-        val c = client ?: return
+        val c = targets().firstOrNull() ?: return
         val f = java.io.File(features.storagePath(rel))
         Thread({
             try {
@@ -297,7 +315,7 @@ class HubService : Service() {
             while (true) {
                 val n = ins.read(buf)
                 if (n < 0) break
-                if (client !== c) throw IllegalStateException("the Mac disconnected")
+                if (c !in clients) throw IllegalStateException("the Mac disconnected")
                 val p = ByteBuffer.allocate(4 + n).putInt(id).put(buf, 0, n).array()
                 c.bulk(HubProto.FILE_DATA, p)
                 sent += n
@@ -361,10 +379,12 @@ class HubService : Service() {
                 s.close(); return
             }
             s.soTimeout = 8_000  // the Mac pings every second
-            c = Client(s)
-            client?.close()
-            client = c
-            macName = hello.optString("name", qr?.name ?: "Mac")
+            val cl = Client(s, hello.optString("name", qr?.name ?: "Mac"), hello.optString("os", "mac"))
+            c = cl
+            // the same computer reconnecting replaces its old connection; other computers stay
+            clients.filter { it.name == cl.name && it.os == cl.os }.forEach { clients.remove(it); it.close() }
+            clients.add(cl)
+            Log.i(TAG, "${cl.os} '${cl.name}' linked (${clients.size} connected)")
             // the mirror key: lets the mirror connect without sending the PIN in the clear
             val ok = JSONObject().put("name", deviceName()).put("mirrorKey", Prefs.token(this))
             if (qr != null) ok.put("proof", Auth.hubPhoneProof(qr, nonce)).put("qr", true)
@@ -388,9 +408,10 @@ class HubService : Service() {
             Log.i(TAG, "client ended: ${e.message}")
         } finally {
             c?.close()
-            if (client === c && c != null) {
-                client = null; macStatus = null
-                screenSink?.invoke(-1, ByteArray(0))
+            if (c != null && clients.remove(c)) {
+                Log.i(TAG, "${c.os} '${c.name}' left (${clients.size} connected)")
+                if (clients.none { it.os != "windows" }) macStatus = null
+                if (screenClient === c) { screenClient = null; screenSink?.invoke(-1, ByteArray(0)) }
                 updateNotification()
             }
             try { s.close() } catch (_: Exception) {}
@@ -401,7 +422,7 @@ class HubService : Service() {
         when (type) {
             HubProto.PING -> c.control(HubProto.PONG, p)
             HubProto.PONG -> {}
-            HubProto.STATUS -> { macStatus = try { JSONObject(String(p)) } catch (_: Exception) { null } }
+            HubProto.STATUS -> if (c.os != "windows") { macStatus = try { JSONObject(String(p)) } catch (_: Exception) { null } }
             HubProto.CLIP -> {
                 val text = String(p)
                 lastClip = text
@@ -410,7 +431,7 @@ class HubService : Service() {
             }
             HubProto.NOTIF_ACTION -> NotifListener.instance?.action(JSONObject(String(p)))
             HubProto.CAST_REQUEST -> requestCast()
-            HubProto.REQ -> features.handle(JSONObject(String(p)))
+            HubProto.REQ -> features.handle(JSONObject(String(p)), c)
             HubProto.FILE_BEGIN -> {
                 val o = JSONObject(String(p))
                 files[o.getInt("id")] = Incoming(o.optString("name", "file"), o.optLong("size", -1), o.optString("dir").takeIf { it.isNotEmpty() },
@@ -422,8 +443,10 @@ class HubService : Service() {
             }
             HubProto.FILE_END -> files.remove(ByteBuffer.wrap(p, 0, 4).int)?.finish()
             HubProto.FILE_CANCEL -> files.remove(ByteBuffer.wrap(p, 0, 4).int)?.abort()
-            HubProto.SCREEN_FORMAT, HubProto.SCREEN_CONFIG, HubProto.SCREEN_FRAME, HubProto.SCREEN_DENIED ->
+            HubProto.SCREEN_FORMAT, HubProto.SCREEN_CONFIG, HubProto.SCREEN_FRAME, HubProto.SCREEN_DENIED -> {
+                screenClient = c
                 screenSink?.invoke(type, p)
+            }
         }
     }
 
@@ -527,7 +550,7 @@ class HubService : Service() {
 
     private fun statusLoop() {
         while (running) {
-            try { if (client != null) pushStatus() } catch (e: Exception) { Log.w(TAG, "status", e) }
+            try { if (connected) pushStatus() } catch (e: Exception) { Log.w(TAG, "status", e) }
             Thread.sleep(2000)
         }
     }
@@ -593,9 +616,9 @@ class HubService : Service() {
 
     private fun notification(): Notification {
         val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val text = transfer ?: if (client != null) tr("Connected to {0}", macName ?: "Mac") else tr("Waiting for the Mac")
+        val text = transfer ?: if (connected) tr("Connected to {0}", macName ?: "Mac") else tr("Waiting for the Mac")
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(if (client != null) R.drawable.ic_stat_phonecast else R.drawable.ic_stat_phonecast_off)
+            .setSmallIcon(if (connected) R.drawable.ic_stat_phonecast else R.drawable.ic_stat_phonecast_off)
             .setContentTitle(tr("PhoneCast link"))
             .setContentText(text)
             .setContentIntent(open)
@@ -604,7 +627,7 @@ class HubService : Service() {
     }
 
     private fun updateNotification() {
-        LauncherIcon.request(this, client != null)
+        LauncherIcon.request(this, connected)
         try { getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification()) } catch (_: Exception) {}
     }
 
@@ -615,7 +638,8 @@ class HubService : Service() {
      * One Mac. Two send queues: control packets (pings, notifications, input echoes) always go
      * before bulk packets (file chunks), so a big transfer never delays a notification.
      */
-    private class Client(val socket: Socket) {
+    /** One linked computer; [os] "mac" or "windows" (from its HELLO). */
+    private class Client(val socket: Socket, val name: String, val os: String) {
         private val out = BufferedOutputStream(socket.getOutputStream(), 256 * 1024)
         private val ctrl = LinkedBlockingQueue<ByteArray>()
         private val bulkQ = ArrayBlockingQueue<ByteArray>(6)
