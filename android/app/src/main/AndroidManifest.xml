@@ -132,7 +132,7 @@
             android:name=".CastTile"
             android:exported="true"
             android:label="Cast to Mac"
-            android:icon="@mipmap/ic_launcher_on"
+            android:icon="@drawable/ic_stat_phonecast"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
