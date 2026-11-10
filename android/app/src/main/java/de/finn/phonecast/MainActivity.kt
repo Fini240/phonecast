@@ -40,6 +40,12 @@ class MainActivity : Activity() {
     private lateinit var shapeView: TextView
     private lateinit var shapeNormalBtn: Button
     private lateinit var shapeMacBtn: Button
+    private lateinit var hubView: TextView
+    private lateinit var devicesView: TextView
+    private lateinit var notifBtn: Button
+    private lateinit var featView: TextView
+    private lateinit var featBtn: Button
+    private lateinit var filesBtn: Button
 
     private val qualities = intArrayOf(1280, 1920, 2560, 0)
     private val bitrates = intArrayOf(8, 16, 24, 40)
@@ -47,6 +53,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildUi()
+        HubService.start(this)
         resumeIfAsked(intent)
     }
 
@@ -104,7 +111,27 @@ class MainActivity : Activity() {
         }
 
         col.addView(label("PhoneCast", 28f, bold = true))
-        col.addView(label("Shows this phone on your Mac. Works without developer options or USB debugging.", 14f, alpha = 0.7f))
+        col.addView(label("Connects this phone and your Mac: screen both ways, notifications, files, clipboard.", 14f, alpha = 0.7f))
+
+        hubView = label("", 17f, bold = true)
+        devicesView = label("", 14f).apply { typeface = Typeface.MONOSPACE; textSize = 13f }
+        notifBtn = button("Show phone notifications on the Mac") { openNotificationAccess() }
+        col.addView(card(
+            hubView,
+            devicesView,
+            button("Control the Mac from this phone") { startActivity(Intent(this, MacViewActivity::class.java)) },
+            button("Send files to the Mac") { pickFiles() },
+            button("Send clipboard to the Mac") { sendClipboard() },
+            notifBtn,
+        ))
+
+        featView = label("", 14f)
+        featBtn = button("Allow messages, calls, contacts & photos") { requestFeatures() }
+        filesBtn = button("Allow browsing phone files from the Mac") {
+            try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
+            catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+        }
+        col.addView(card(label("Phone features on the Mac", 16f, bold = true), featView, featBtn, filesBtn))
 
         status = label("", 17f, bold = true)
         startBtn = button("Start sharing") { toggle() }
@@ -156,6 +183,7 @@ class MainActivity : Activity() {
     }
 
     private fun tick() {
+        tickHub()
         val svc = CaptureService.instance
         status.text = when {
             svc == null -> "Not sharing"
@@ -196,6 +224,69 @@ class MainActivity : Activity() {
 
         ui.removeCallbacksAndMessages(null)
         ui.postDelayed({ tick() }, 1000)
+    }
+
+    private fun tickHub() {
+        val hub = HubService.instance
+        val st = hub?.macStatus
+        hubView.text = when {
+            hub == null -> "Link to the Mac: starting…"
+            !hub.connected -> "Mac: not connected\nOpen PhoneCast on the Mac (same PIN as below)."
+            else -> "● " + (hub.macName ?: "Mac") + (st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { "  ·  $it ms" } ?: "")
+        }
+        devicesView.text = if (st == null) (hub?.transfer ?: "") else buildString {
+            val bat = st.optInt("battery", -1)
+            if (bat >= 0) append("Mac      battery $bat %" + (if (st.optBoolean("charging")) " ⚡" else "") + "\n")
+            if (st.has("cpu")) append("         CPU ${st.optInt("cpu")} %  ·  RAM ${st.optInt("mem")} %  ·  ${st.optString("thermal")}\n")
+            val devs = st.optJSONArray("devices")
+            if (devs != null) for (i in 0 until devs.length()) {
+                val d = devs.getJSONObject(i)
+                val ms = d.optInt("ms", -1)
+                append(d.optString("name").take(16).padEnd(17) + (if (ms >= 0) "● $ms ms" else "○ offline") + "\n")
+            }
+            hub?.transfer?.let { append(it) }
+        }.trimEnd()
+        notifBtn.visibility = if (NotifListener.instance != null) View.GONE else View.VISIBLE
+        val p = HubService.instance?.takeIf { true }?.let { try { it.features.perms() } catch (_: Exception) { null } }
+        if (p != null) {
+            val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer/dial", "contacts" to "Contacts",
+                "photos" to "Photos", "files" to "Files", "notifications" to "Notifications", "control" to "Mouse & keyboard")
+            featView.text = names.entries.joinToString("\n") { (k, v) -> (if (p.optBoolean(k)) "✓ " else "○ ") + v }
+            featBtn.visibility = if (listOf("sms", "calls", "callControl", "contacts", "photos").all { p.optBoolean(it) }) View.GONE else View.VISIBLE
+            filesBtn.visibility = if (p.optBoolean("files")) View.GONE else View.VISIBLE
+        }
+    }
+
+    private fun requestFeatures() {
+        val want = mutableListOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS, Manifest.permission.READ_CONTACTS,
+            Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_PHONE_STATE, Manifest.permission.CALL_PHONE,
+            Manifest.permission.ANSWER_PHONE_CALLS)
+        want += if (android.os.Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+            else listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        requestPermissions(want.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), REQ_FEATURES)
+    }
+
+    private fun openNotificationAccess() {
+        try {
+            startActivity(Intent("android.settings.NOTIFICATION_LISTENER_DETAIL_SETTINGS")
+                .putExtra("android.provider.extra.NOTIFICATION_LISTENER_COMPONENT_NAME",
+                    ComponentName(this, NotifListener::class.java).flattenToString()))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+    }
+
+    private fun pickFiles() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), REQ_FILES)
+    }
+
+    private fun sendClipboard() {
+        val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (text.isNullOrEmpty()) { toast("The clipboard is empty"); return }
+        HubService.instance?.sendClip(text) ?: toast("Not connected to the Mac")
     }
 
     private fun addresses(): String = try {
@@ -241,6 +332,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_PERMS) askCapture()
+        if (requestCode == REQ_FEATURES) HubService.instance?.features?.startCallWatch()
     }
 
     private fun askCapture() {
@@ -257,6 +349,14 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_FILES) {
+            if (resultCode != RESULT_OK || data == null) return
+            val uris = ArrayList<Uri>()
+            data.clipData?.let { c -> for (i in 0 until c.itemCount) uris.add(c.getItemAt(i).uri) }
+            if (uris.isEmpty()) data.data?.let { uris.add(it) }
+            HubService.instance?.sendFiles(uris) ?: toast("Not connected to the Mac")
+            return
+        }
         if (requestCode != REQ_CAPTURE) return
         if (resultCode != RESULT_OK || data == null) {
             toast("Screen sharing was not allowed")
@@ -284,6 +384,8 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_PERMS = 1
         private const val REQ_CAPTURE = 2
+        private const val REQ_FILES = 3
+        private const val REQ_FEATURES = 4
         const val EXTRA_RESUME = "resume"
     }
 }

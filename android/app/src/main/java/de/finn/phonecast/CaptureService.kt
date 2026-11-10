@@ -134,6 +134,7 @@ class CaptureService : Service(), StreamServer.Listener {
         ).apply { setReferenceCounted(false); acquire() }
 
         registerNsd()
+        HubService.instance?.castStarted()
         UsbBridge.openExisting(this)
         InputService.onControlChanged = { available -> server?.onControlChanged(available) }
     }
@@ -283,6 +284,7 @@ class CaptureService : Service(), StreamServer.Listener {
 
     override fun onDestroy() {
         instance = null
+        HubService.instance?.castStopped()
         InputService.onControlChanged = null
         InputService.instance?.handle(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), 0, 0, 0, 0, 0))
         try { getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener) } catch (_: Exception) {}

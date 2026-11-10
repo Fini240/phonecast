@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.contentView = view
         window.delegate = self
+        window.isReleasedWhenClosed = false   // closing hides the mirror; the hub keeps running
         window.acceptsMouseMovedEvents = true
         window.backgroundColor = .black
         let tb = NSToolbar(identifier: "main")
@@ -85,27 +86,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         window.collectionBehavior = [.fullScreenNone]
         window.setFrameAutosaveName("PhoneCastWindow")
         if !window.setFrameUsingName("PhoneCastWindow") { window.center() }
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(view)
+        window.title = "Phone"
+        window.makeFirstResponder(view)   // shown when mirroring starts
 
         view.video.onNeedKeyframe = { [weak self] in self?.link?.send(CT.keyframe) }
         view.onModeChange = { [weak self] _ in self?.refreshMenu(); self?.updateTitle() }
         view.setMessage("Not connected\n⌘K to connect")
 
         startBrowsing()
+        Hub.shared.onCastReady = { [weak self] in self?.castReady() }
+        Hub.shared.onOpenWindow = { [weak self] in self?.showWindow() }
+        Hub.shared.onOpenMain = { MainWindowController.shared.show() }
+        Hub.shared.start()
+        view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tickFps() }
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.ping() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.watchCable() }
 
-        if UserDefaults.standard.string(forKey: "pin") != nil, !wifiCandidates().isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.showConnect(nil) }
+        // The main window (notifications, messages, files…) opens first; the mirror window opens when the
+        // phone starts sharing (hub CAST_READY) or from "Mirror phone".
+        MainWindowController.shared.show(UserDefaults.standard.string(forKey: "pin") == nil ? .settings : nil)
+        if Self.noUSB == false, UsbBridge.shared.phonePresent(), UserDefaults.standard.string(forKey: "pin") != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }  // cable: mirror right away
         }
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    // The menu-bar link (notifications, files, monitor) keeps running without the mirror window.
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+    func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { MainWindowController.shared.show() }
+        return true
+    }
+    func windowWillClose(_ n: Notification) {
+        // stop the phone's video while nobody watches (saves its battery); the hub stays connected
+        if (n.object as? NSWindow) === window { disconnect(nil) }
+    }
+
+    func showWindow() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The phone started sharing (tapped Cast / the tile): connect the mirror right away.
+    private func castReady() {
+        showWindow()
+        if stateText == "Connected" || stateText == "Connecting…" { return }
+        wantConnected = true
+        retryDelay = 2
+        wifiIndex = 0
+        connectSaved()
+    }
     func windowDidResignKey(_ n: Notification) {
         if view.mode == .game { view.setMode(.normal) } else { view.releaseAll() }
     }
@@ -573,6 +604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         } else {
             d.set(host.stringValue.trimmingCharacters(in: .whitespaces), forKey: "host"); d.removeObject(forKey: "service")
         }
+        Hub.shared.reconnect()
         connectSaved()
     }
 

@@ -1,7 +1,15 @@
 # PhoneCast
 
-Shows an Android phone on your Mac and controls it with the Mac's mouse and keyboard. It works over
-a USB cable or Wi-Fi, without developer options or USB debugging, and plays the phone's audio on the Mac.
+Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
+
+- **Mirror** the phone on the Mac and control it with mouse and keyboard (USB cable or Wi-Fi, with sound),
+  and **control the Mac from the phone**.
+- **Notifications** from the phone as Mac banners, with reply, clear and open-on-phone.
+- **Messages (SMS), calls, contacts, photos, phone files and apps** in one Mac window.
+- **Files** both ways (folders as .zip), **clipboard** and links.
+- **Monitor**: battery, heat and link latency of the phone and the Mac, plus your other machines.
+
+No developer options or USB debugging needed.
 
 **Needs:** a Mac with Apple Silicon and an Android 11+ phone. The release was built and tested on macOS 27.3. Older versions down to macOS 14 are untested and may fail; if so, try building from source.
 
@@ -37,6 +45,39 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
   tries the phone it finds on the current network first, then the saved IP. Where the network keeps devices
   apart (some school or hotel Wi-Fi), install [Tailscale](https://tailscale.com) on both and enter the
   phone's Tailscale address in the Connect dialog (⌘K); PhoneCast falls back to it when nothing else answers.
+
+## The PhoneCast window
+
+The Mac app opens a window with a sidebar and keeps running in the menu bar (phone battery next to the
+icon) after you close it. Turn on **Open PhoneCast at login** in Settings so it's always connected.
+
+| Section | What it does |
+|---|---|
+| Overview | Phone and Mac battery, heat, CPU, memory, link latency; other machines (edit the list in Settings) |
+| Mirror | Asks the phone to share its screen and opens the mirror window |
+| Notifications | History of phone notifications; reply, clear, open on phone; right-click to silence an app |
+| Messages | SMS conversations: read, reply, start new ones. WhatsApp/Signal/RCS chats are answered from Notifications |
+| Calls | Call log, dial a number, answer/decline incoming calls (the call itself stays on the phone) |
+| Contacts | Search, call, text |
+| Photos | Photo and video grid; click for Quick Look, ⌘-click to select, save to Downloads |
+| Files | Browse the phone's storage, Quick Look, download (folders as .zip), drop files to upload, delete |
+| Apps | Opens an app on the phone and shows it in the mirror |
+| Transfers | Drop files to send; list of everything sent and received |
+| Settings | Pairing, banners, sound, quiet hours, per-app banners, clipboard, devices, Mac permissions |
+
+**On the phone** (PhoneCast app → *Phone features on the Mac*): allow messages, calls, contacts and photos,
+"All files access" for the file browser, and notification access. Sideloaded apps may first need
+App info → ⋮ → **Allow restricted settings**.
+
+- **Quick Settings tiles:** *Cast to Mac* (one tap to mirror; the Mac opens the window by itself) and
+  *Clipboard to Mac*.
+- **Share → "PhoneCast to Mac"** from any app: files go to `~/Downloads/PhoneCast`, text and links to the Mac's clipboard.
+- **Control the Mac from this phone:** tap = click, drag = drag, long press or two-finger tap = right click,
+  two fingers = scroll; the top bar has a keyboard, Esc, Tab, arrows and ⌘ ⌥ ⌃ ⇧. The Mac needs
+  **Screen Recording** and **Accessibility** for PhoneCast (Settings shows both).
+
+Banners are PhoneCast's own (top right), so reply and Answer/Decline work without macOS notification
+permission. Mute them all, per app, or during quiet hours.
 
 ## Mouse and keyboard
 
@@ -92,7 +133,7 @@ lost over half the frames. On the phone's Moonlight, set about 15–20 Mbit/s wh
 - **Online games:** using a mouse and keyboard through injected touches may break a game's rules, and
   anti-cheat systems could flag it. **Your account could be penalised or banned.** This is untested,
   so use it at your own risk and check the game's terms first.
-- **Wi-Fi security:** the stream isn't encrypted, and anyone on the network who gets the 6-digit PIN can
+- **Wi-Fi security:** the stream and the link (notifications, messages, files, clipboard) aren't encrypted, and anyone on the network who gets the 6-digit PIN can
   see and control the phone. There is no limit on PIN attempts. Use only on networks you trust,
   or use the cable. Stop sharing when you're done.
 - **Accessibility access:** this permission lets PhoneCast tap and type on your phone, so only install
@@ -136,7 +177,10 @@ An APK you build yourself has a different signature from the release, so uninsta
 - `android/`: Kotlin phone app. Screen via MediaProjection and hardware H.264, audio via
   AudioPlaybackCapture, TCP on port 27183, Bonjour `_phonecast._tcp`, cable via Android Open Accessory.
   Touches come from an Accessibility service using continued-stroke gestures.
-- `mac/`: Swift/AppKit viewer without an Xcode project. Uses VideoToolbox, AVAudioEngine, libusb and raw HID mouse input.
+- The link (notifications, messages, files, monitor, Mac control) is a second, always-on TCP connection
+  on port 27185 (`_phonecasthub._tcp`, same PIN): `HubService`, `NotifListener` and `Features` on the
+  phone, `Hub.swift`/`Store.swift` on the Mac. It runs over Wi-Fi or Tailscale, not the cable.
+- `mac/`: Swift/AppKit + SwiftUI app without an Xcode project. Uses VideoToolbox, ScreenCaptureKit, AVAudioEngine, libusb and raw HID mouse input.
 - `tools/`: `touchtest.py` drives the input service over TCP, `unstick` clears stuck pointers.
 
 ## License
