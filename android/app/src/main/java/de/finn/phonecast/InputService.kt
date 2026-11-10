@@ -119,7 +119,45 @@ class InputService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    // ---- copy on the phone -> Mac clipboard (how LinkMyDroid does it) ----
+    // Android only lets the app in front read the clipboard. So when something gets copied (a "Copy"
+    // button, a "Copied" toast or the system's clipboard preview), a see-through PhoneCast screen
+    // comes to the front for a moment, reads it and closes (ClipActivity).
+
+    private var lastCopyAt = 0L
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val e = event ?: return
+        if (e.packageName == packageName) return
+        val hub = HubService.instance ?: return
+        if (!hub.connected || !Prefs.autoClip(this)) return
+        val copied = when (e.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> isCopyWord(e.contentDescription) || e.text.any { isCopyWord(it) }
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED ->   // toasts
+                e.className?.contains("Toast") == true && e.text.any { mentionsCopied(it) }
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ->         // Android 13+ clipboard preview
+                e.packageName == "com.android.systemui" && (e.text.any { mentionsCopied(it) } || e.className?.contains("Clipboard") == true)
+            else -> false
+        }
+        if (!copied) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastCopyAt < 800) return
+        lastCopyAt = now
+        main.postDelayed({
+            try {
+                startActivity(android.content.Intent(this, ClipActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra(ClipActivity.EXTRA_AUTO, true))
+            } catch (ex: Exception) { android.util.Log.w("PhoneCastInput", "clipboard read failed", ex) }
+        }, 150)
+    }
+
+    private val copyWords = setOf("copy", "kopieren", "copier", "copiar", "copia", "copiare", "kopiëren", "kopiuj", "kopyala", "复制", "コピー")
+    private fun isCopyWord(t: CharSequence?): Boolean = t != null && t.length < 30 && t.toString().trim().lowercase() in copyWords
+    private fun mentionsCopied(t: CharSequence?): Boolean {
+        val s = t?.toString()?.lowercase() ?: return false
+        return s.length < 120 && listOf("copied", "kopiert", "copié", "copiado", "copiato", "clipboard", "zwischenablage").any { it in s }
+    }
     override fun onInterrupt() {}
 
     /** Called from the network thread. */
@@ -153,7 +191,11 @@ class InputService : AccessibilityService() {
             android.util.Log.i("PhoneCastInput", "touch ${listOf("down", "move", "up", "cancelAll")[action.coerceIn(0, 3)]} finger=$id fingersNow=${fingers.keys}")
         }
         if (action == Proto.TOUCH_CANCEL_ALL) {
-            for (f in fingers.values) f.up = true
+            // Several viewers can control the phone at once, each with its own finger ids
+            // (StreamServer.FINGER_SLOT apiece): only lift the fingers of the viewer that asked.
+            // id -1: every finger (sharing stops).
+            val slot = id / StreamServer.FINGER_SLOT
+            for ((k, f) in fingers) if (id < 0 || k / StreamServer.FINGER_SLOT == slot) f.up = true
             schedule()
             return
         }
@@ -349,7 +391,37 @@ class InputService : AccessibilityService() {
             Proto.GLOBAL_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
             Proto.GLOBAL_RECENTS -> performGlobalAction(GLOBAL_ACTION_RECENTS)
             Proto.GLOBAL_NOTIFICATIONS -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+            Proto.GLOBAL_QUICK_SETTINGS -> performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+            Proto.GLOBAL_POWER_DIALOG -> performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
+            Proto.GLOBAL_LOCK -> performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+            Proto.GLOBAL_SCREENSHOT -> performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
+            Proto.GLOBAL_SPLIT -> performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+            Proto.GLOBAL_VOLUME_UP, Proto.GLOBAL_VOLUME_DOWN, Proto.GLOBAL_MUTE -> {
+                val am = getSystemService(android.media.AudioManager::class.java)
+                val dir = when (a) {
+                    Proto.GLOBAL_VOLUME_UP -> android.media.AudioManager.ADJUST_RAISE
+                    Proto.GLOBAL_VOLUME_DOWN -> android.media.AudioManager.ADJUST_LOWER
+                    else -> android.media.AudioManager.ADJUST_TOGGLE_MUTE
+                }
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, android.media.AudioManager.FLAG_SHOW_UI)
+            }
+            Proto.GLOBAL_TORCH -> toggleTorch()
         }
+    }
+
+    private var torchOn = false
+    private var torchWatch: android.hardware.camera2.CameraManager.TorchCallback? = null
+    private fun toggleTorch() {
+        val cm = getSystemService(android.hardware.camera2.CameraManager::class.java)
+        val id = cm.cameraIdList.firstOrNull {
+            cm.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        } ?: return
+        if (torchWatch == null) {
+            torchWatch = object : android.hardware.camera2.CameraManager.TorchCallback() {
+                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) { if (cameraId == id) torchOn = enabled }
+            }.also { cm.registerTorchCallback(it, main) }
+        }
+        try { cm.setTorchMode(id, !torchOn); torchOn = !torchOn } catch (e: Exception) { android.util.Log.w("PhoneCastInput", "torch", e) }
     }
 
     private fun focused(): AccessibilityNodeInfo? =

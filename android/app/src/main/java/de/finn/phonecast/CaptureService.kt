@@ -111,7 +111,7 @@ class CaptureService : Service(), StreamServer.Listener {
         }, handler)
         projection = proj
 
-        val srv = StreamServer(Prefs.pin(this), this)
+        val srv = StreamServer(this, this)
         server = srv
         srv.start()
 
@@ -134,6 +134,7 @@ class CaptureService : Service(), StreamServer.Listener {
         ).apply { setReferenceCounted(false); acquire() }
 
         registerNsd()
+        HubService.instance?.castStarted()
         UsbBridge.openExisting(this)
         InputService.onControlChanged = { available -> server?.onControlChanged(available) }
     }
@@ -283,8 +284,9 @@ class CaptureService : Service(), StreamServer.Listener {
 
     override fun onDestroy() {
         instance = null
+        HubService.instance?.castStopped()
         InputService.onControlChanged = null
-        InputService.instance?.handle(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), 0, 0, 0, 0, 0))
+        InputService.instance?.handle(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), -1, 0, 0, 0, 0)) // -1: all viewers' fingers
         try { getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener) } catch (_: Exception) {}
         nsdListener?.let { try { getSystemService(NsdManager::class.java).unregisterService(it) } catch (_: Exception) {} }
         multicastLock?.release()

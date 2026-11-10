@@ -32,6 +32,7 @@ object Proto {
     const val UDP_TOKEN: Int = 20  // u32 token: send "PCU1"+token to UDP_PORT to get video over UDP
     const val UDP_ON: Int = 21     // video now arrives over UDP (FRAME stops on TCP)
     const val UDP_OFF: Int = 22    // video back on TCP
+    const val NONCE: Int = 23      // 16 bytes, sent first: the Mac answers HELLO "T1:"+HMAC(mirror key, nonce) or the PIN
     const val STOP_USER = 0
     const val STOP_LOCKED = 1      // Android ends screen capture when the phone locks
 
@@ -56,6 +57,15 @@ object Proto {
     const val GLOBAL_HOME = 2
     const val GLOBAL_RECENTS = 3
     const val GLOBAL_NOTIFICATIONS = 4
+    const val GLOBAL_QUICK_SETTINGS = 5
+    const val GLOBAL_POWER_DIALOG = 6
+    const val GLOBAL_LOCK = 7
+    const val GLOBAL_SCREENSHOT = 8
+    const val GLOBAL_SPLIT = 9
+    const val GLOBAL_VOLUME_UP = 10
+    const val GLOBAL_VOLUME_DOWN = 11
+    const val GLOBAL_MUTE = 12
+    const val GLOBAL_TORCH = 13
 
     const val KEY_BACKSPACE = 1
     const val KEY_ENTER = 2
@@ -75,9 +85,29 @@ object Prefs {
     }
 
     fun newPin(c: Context): String {
-        p(c).edit().remove("pin").apply()
+        p(c).edit().remove("pin").remove("token").apply()   // also forgets every paired Mac's mirror key
         return pin(c)
     }
+
+    /** Random mirror key, handed to the Mac over the encrypted link (see Auth). */
+    fun token(c: Context): String {
+        p(c).getString("token", null)?.let { return it }
+        val t = ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        p(c).edit().putString("token", t).apply()
+        return t
+    }
+
+    /** Copy on the phone -> Mac clipboard automatically (needs the accessibility service). */
+    fun autoClip(c: Context): Boolean = p(c).getBoolean("autoClip", true)
+    fun setAutoClip(c: Context, v: Boolean) = p(c).edit().putBoolean("autoClip", v).apply()
+
+    /** Hermes dashboard address ("" = learn it from the Mac; no PC tab without one). */
+    fun dashboard(c: Context): String = p(c).getString("dashboard", "") ?: ""
+    fun setDashboard(c: Context, v: String) = p(c).edit().putString("dashboard", v).apply()
+
+    /** The PC's network card address for Wake-on-LAN ("" = not set). */
+    fun pcMac(c: Context): String = p(c).getString("pcMac", "") ?: ""
+    fun setPcMac(c: Context, v: String) = p(c).edit().putString("pcMac", v).apply()
 
     /** Longest side of the video in pixels; 0 = native resolution. */
     fun maxSize(c: Context): Int = p(c).getInt("maxSize", 1920)

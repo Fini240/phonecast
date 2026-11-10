@@ -1,5 +1,6 @@
 # local notes and machine-specific files
 DEBUGGING.md
+mac/.sign-id
 android/local.properties
 .DS_Store
 # build output

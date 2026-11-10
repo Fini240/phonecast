@@ -7,14 +7,16 @@
     <key>CFBundleIdentifier</key><string>de.finn.phonecast.mac</string>
     <key>CFBundleExecutable</key><string>PhoneCast</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.13</string>
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+    <!-- a Hermes dashboard speaks plain HTTP (over Tailscale / the home LAN) -->
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
     <key>NSLocalNetworkUsageDescription</key><string>PhoneCast finds your phone on the local network and receives its screen.</string>
-    <key>NSBonjourServices</key><array><string>_phonecast._tcp</string></array>
+    <key>NSBonjourServices</key><array><string>_phonecast._tcp</string><string>_phonecasthub._tcp</string></array>
 </dict>
 </plist>

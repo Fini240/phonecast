@@ -22,6 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private var window: PhoneWindow!
     private let view = PhoneView(frame: NSRect(x: 0, y: 0, width: 420, height: 860))
+    private lazy var container = MirrorContainer(phone: view)
+    /// Phone picture shape (w:h); the window keeps it plus the control bar underneath.
+    private var aspect = NSSize(width: 1080, height: 2340)
+    private var torchOn = false
     private let audio = AudioSink()
     private var link: Link?
     private var browser: NWBrowser?
@@ -72,8 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         buildMenu()
         window = PhoneWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 860),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.contentView = view
+        window.contentView = container
+        container.bar.onAction = { [weak self] id, v in self?.barAction(id, v) }
         window.delegate = self
+        window.isReleasedWhenClosed = false   // closing hides the mirror; the hub keeps running
         window.acceptsMouseMovedEvents = true
         window.backgroundColor = .black
         let tb = NSToolbar(identifier: "main")
@@ -85,27 +91,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         window.collectionBehavior = [.fullScreenNone]
         window.setFrameAutosaveName("PhoneCastWindow")
         if !window.setFrameUsingName("PhoneCastWindow") { window.center() }
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(view)
+        window.title = "Phone"
+        window.makeFirstResponder(view)   // shown when mirroring starts
 
         view.video.onNeedKeyframe = { [weak self] in self?.link?.send(CT.keyframe) }
         view.onModeChange = { [weak self] _ in self?.refreshMenu(); self?.updateTitle() }
         view.setMessage("Not connected\n⌘K to connect")
 
         startBrowsing()
+        Hub.shared.onCastReady = { [weak self] in self?.castReady() }
+        Hub.shared.onOpenWindow = { [weak self] in self?.showWindow() }
+        Hub.shared.onOpenMain = { MainWindowController.shared.show() }
+        Hub.shared.start()
+        view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tickFps() }
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.ping() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.watchCable() }
 
-        if UserDefaults.standard.string(forKey: "pin") != nil, !wifiCandidates().isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.showConnect(nil) }
+        // The main window (notifications, messages, files…) opens first; the mirror window opens when the
+        // phone starts sharing (hub CAST_READY) or from "Mirror phone".
+        let testPane = ProcessInfo.processInfo.environment["PHONECAST_PANE"].flatMap { Pane(rawValue: $0) }  // UI testing
+        MainWindowController.shared.show(testPane ?? (UserDefaults.standard.string(forKey: "pin") == nil ? .settings : nil))
+        if ProcessInfo.processInfo.environment["PHONECAST_SHOW_MIRROR"] != nil { showWindow() }  // UI testing
+        if Self.noUSB == false, UsbBridge.shared.phonePresent(), UserDefaults.standard.string(forKey: "pin") != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }  // cable: mirror right away
         }
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    // The menu-bar link (notifications, files, monitor) keeps running without the mirror window.
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+    func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { MainWindowController.shared.show() }
+        return true
+    }
+    func windowWillClose(_ n: Notification) {
+        // stop the phone's video while nobody watches (saves its battery); the hub stays connected
+        if (n.object as? NSWindow) === window { disconnect(nil) }
+    }
+
+    func showWindow() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The phone started sharing (tapped Cast / the tile): connect the mirror right away.
+    private func castReady() {
+        showWindow()
+        if stateText == "Connected" || stateText == "Connecting…" { return }
+        wantConnected = true
+        retryDelay = 2
+        wifiIndex = 0
+        connectSaved()
+    }
     func windowDidResignKey(_ n: Notification) {
         if view.mode == .game { view.setMode(.normal) } else { view.releaseAll() }
     }
@@ -132,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         window.covering = true
         window.toolbar = nil
         window.styleMask = [.borderless]
+        container.barHidden = true   // games get the whole screen
         NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
         window.setFrame(screen.frame, display: true)
         view.scale = .fill
@@ -148,7 +187,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         toolbarBeforeCover = nil
         view.scale = scaleBeforeCover ?? .fit
         scaleBeforeCover = nil
-        window.contentAspectRatio = view.videoSize
+        aspect = view.videoSize
+        container.barHidden = false
         window.setFrame(frameBeforeCover, display: true)
         window.setFrameAutosaveName("PhoneCastWindow")
         window.makeKeyAndOrderFront(nil)
@@ -213,7 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         shape.submenu?.delegate = self
         main.items.last?.submenu?.addItem(.separator())
         main.items.last?.submenu?.addItem(shape)
-        sub("PC", pcMenuItems())
+        if let pc = PcStream.name, !pcMenuItems().isEmpty { sub(pc, pcMenuItems()) }
         sub("Help", [item("Keyboard shortcuts", #selector(showShortcuts(_:)), "i")])
         NSApp.mainMenu = main
         refreshMenu()
@@ -226,10 +266,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         typingItem?.state = view.typing ? .on : .off
         muteItem?.state = audio.muted ? .on : .off
         statsItem?.state = showStats ? .on : .off
+        container.bar.setOn("game", view.mode == .game)
+        container.bar.setOn("keymap", view.mode == .edit)
+        container.bar.setOn("typing", view.typing)
+        container.bar.setOn("stats", showStats)
+        container.bar.setOn("torch", torchOn)
         for it in scaleItems { it.state = it.tag == view.scale.rawValue ? .on : .off }
         let res = UserDefaults.standard.integer(forKey: "resolution")
         for it in resItems { it.state = resolutions[it.tag].1 == res ? .on : .off }
         for it in rateItems { it.state = bitrates[it.tag] == bitrate ? .on : .off }
+    }
+
+    /// Keep the phone's shape while resizing (the bar underneath has a fixed height).
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        guard sender === window, !window.covering, aspect.width > 0 else { return frameSize }
+        let c = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: frameSize))
+        let h = (c.width * aspect.height / aspect.width).rounded() + container.barSpace
+        return sender.frameRect(forContentRect: NSRect(x: 0, y: 0, width: c.width, height: h)).size
+    }
+
+    // MARK: bottom bar
+
+    private func phoneGlobal(_ code: UInt8) { link?.send(CT.global, Data([code])) }
+
+    private func barAction(_ id: String, _ from: NSView) {
+        switch id {
+        case "back": back(nil)
+        case "home": home(nil)
+        case "recents": recents(nil)
+        case "notifications": notifications(nil)
+        case "quick": phoneGlobal(5)
+        case "power": phoneGlobal(6)
+        case "lock": phoneGlobal(7)
+        case "phoneshot": phoneGlobal(8)
+        case "split": phoneGlobal(9)
+        case "volup": phoneGlobal(10)
+        case "voldown": phoneGlobal(11)
+        case "mute": phoneGlobal(12)
+        case "torch": phoneGlobal(13); torchOn.toggle(); refreshMenu()
+        case "apps": showAppsMenu(from)
+        case "files": Hub.shared.chooseFiles(nil)
+        case "clip": Hub.shared.sendClipboard(nil)
+        case "typing": toggleTyping(nil)
+        case "game": toggleGame(nil)
+        case "keymap": toggleEdit(nil)
+        case "stats": toggleStats(nil)
+        case "full": fullScreen(nil)
+        case "shot": screenshotToDesktop()
+        case "shape": showShapeMenu(nil)
+        case "quality":
+            if let q = NSApp.mainMenu?.items.first(where: { $0.submenu?.title == "Quality" })?.submenu {
+                q.popUp(positioning: nil, at: NSPoint(x: 0, y: from.bounds.height), in: from)
+            }
+        default: break
+        }
+        window.makeFirstResponder(view)
+    }
+
+    private func showAppsMenu(_ from: NSView) {
+        let store = Store.shared
+        let m = NSMenu()
+        if store.apps.isEmpty {
+            m.addItem(withTitle: store.connected ? "Loading apps…" : "Phone link not connected", action: nil, keyEquivalent: "")
+            if store.connected { store.loadApps() }
+        }
+        for a in store.apps {
+            let i = NSMenuItem(title: a.name, action: #selector(openPhoneApp(_:)), keyEquivalent: "")
+            i.target = self; i.representedObject = a.pkg
+            if let img = a.icon?.copy() as? NSImage { img.size = NSSize(width: 18, height: 18); i.image = img }
+            m.addItem(i)
+        }
+        m.popUp(positioning: nil, at: NSPoint(x: 0, y: from.bounds.height + 4), in: from)
+    }
+
+    @objc func openPhoneApp(_ i: NSMenuItem) {
+        guard let pkg = i.representedObject as? String, let a = Store.shared.apps.first(where: { $0.pkg == pkg }) else { return }
+        Hub.shared.request("app.open", ["pkg": a.pkg]) { _ in }
+    }
+
+    /// Saves exactly what the mirror shows (the phone picture, without the bar) to the Desktop.
+    private func screenshotToDesktop() {
+        guard let screen = window.screen else { return }
+        let r = window.convertToScreen(view.convert(view.bounds, to: nil))
+        let top = (NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY) - r.maxY
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Desktop/Phone \(f.string(from: Date())).png")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        p.arguments = ["-x", "-R\(Int(r.minX)),\(Int(top)),\(Int(r.width)),\(Int(r.height))", path]
+        p.terminationHandler = { _ in DispatchQueue.main.async { Banners.shared.file(URL(fileURLWithPath: path), from: "the mirror") } }
+        try? p.run()
     }
 
     private var bitrate: Int { let b = UserDefaults.standard.integer(forKey: "bitrate"); return b == 0 ? 24 : b }
@@ -388,7 +514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let vs = view.videoSize
         let maxH = screen.visibleFrame.height * 0.9, maxW = screen.visibleFrame.width * 0.9
         let scale = min(maxH / vs.height, maxW / vs.width)
-        let size = NSSize(width: (vs.width * scale).rounded(), height: (vs.height * scale).rounded())
+        let size = NSSize(width: (vs.width * scale).rounded(), height: (vs.height * scale).rounded() + container.barSpace)
         var f = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         f.origin = CGPoint(x: window.frame.midX - f.width / 2, y: window.frame.maxY - f.height)
         f.origin.y = max(screen.visibleFrame.minY, f.origin.y)
@@ -478,8 +604,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     @objc func cycleScale(_ s: Any?) { view.scale = view.scale == .fit ? .fill : .fit; refreshMenu() }
 
     func toolbarDefaultItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] {
+        // Back/Home/Recents live in the bottom bar now, next to the other phone controls
         let ids = tbItems.map { NSToolbarItem.Identifier($0.0) }
-        return Array(ids[0..<3]) + [.flexibleSpace] + Array(ids[3...])
+        return [.flexibleSpace] + Array(ids[3...])
     }
     func toolbarAllowedItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(t) }
     func toolbar(_ t: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar f: Bool) -> NSToolbarItem? {
@@ -573,6 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         } else {
             d.set(host.stringValue.trimmingCharacters(in: .whitespaces), forKey: "host"); d.removeObject(forKey: "service")
         }
+        Hub.shared.reconnect()
         connectSaved()
     }
 
@@ -781,7 +909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                 let rotated = self.sizedOnce && old.height > 0 && abs(CGFloat(w) / CGFloat(h) - old.width / old.height) > 0.01
                 self.view.videoSize = CGSize(width: w, height: h)
                 self.switchKeyLayout(w, h)
-                self.window.contentAspectRatio = NSSize(width: w, height: h)
+                self.aspect = NSSize(width: w, height: h)
                 if !self.sizedOnce || rotated { self.fitWindow(nil); self.sizedOnce = true }
                 self.updateTitle()
             }

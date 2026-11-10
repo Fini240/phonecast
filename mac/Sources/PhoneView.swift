@@ -111,8 +111,20 @@ final class PhoneView: NSView {
 
     private let joyId: UInt8 = 1, lookId: UInt8 = 9, mouseId: UInt8 = 0, scrollId: UInt8 = 8
 
+    /// Files dropped on the phone go to the phone (Downloads/PhoneCast).
+    var onDropFiles: (([URL]) -> Void)?
+
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation { onDropFiles == nil ? [] : .copy }
+    override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
+        guard let urls = s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return false }
+        onDropFiles?(urls)
+        return true
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
+        registerForDraggedTypes([.fileURL])
         wantsLayer = true
         layer = CALayer()
         layer?.backgroundColor = NSColor.black.cgColor

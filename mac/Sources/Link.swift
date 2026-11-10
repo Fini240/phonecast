@@ -1,10 +1,11 @@
 import Foundation
 import Network
+import CryptoKit
 
 enum PT {
     static let format: UInt8 = 0, config: UInt8 = 1, frame: UInt8 = 2, audio: UInt8 = 3
     static let helloOK: UInt8 = 4, helloBad: UInt8 = 5, control: UInt8 = 6, pong: UInt8 = 7, resResult: UInt8 = 8, stats: UInt8 = 14, stopped: UInt8 = 19
-    static let udpToken: UInt8 = 20, udpOn: UInt8 = 21, udpOff: UInt8 = 22
+    static let udpToken: UInt8 = 20, udpOn: UInt8 = 21, udpOff: UInt8 = 22, nonce: UInt8 = 23
 }
 
 enum CT {
@@ -39,8 +40,11 @@ final class Link {
             guard let self else { return }
             switch st {
             case .ready:
-                self.send(CT.hello, Data(pin.utf8))
+                // The phone sends a nonce first. With the mirror key (handed over the encrypted link)
+                // the Mac answers HMAC(key, nonce), so the PIN never crosses the network in the clear.
+                self.pin = pin
                 self.readHeader()
+                self.queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.sendHello(nonce: nil) } // older phone app
             case .failed(let e):
                 self.finish("failed: \(e.localizedDescription)")
             case .waiting(let e):
@@ -96,8 +100,25 @@ final class Link {
         }
     }
 
+    private var pin = ""
+    private var helloSent = false
+
+    private func sendHello(nonce: Data?) {
+        if helloSent || closed { return }
+        helloSent = true
+        if let nonce, let key = UserDefaults.standard.string(forKey: "mirrorKey"), !key.isEmpty {
+            var mac = HMAC<SHA256>(key: SymmetricKey(data: Data(key.utf8)))
+            mac.update(data: nonce); mac.update(data: Data("phonecast-mirror".utf8))
+            let hex = Data(mac.finalize()).map { String(format: "%02x", $0) }.joined()
+            send(CT.hello, Data("T1:\(hex)".utf8))
+        } else {
+            send(CT.hello, Data(pin.utf8))
+        }
+    }
+
     private func deliver(_ type: UInt8, _ payload: Data) {
         switch type {
+        case PT.nonce: sendHello(nonce: payload)
         case PT.helloOK: onState?(.ready); onPacket?(type, payload)
         case PT.helloBad: onState?(.badPin); finish("wrong PIN")
         case PT.stopped:
