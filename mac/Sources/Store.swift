@@ -18,7 +18,11 @@ struct SmsThread: Identifiable, Equatable {
     var title: String { name.isEmpty ? address : name }
 }
 
-struct SmsMessage: Identifiable, Equatable { let id: Int64; let text: String; let date: Date; let mine: Bool }
+struct SmsMessage: Identifiable, Equatable {
+    let id: Int64; let text: String; let date: Date; let mine: Bool
+    var image: String? = nil          // MMS picture (content uri on the phone)
+    var thumb: NSImage? = nil
+}
 struct Contact: Identifiable { let id = UUID(); let name: String; let numbers: [(n: String, label: String)] }
 struct CallEntry: Identifiable { let id = UUID(); let number, name, type: String; let date: Date; let duration: Int }
 struct PhonePhoto: Identifiable { var id: String { uri }; let uri, name: String; let video: Bool; let date: Date; let size: Int64; let thumb: NSImage? }
@@ -209,7 +213,9 @@ final class Store: ObservableObject {
         load("thread", "sms.thread", ["thread": id]) { d in
             self.messages[id] = (d as? [[String: Any]] ?? []).map {
                 SmsMessage(id: ($0["id"] as? NSNumber)?.int64Value ?? 0, text: $0["text"] as? String ?? "",
-                           date: Self.date($0["date"]), mine: $0["mine"] as? Bool ?? false)
+                           date: Self.date($0["date"]), mine: $0["mine"] as? Bool ?? false,
+                           image: $0["image"] as? String,
+                           thumb: ($0["thumb"] as? String).flatMap { Data(base64Encoded: $0) }.flatMap(NSImage.init(data:)))
             }
         }
     }

@@ -472,10 +472,20 @@ struct ThreadView: View {
                             HStack {
                                 if m.mine { Spacer(minLength: 60) }
                                 VStack(alignment: m.mine ? .trailing : .leading, spacing: 2) {
+                                    if let t = m.thumb {
+                                        // MMS picture: click for the full one
+                                        Image(nsImage: t).resizable().aspectRatio(contentMode: .fit)
+                                            .frame(maxWidth: 240, maxHeight: 320)
+                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                            .onTapGesture { if let u = m.image { Hub.shared.fetchFile("photo.get", ["uri": u], keep: false) { QuickLook.shared.show($0) } } }
+                                            .help("Click to open")
+                                    }
+                                    if !m.text.isEmpty {
                                     Text(m.text).textSelection(.enabled)
                                         .padding(.horizontal, 12).padding(.vertical, 7)
                                         .background(m.mine ? Color.accentColor : Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                                         .foregroundStyle(m.mine ? .white : .primary)
+                                    }
                                     Text(when(m.date)).font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 if !m.mine { Spacer(minLength: 60) }

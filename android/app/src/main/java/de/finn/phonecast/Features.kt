@@ -133,7 +133,18 @@ class Features(private val ctx: Context, private val hub: HubService) {
                     .put("snippet", c.getString(2) ?: "").put("date", c.getLong(3)).put("mine", c.getInt(4) != Telephony.Sms.MESSAGE_TYPE_INBOX)
             }
         }
-        return JSONArray().also { a -> seen.forEach { (t, o) -> a.put(o.put("unread", unread[t] ?: 0)) } }
+        // a newer MMS (picture) in a thread changes its snippet and date
+        try {
+            ctx.contentResolver.query(Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms.THREAD_ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX),
+                null, null, "${Telephony.Mms.DATE} DESC LIMIT 300")?.use { c ->
+                while (c.moveToNext()) {
+                    val t = c.getLong(0); val d = c.getLong(1) * 1000
+                    val o = seen[t] ?: continue
+                    if (d > o.optLong("date")) o.put("snippet", "📷 Picture").put("date", d).put("mine", c.getInt(2) != Telephony.Mms.MESSAGE_BOX_INBOX)
+                }
+            }
+        } catch (_: Exception) {}
+        return JSONArray().also { a -> seen.values.sortedByDescending { it.optLong("date") }.forEach { o -> a.put(o.put("unread", unread[o.optLong("thread")] ?: 0)) } }
     }
 
     private fun smsThread(thread: Long, limit: Int): JSONArray {
@@ -146,8 +157,50 @@ class Features(private val ctx: Context, private val hub: HubService) {
             while (c.moveToNext()) out += JSONObject().put("id", c.getLong(0)).put("text", c.getString(1) ?: "")
                 .put("date", c.getLong(2)).put("mine", c.getInt(3) != Telephony.Sms.MESSAGE_TYPE_INBOX).put("address", c.getString(4) ?: "")
         }
-        return JSONArray(out.reversed())
+        out += mmsInThread(thread, limit)
+        out.sortByDescending { it.optLong("date") }
+        return JSONArray(out.take(limit).reversed())
     }
+
+    /** MMS (pictures, group texts) of a thread: text + a small picture; ids are negative so they never clash with SMS. */
+    private fun mmsInThread(thread: Long, limit: Int): List<JSONObject> {
+        val out = ArrayList<JSONObject>()
+        try {
+            ctx.contentResolver.query(Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX),
+                "${Telephony.Mms.THREAD_ID} = ?", arrayOf(thread.toString()), "${Telephony.Mms.DATE} DESC LIMIT $limit")?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    val o = JSONObject().put("id", -id).put("date", c.getLong(1) * 1000)   // MMS dates are in seconds
+                        .put("mine", c.getInt(2) != Telephony.Mms.MESSAGE_BOX_INBOX)
+                    val text = StringBuilder()
+                    ctx.contentResolver.query(Uri.parse("content://mms/part"), arrayOf("_id", "ct", "text"), "mid = ?", arrayOf(id.toString()), null)?.use { pc ->
+                        while (pc.moveToNext()) {
+                            val ct = pc.getString(1) ?: ""
+                            when {
+                                ct == "text/plain" -> pc.getString(2)?.let { if (text.isNotEmpty()) text.append('\n'); text.append(it) }
+                                ct.startsWith("image/") && !o.has("image") -> {
+                                    val part = Uri.parse("content://mms/part/${pc.getLong(0)}")
+                                    o.put("image", part.toString())
+                                    thumb(part)?.let { o.put("thumb", it) }
+                                }
+                            }
+                        }
+                    }
+                    o.put("text", text.toString())
+                    if (text.isNotEmpty() || o.has("image")) out += o
+                }
+            }
+        } catch (e: Exception) { Log.w(TAG, "mms", e) }
+        return out
+    }
+
+    private fun thumb(u: Uri): String? = try {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        ctx.contentResolver.openInputStream(u)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+        var sample = 1; while (maxOf(o.outWidth, o.outHeight) / sample > 640) sample *= 2
+        val bmp = ctx.contentResolver.openInputStream(u)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
+        bmp?.let { b -> ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray() }?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+    } catch (_: Exception) { null }
 
     private fun smsSend(to: String, text: String): Boolean {
         if (!has(Manifest.permission.SEND_SMS)) throw SecurityException("SEND_SMS")

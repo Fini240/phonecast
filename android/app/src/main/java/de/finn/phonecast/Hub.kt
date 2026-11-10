@@ -244,11 +244,17 @@ class HubService : Service() {
 
     private fun sendOne(c: Client, u: Uri, req: Int = 0) {
         var name = "file"; var size = -1L
-        contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cur ->
-            if (cur.moveToFirst()) {
-                cur.getString(0)?.let { name = it }
-                if (!cur.isNull(1)) size = cur.getLong(1)
+        try {
+            contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cur ->
+                if (cur.moveToFirst()) {
+                    cur.getString(0)?.let { name = it }
+                    if (!cur.isNull(1)) size = cur.getLong(1)
+                }
             }
+        } catch (_: Exception) {}   // e.g. MMS parts have no name/size columns
+        if (name == "file") {
+            val ext = contentResolver.getType(u)?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
+            name = "picture" + (ext?.let { ".$it" } ?: "")
         }
         sendStream(c, name, size, req) { contentResolver.openInputStream(u)!! }
     }
