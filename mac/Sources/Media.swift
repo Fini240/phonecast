@@ -127,6 +127,7 @@ final class VideoSink {
         }
         if sawParams { rebuildFormat() }
         guard let format, let session, !avcc.isEmpty else { return }
+        if Recorder.shared.recording { Recorder.shared.video(avcc, key: key, format: format) }
 
         var block: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(

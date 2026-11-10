@@ -998,6 +998,15 @@ struct SettingsView: View {
                 Text("From the phone: Share → “PhoneCast to Mac”, or the “Clipboard to Mac” Quick Settings tile. Android doesn't let apps read the clipboard in the background.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Lock this Mac when the phone leaves") {
+                Toggle("Lock the Mac when the phone is gone and nobody is using the Mac", isOn: $store.autoLock)
+                Picker("After", selection: $store.autoLockMinutes) {
+                    ForEach([1, 2, 5, 10], id: \.self) { Text("\($0) min").tag($0) }
+                }
+                .disabled(!store.autoLock)
+                Text("Locks only when the phone's link has been gone that long AND the Mac's keyboard and mouse haven't been touched for that long, so it never locks while you work. Needs Accessibility (below).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("PC (Hermes dashboard)") {
                 TextField("Dashboard address, e.g. http://100.x.y.z:8765 (empty = no PC page)", text: $dashURL)
                 HStack {

@@ -73,6 +73,8 @@ final class Store: ObservableObject {
     @Published var quietFrom = UserDefaults.standard.object(forKey: "quietFrom") as? Int ?? 22 { didSet { UserDefaults.standard.set(quietFrom, forKey: "quietFrom") } }
     @Published var quietTo = UserDefaults.standard.object(forKey: "quietTo") as? Int ?? 7 { didSet { UserDefaults.standard.set(quietTo, forKey: "quietTo") } }
     @Published var notifSound = UserDefaults.standard.object(forKey: "notifSound") as? Bool ?? true { didSet { UserDefaults.standard.set(notifSound, forKey: "notifSound") } }
+    @Published var autoLock = UserDefaults.standard.bool(forKey: "autoLock") { didSet { UserDefaults.standard.set(autoLock, forKey: "autoLock") } }
+    @Published var autoLockMinutes = UserDefaults.standard.object(forKey: "autoLockMinutes") as? Int ?? 2 { didSet { UserDefaults.standard.set(autoLockMinutes, forKey: "autoLockMinutes") } }
     @Published var autoClipboard = UserDefaults.standard.bool(forKey: "autoClipboard") { didSet { UserDefaults.standard.set(autoClipboard, forKey: "autoClipboard") } }
 
     // phone data

@@ -54,6 +54,7 @@ final class MirrorBar: NSVisualEffectView {
         Item(id: "keymap", symbol: "keyboard.badge.ellipsis", tip: "Edit key map (⌘E)", priority: 500),
         Item(id: "stats", symbol: "speedometer", tip: "Stats: FPS, delay, heat (⌘O)", priority: 350),
         Item(id: "shot", symbol: "camera", tip: "Screenshot to the Desktop", priority: 420),
+        Item(id: "record", symbol: "record.circle", tip: "Record the mirror to a video (⇧⌘R)", priority: 430),
         Item(id: "full", symbol: "arrow.up.left.and.arrow.down.right", tip: "Full screen (⌘F)", priority: 950),
     ]
 
@@ -122,7 +123,8 @@ final class MirrorBar: NSVisualEffectView {
     /// Highlight toggles (game mode, typing, stats, flashlight).
     func setOn(_ id: String, _ on: Bool) {
         guard let b = buttons[id] else { return }
-        b.contentTintColor = on ? .controlAccentColor : nil
+        b.contentTintColor = on ? (id == "record" ? .systemRed : .controlAccentColor) : nil
+        if id == "record" { b.image = NSImage(systemSymbolName: on ? "stop.circle.fill" : "record.circle", accessibilityDescription: on ? "Stop recording" : "Record") }
         if id == "torch" { b.image = NSImage(systemSymbolName: on ? "flashlight.on.fill" : "flashlight.off.fill", accessibilityDescription: "Flashlight") }
     }
 

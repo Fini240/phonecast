@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var editItem: NSMenuItem!
     private var muteItem: NSMenuItem!
     private var statsItem: NSMenuItem!
+    private var recordItem: NSMenuItem!
     private var showStats = UserDefaults.standard.bool(forKey: "statsOverlay")
     /// Phone health from STATS (PhoneStats.kt); nil until a phone that sends it is connected.
     private struct Health { var tempC: Double; var battery: Int; var plugged: Bool; var watts: Double; var thermal: Int; var headroom: Int; var cpuC: Double?; var gpuC: Double? }
@@ -104,7 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         Hub.shared.onOpenMain = { MainWindowController.shared.show() }
         Hub.shared.start()
         UpdateCheck.shared.start()
+        AutoLock.shared.start()
         view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
+        Recorder.shared.onState = { [weak self] _ in self?.refreshMenu(); self?.updateTitle() }
         Gamepad.shared.view = view
         Gamepad.shared.onChange = { [weak self] in
             guard let self else { return }
@@ -124,6 +127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let unpaired = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil
         MainWindowController.shared.show(testPane ?? (unpaired ? .settings : nil))
         if ProcessInfo.processInfo.environment["PHONECAST_SHOW_MIRROR"] != nil { showWindow() }  // UI testing
+        if let t = ProcessInfo.processInfo.environment["PHONECAST_TEST_REC"].flatMap(Double.init) {   // recorder test
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.castReady() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.toggleRecord(nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4 + t) { Recorder.shared.stop() }
+        }
         if ProcessInfo.processInfo.environment["PHONECAST_TEST_PAD"] != nil {   // controller test: mirror the fake phone right away
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.castReady() }
         }
@@ -247,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         ])
         muteItem = item("Mute phone audio", #selector(toggleMute(_:)), "m")
         statsItem = item("Show stats overlay (FPS, delay, phone heat)", #selector(toggleStats(_:)), "o")
+        recordItem = item("Record the mirror", #selector(toggleRecord(_:)), "r", [.command, .shift])
         scaleItems = [
             item("Fit — whole picture, black bars", #selector(setScale(_:)), "1"),
             item("Fill — no bars, crops the edges", #selector(setScale(_:)), "2"),
@@ -257,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             item("Full screen", #selector(fullScreen(_:)), "f"),
             item("Fit window to phone", #selector(fitWindow(_:)), "0"),
             .separator(),
-        ] + scaleItems + [.separator(), muteItem, statsItem])
+        ] + scaleItems + [.separator(), muteItem, statsItem, .separator(), recordItem])
         resItems = resolutions.enumerated().map { i, r in let it = item(r.0, #selector(setResolution(_:)), ""); it.tag = i; return it }
         rateItems = bitrates.enumerated().map { i, b in let it = item("\(b) Mbit/s" + (b == 24 ? " (default)" : ""), #selector(setBitrate(_:)), ""); it.tag = i; return it }
         sub("Quality", [NSMenuItem(title: "Resolution", action: nil, keyEquivalent: "")] + resItems
@@ -284,6 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         container.bar.setOn("keymap", view.mode == .edit)
         container.bar.setOn("typing", view.typing)
         container.bar.setOn("stats", showStats)
+        container.bar.setOn("record", Recorder.shared.recording)
+        recordItem?.title = Recorder.shared.recording ? "Stop recording" : "Record the mirror"
         container.bar.setOn("torch", torchOn)
         for it in scaleItems { it.state = it.tag == view.scale.rawValue ? .on : .off }
         let res = UserDefaults.standard.integer(forKey: "resolution")
@@ -327,6 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         case "stats": toggleStats(nil)
         case "full": fullScreen(nil)
         case "shot": screenshotToDesktop()
+        case "record": toggleRecord(nil)
         case "shape": showShapeMenu(nil)
         case "quality":
             if let q = NSApp.mainMenu?.items.first(where: { $0.submenu?.title == "Quality" })?.submenu {
@@ -359,6 +371,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     /// Saves exactly what the mirror shows (the phone picture, without the bar) to the Desktop.
+    @objc func toggleRecord(_ s: Any?) {
+        if Recorder.shared.recording { Recorder.shared.stop(); return }
+        guard stateText == "Connected" else { Banners.shared.info("Nothing to record", "Mirror the phone first."); return }
+        Recorder.shared.start()
+        link?.send(CT.keyframe)          // the file starts on the next key frame: ask for one now
+    }
+
     private func screenshotToDesktop() {
         guard let screen = window.screen else { return }
         let r = window.convertToScreen(view.convert(view.bounds, to: nil))
@@ -842,6 +861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                     self.audio.stop()
                     self.view.setMode(.normal)
                     self.stateText = "Disconnected"
+                    if Recorder.shared.recording { Recorder.shared.stop(reason: "The phone disconnected, so the recording was saved.") }
                     // Never got through on this Wi-Fi address: try the next one right away; only back off
                     // once every address has failed.
                     let wasWifi = label != "USB cable", neverReady = !self.linkWasReady
@@ -902,7 +922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             }
             lastFrameAt = now
             view.video.frame(p)
-        case PT.audio: audio.push(p)
+        case PT.audio: audio.push(p); Recorder.shared.audio(p)
         case PT.udpToken:
             guard p.count >= 6, let l = link, let host = l.remoteHost else { return }
             let b = [UInt8](p)
@@ -989,7 +1009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var transport: String { viaUSB ? "USB" : udpActive ? "Wi-Fi UDP" : "Wi-Fi" }
 
     private func updateTitle() {
-        var parts = ["PhoneCast"]
+        var parts = [Recorder.shared.recording ? "● REC" : "PhoneCast"]
         if !deviceLabel.isEmpty { parts.append(deviceLabel) }
         if stateText == "Connected" {
             parts.append("\(Int(view.videoSize.width))×\(Int(view.videoSize.height)) · \(fps) fps · \(transport) \(Int(rttMs)) ms · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
