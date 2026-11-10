@@ -75,60 +75,21 @@ class MainActivity : Activity() {
     override fun onResume() { super.onResume(); tick() }
     override fun onPause() { super.onPause(); ui.removeCallbacksAndMessages(null) }
 
-    private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+    private lateinit var u: Ui
 
-    private val accent: Int by lazy {
-        val tv = TypedValue(); theme.resolveAttribute(android.R.attr.colorAccent, tv, true); tv.data
-    }
+    private fun dp(v: Int) = u.dp(v)
 
-    // ---- building blocks ----
-
-    private fun label(text: String, size: Float = 15f, bold: Boolean = false, alpha: Float = 1f) = TextView(this).apply {
-        this.text = text; textSize = size
-        if (bold) typeface = Typeface.DEFAULT_BOLD
-        this.alpha = alpha
-        setPadding(0, dp(3), 0, dp(3))
-    }
-
-    private fun card(vararg views: View) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(14), dp(16), dp(14))
-        background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.argb(28, 128, 128, 128)) }
-        views.forEach { addView(it) }
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
-    }
-
-    private fun button(text: String, onClick: () -> Unit) = Button(this).apply {
-        this.text = text; isAllCaps = false
-        setOnClickListener { onClick() }
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) }
-    }
-
-    /** A grid of equal buttons (media keys, quick actions). */
-    private fun grid(cols: Int, vararg items: Pair<String, () -> Unit>) = GridLayout(this).apply {
-        columnCount = cols
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) }
-        for ((t, f) in items) addView(Button(this@MainActivity).apply {
-            text = t; isAllCaps = false; textSize = 14f
-            setOnClickListener { f() }
-            layoutParams = GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f)).apply {
-                width = 0; setMargins(dp(3), dp(3), dp(3), dp(3))
-            }
-        })
-    }
-
-    private fun page(title: String, vararg views: View): View {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(24), dp(18), dp(24))
-            addView(label(title, 28f, bold = true))
-            views.forEach { addView(it) }
-        }
-        return ScrollView(this).apply { addView(col); isFillViewport = true }
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // folding/unfolding or dark mode: rebuild so the columns and colours match
+        val nowWide = newConfig.screenWidthDp >= 600
+        val nowDark = (newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        if (nowWide != u.wide || nowDark != u.dark) { updaters.clear(); pages.clear(); tabViews.clear(); buildUi() }
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        u = Ui(this)
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(u.bg) }
         val content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -141,8 +102,8 @@ class MainActivity : Activity() {
 
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.argb(36, 128, 128, 128))
-            setPadding(0, dp(6), 0, dp(6))
+            setBackgroundColor(u.barBg)
+            setPadding(0, dp(10), 0, dp(10))
         }
         for ((id, icon, name) in listOf(
             Triple("home", R.drawable.ic_tab_home, "Home"), Triple("mac", R.drawable.ic_tab_mac, "Mac"),
@@ -152,22 +113,32 @@ class MainActivity : Activity() {
             val tab = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setPadding(0, dp(4), 0, dp(4))
                 isClickable = true
                 setOnClickListener { show(id) }
                 contentDescription = name
-                addView(ImageView(this@MainActivity).apply { setImageResource(icon) }, LinearLayout.LayoutParams(dp(24), dp(24)))
-                addView(TextView(this@MainActivity).apply { text = name; textSize = 12f; gravity = Gravity.CENTER })
+                // Material 3 navigation: the selected icon sits in a pill
+                addView(FrameLayout(this@MainActivity).apply {
+                    addView(ImageView(this@MainActivity).apply { setImageResource(icon) },
+                        FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+                }, LinearLayout.LayoutParams(dp(60), dp(32)))
+                addView(TextView(this@MainActivity).apply { text = name; textSize = 12f; gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
             }
             tabViews[id] = tab
             bar.addView(tab, LinearLayout.LayoutParams(0, -2, 1f))
         }
         root.addView(bar, LinearLayout.LayoutParams(-1, -2))
         setContentView(root)
-        // keep the bar above the gesture/navigation area
+        window.statusBarColor = u.bg
+        window.navigationBarColor = u.barBg
+        if (!u.dark) window.insetsController?.setSystemBarsAppearance(
+            android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+            android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        // the page starts below the status bar; the bar's colour runs down behind the gesture area
         root.setOnApplyWindowInsetsListener { v, ins ->
-            val sb = ins.getInsets(android.view.WindowInsets.Type.systemBars())
-            v.setPadding(sb.left, sb.top, sb.right, sb.bottom); ins
+            val sb = ins.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+            v.setPadding(sb.left, sb.top, sb.right, 0)
+            bar.setPadding(0, dp(10), 0, dp(10) + sb.bottom)
+            ins
         }
         show(current)
     }
@@ -178,8 +149,13 @@ class MainActivity : Activity() {
         pages.forEach { (k, v) -> v.visibility = if (k == id) View.VISIBLE else View.GONE }
         tabViews.forEach { (k, t) ->
             val on = k == id
-            (t.getChildAt(0) as ImageView).setColorFilter(if (on) accent else Color.GRAY)
-            (t.getChildAt(1) as TextView).apply { setTextColor(if (on) accent else Color.GRAY); typeface = if (on) Typeface.DEFAULT_BOLD else Typeface.DEFAULT }
+            val pill = t.getChildAt(0) as FrameLayout
+            pill.background = if (on) GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(u.tonalBg) } else null
+            (pill.getChildAt(0) as ImageView).setColorFilter(if (on) u.onTonal else u.text2)
+            (t.getChildAt(1) as TextView).apply {
+                setTextColor(if (on) u.text else u.text2)
+                typeface = if (on) Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
+            }
         }
         tick()
     }
@@ -187,59 +163,84 @@ class MainActivity : Activity() {
     // ---- Home ----
 
     private fun homePage(): View {
-        val status = label("", 18f, bold = true)
-        val sub = label("", 14f, alpha = 0.75f)
-        val devices = label("", 12f).apply { typeface = Typeface.MONOSPACE }
+        val status = u.Status()
         lateinit var castBtn: Button
-        val transfer = label("", 13f, alpha = 0.8f)
+        val transfer = u.label("", 13f, secondary = true)
+        val devices = u.Rows()
+
+        // setup checklist: only shown while something is missing
+        val setupRows = u.Rows()
+        val setupFix = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val setupCard = u.card(u.title("Finish setting up"), setupRows.view, setupFix)
+        var setupSig = ""
+
         updaters += {
             val hub = HubService.instance
             val st = hub?.macStatus
-            status.text = when {
-                hub == null -> "Starting…"
-                !hub.connected -> "○ Mac not connected"
-                else -> "● " + (hub.macName ?: "Mac") + (st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { "  ·  $it ms" } ?: "")
+            val sharing = CaptureService.instance != null
+            when {
+                hub == null -> status.set(u.grey, "Starting…", "")
+                !hub.connected -> status.set(u.grey, "No computer connected",
+                    "Open PhoneCast on the Mac. Same Wi-Fi or Tailscale; pair once in Settings.")
+                else -> status.set(u.green, hub.macName ?: "Mac", listOfNotNull(
+                    "Connected" + (st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { " · $it ms" } ?: ""),
+                    if (sharing) "screen shared" else null,
+                    if (NotifListener.instance != null) "notifications on" else "notifications off",
+                ).joinToString(" · "))
             }
-            sub.text = when {
-                hub?.connected == true -> listOfNotNull(
-                    if (CaptureService.instance != null) "this phone is shared" else null,
-                    if (NotifListener.instance != null) "notifications go to the Mac" else "notifications off",
-                ).joinToString(" · ")
-                else -> "Open PhoneCast on the Mac. Same Wi-Fi or Tailscale, PIN from Settings."
-            }
-            devices.text = deviceLines(st, all = true)
-            castBtn.text = if (CaptureService.instance != null) "Stop casting" else "Cast this phone"
+            castBtn.text = if (sharing) "Stop casting" else "Cast this phone"
             transfer.text = hub?.transfer ?: ""
-            transfer.visibility = if (hub?.transfer != null) View.VISIBLE else View.GONE
+            u.gone(transfer, hub?.transfer == null)
+            devices.set(deviceRows(st, all = true), "Shown once the Mac is connected.")
+
+            // setup checklist
+            val p = hub?.let { try { it.features.perms() } catch (_: Exception) { null } }
+            val steps = listOf(
+                Triple("Pair a computer", Auth.pairs(this).isNotEmpty() || hub?.connected == true) { show("settings") },
+                Triple("Mouse & keyboard", InputService.instance != null) { openAccessibility() },
+                Triple("Notifications", NotifListener.instance != null) { openNotificationAccess() },
+                Triple("Messages, calls, photos", p?.let { q -> listOf("sms", "calls", "contacts", "photos").all { q.optBoolean(it) } } ?: true) { requestFeatures() },
+            )
+            val missing = steps.filter { !it.second }
+            u.gone(setupCard, missing.isEmpty())
+            setupRows.set(steps.map { (n, ok, _) -> Ui.Row(n, if (ok) "done" else "to do", if (ok) u.green else u.orange) })
+            val sig = missing.joinToString { it.first }
+            if (sig != setupSig) {
+                setupSig = sig
+                setupFix.removeAllViews()
+                missing.firstOrNull()?.let { (n, _, f) -> setupFix.addView(u.primary("Set up: $n", f)) }
+            }
         }
-        return page("PhoneCast",
-            card(status, sub),
-            card(label("Quick actions", 16f, bold = true), grid(2,
-                "Cast this phone" to { toggleCast() },
-                "Control the Mac" to { openMacControl() },
-                "Send files" to { pickFiles() },
-                "Send clipboard" to { sendClipboard() },
-            ).also { g -> castBtn = g.getChildAt(0) as Button }, transfer),
-            card(label("Devices", 16f, bold = true), devices),
+        return u.page("PhoneCast",
+            u.card(status.view,
+                u.primary("Cast this phone") { toggleCast() }.also { castBtn = it },
+                u.grid(3,
+                    "Mac screen" to { openMacControl() },
+                    "Send files" to { pickFiles() },
+                    "Clipboard" to { sendClipboard() },
+                ), transfer),
+            setupCard,
+            u.card(u.title("Devices"), devices.view),
         )
     }
 
-    private fun deviceLines(st: org.json.JSONObject?, all: Boolean, filter: (String) -> Boolean = { true }): String {
-        if (st == null) return "Shown once the Mac is connected."
-        return buildString {
-            if (all) {
-                val bat = st.optInt("battery", -1)
-                append("Mac".padEnd(22) + (if (bat >= 0) "$bat %" + (if (st.optBoolean("charging")) " ⚡" else "") else "") + "\n")
-            }
-            val devs = st.optJSONArray("devices")
-            if (devs != null) for (i in 0 until devs.length()) {
-                val d = devs.getJSONObject(i)
-                val name = d.optString("name")
-                if (!filter(name)) continue
-                val ms = d.optInt("ms", -1)
-                append(name.take(21).padEnd(22) + (if (ms >= 0) "● $ms ms" else "○ off") + "\n")
-            }
-        }.trimEnd()
+    private fun deviceRows(st: org.json.JSONObject?, all: Boolean, filter: (String) -> Boolean = { true }): List<Ui.Row> {
+        if (st == null) return emptyList()
+        val out = ArrayList<Ui.Row>()
+        if (all) {
+            val bat = st.optInt("battery", -1)
+            out += Ui.Row(HubService.instance?.macName ?: "Mac",
+                if (bat >= 0) "$bat %" + (if (st.optBoolean("charging")) " ⚡" else "") else "connected", u.green)
+        }
+        val devs = st.optJSONArray("devices")
+        if (devs != null) for (i in 0 until devs.length()) {
+            val d = devs.getJSONObject(i)
+            val name = d.optString("name")
+            if (!filter(name)) continue
+            val ms = d.optInt("ms", -1)
+            out += Ui.Row(name, if (ms >= 0) "$ms ms" else "offline", if (ms >= 0) u.green else u.grey)
+        }
+        return out
     }
 
     // ---- Mac ----
@@ -251,35 +252,36 @@ class MainActivity : Activity() {
     }
 
     private fun macPage(): View {
-        val head = label("", 18f, bold = true)
-        val stats = label("", 14f).apply { typeface = Typeface.MONOSPACE }
+        val status = u.Status()
+        val stats = u.Rows()
         updaters += {
             val hub = HubService.instance
             val st = hub?.macStatus
-            head.text = if (hub?.connected == true) hub.macName ?: "Mac" else "Mac not connected"
-            stats.text = if (st == null) "" else buildString {
-                st.optInt("battery", -1).takeIf { it >= 0 }?.let { append("Battery  $it %" + (if (st.optBoolean("charging")) " · on power" else "") + "\n") }
-                if (st.has("cpu")) append("CPU      ${st.optInt("cpu")} %\n")
-                if (st.has("mem")) append("Memory   ${st.optInt("mem")} %\n")
-                append("Heat     ${st.optString("thermal", "-")}\n")
-                st.optInt("rtt", -1).takeIf { it >= 0 }?.let { append("Link     $it ms") }
-            }.trimEnd()
+            if (hub?.connected == true) status.set(u.green, hub.macName ?: "Mac",
+                st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { "Connected · $it ms" } ?: "Connected")
+            else status.set(u.grey, "Mac not connected", "Open PhoneCast on the Mac.")
+            stats.set(if (st == null) emptyList() else buildList {
+                st.optInt("battery", -1).takeIf { it >= 0 }?.let { add(Ui.Row("Battery", "$it %" + if (st.optBoolean("charging")) " · on power" else "")) }
+                if (st.has("cpu")) add(Ui.Row("CPU", "${st.optInt("cpu")} %"))
+                if (st.has("mem")) add(Ui.Row("Memory", "${st.optInt("mem")} %"))
+                add(Ui.Row("Heat", st.optString("thermal", "—")))
+            })
         }
-        return page("Mac",
-            card(head, stats),
-            card(
-                label("Control the Mac", 16f, bold = true),
-                label("Its screen on this phone: tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll.", 13f, alpha = 0.7f),
-                button("Open the Mac's screen") { openMacControl() },
+        return u.page("Mac",
+            u.card(status.view, stats.view),
+            u.card(
+                u.title("Control the Mac"),
+                u.label("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll.", 14f, secondary = true),
+                u.primary("Open the Mac's screen") { openMacControl() },
             ),
-            card(label("Keys", 16f, bold = true), grid(3,
+            u.card(u.title("Keys"), u.grid(3,
                 "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
                 "⏮" to { macAction("prev") }, "⏯" to { macAction("play") }, "⏭" to { macAction("next") },
-                "Lock Mac" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") }, "Screenshot" to { macAction("screenshot") },
+                "Lock" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") }, "Screenshot" to { macAction("screenshot") },
             )),
-            card(label("Send", 16f, bold = true), grid(2,
-                "Files to the Mac" to { pickFiles() },
-                "Clipboard to the Mac" to { sendClipboard() },
+            u.card(u.title("Send to the Mac"), u.grid(2,
+                "Files" to { pickFiles() },
+                "Clipboard" to { sendClipboard() },
             )),
         )
     }
@@ -292,11 +294,10 @@ class MainActivity : Activity() {
     // ---- PC ----
 
     private fun pcPage(): View {
-        val head = label("", 18f, bold = true)
-        val sub = label("", 13f, alpha = 0.75f)
-        val stats = label("", 12f).apply { typeface = Typeface.MONOSPACE }
-        val ai = label("", 12f).apply { typeface = Typeface.MONOSPACE }
-        val msg = label("", 13f, alpha = 0.8f)
+        val status = u.Status()
+        val stats = u.Rows()
+        val ai = u.Rows()
+        val msg = u.label("", 13f, secondary = true)
         fun act(path: String, body: org.json.JSONObject, ask: String? = null) {
             val go = {
                 msg.text = "…"
@@ -308,61 +309,63 @@ class MainActivity : Activity() {
         }
         fun j(vararg kv: Pair<String, Any>) = org.json.JSONObject().apply { kv.forEach { (k, v) -> put(k, v) } }
         fun gb(v: Double) = if (v > 0) "%.1f GB".format(v / 1e9) else "—"
+        fun pct(v: Double) = v.takeIf { it >= 0 }?.let { "%.0f %%".format(it) } ?: "—"
         updaters += {
             if (current == "pc") Dashboard.poll()
             val pc = Dashboard.pc
             val st = Dashboard.stats
-            head.text = when {
-                st == null -> "PC"
-                Dashboard.online -> "● PC · ${Dashboard.os.replaceFirstChar { it.uppercase() }}"
-                else -> "○ The PC is asleep or off"
+            val sub = Dashboard.error ?: st?.optJSONObject("boot")?.optString("message")?.takeIf { it != "null" } ?: ""
+            when {
+                st == null -> status.set(u.grey, "PC", sub.ifEmpty { "Waiting for the dashboard…" })
+                Dashboard.online -> status.set(u.green, "PC · ${Dashboard.os.replaceFirstChar { it.uppercase() }}", sub)
+                else -> status.set(u.grey, "The PC is asleep or off", sub)
             }
-            sub.text = Dashboard.error ?: st?.optJSONObject("boot")?.optString("message") ?: ""
-            stats.text = if (pc == null || !Dashboard.online) "" else buildString {
-                fun row(k: String, v: String) = append(k.padEnd(12) + v + "\n")
-                row("GPU", pc.optDouble("busy", -1.0).takeIf { it >= 0 }?.let { "%.0f %%".format(it) } ?: "—")
-                row("Video mem", gb(pc.optDouble("vram_used", 0.0)) + " / " + gb(pc.optDouble("vram_total", 0.0)))
-                pc.optDouble("temp", Double.NaN).takeIf { !it.isNaN() }?.let { row("GPU temp", "%.0f °C".format(it)) }
-                pc.optDouble("power", Double.NaN).takeIf { !it.isNaN() }?.let { row("GPU power", "%.0f W".format(it)) }
-                row("CPU", pc.optDouble("cpu_pct", -1.0).takeIf { it >= 0 }?.let { "%.0f %%".format(it) } ?: "—")
-                pc.optDouble("cpu_temp", Double.NaN).takeIf { !it.isNaN() }?.let { row("CPU temp", "%.0f °C".format(it)) }
-                row("RAM", gb(pc.optDouble("mem_used", 0.0)) + " / " + gb(pc.optDouble("mem_total", 0.0)))
-                pc.optLong("uptime", -1).takeIf { it >= 0 }?.let { row("Up for", if (it > 3600) "${it / 3600} h ${it % 3600 / 60} min" else "${it / 60} min") }
-            }.trimEnd()
-            ai.text = st?.let { s ->
+            stats.set(if (pc == null || !Dashboard.online) emptyList() else buildList {
+                add(Ui.Row("GPU", pct(pc.optDouble("busy", -1.0))))
+                add(Ui.Row("Video memory", gb(pc.optDouble("vram_used", 0.0)) + " / " + gb(pc.optDouble("vram_total", 0.0))))
+                pc.optDouble("temp", Double.NaN).takeIf { !it.isNaN() }?.let { add(Ui.Row("GPU temp", "%.0f °C".format(it))) }
+                pc.optDouble("power", Double.NaN).takeIf { !it.isNaN() }?.let { add(Ui.Row("GPU power", "%.0f W".format(it))) }
+                add(Ui.Row("CPU", pct(pc.optDouble("cpu_pct", -1.0))))
+                pc.optDouble("cpu_temp", Double.NaN).takeIf { !it.isNaN() }?.let { add(Ui.Row("CPU temp", "%.0f °C".format(it))) }
+                add(Ui.Row("RAM", gb(pc.optDouble("mem_used", 0.0)) + " / " + gb(pc.optDouble("mem_total", 0.0))))
+                pc.optLong("uptime", -1).takeIf { it >= 0 }?.let { add(Ui.Row("Up for", if (it > 3600) "${it / 3600} h ${it % 3600 / 60} min" else "${it / 60} min")) }
+            })
+            ai.set(st?.let { s ->
                 val models = s.optJSONArray("ollama")
-                val names = (0 until (models?.length() ?: 0)).joinToString("\n") { models!!.getJSONObject(it).optString("name") }
-                "Engine      " + (s.optString("engine").takeIf { it.isNotEmpty() && it != "null" } ?: "—") +
-                    "\nLoaded      " + names.ifEmpty { "nothing" }
-            } ?: ""
+                val names = (0 until (models?.length() ?: 0)).joinToString(", ") { models!!.getJSONObject(it).optString("name") }
+                listOf(Ui.Row("Engine", s.optString("engine").takeIf { it.isNotEmpty() && it != "null" } ?: "—"),
+                    Ui.Row("Loaded", names.ifEmpty { "nothing" }))
+            } ?: emptyList())
         }
-        return page("PC",
-            card(head, sub, stats),
-            card(label("Power", 16f, bold = true), grid(3,
-                "Wake" to { if (Dashboard.stats == null && Prefs.pcMac(this).isNotEmpty()) wakePc() else act("wake", j()) },
-                "Sleep" to { act("power", j("action" to "suspend"), "Put the PC to sleep?") },
-                "Shut down" to { act("power", j("action" to "poweroff"), "Shut the PC down?") },
-            ), grid(2,
-                "Start Linux" to { act("boot", j("os" to "linux"), "Restart into Linux?") },
-                "Start Windows" to { act("boot", j("os" to "windows"), "Restart into Windows?") },
-            ), msg),
-            card(label("Monitors & lights", 16f, bold = true), grid(2,
+        return u.page("PC",
+            u.card(status.view, stats.view),
+            u.card(u.title("Power"),
+                u.primary("Wake") { if (Dashboard.stats == null && Prefs.pcMac(this).isNotEmpty()) wakePc() else act("wake", j()) },
+                u.grid(2,
+                    "Sleep" to { act("power", j("action" to "suspend"), "Put the PC to sleep?") },
+                    "Shut down" to { act("power", j("action" to "poweroff"), "Shut the PC down?") },
+                    "Start Linux" to { act("boot", j("os" to "linux"), "Restart into Linux?") },
+                    "Start Windows" to { act("boot", j("os" to "windows"), "Restart into Windows?") },
+                ), msg),
+            u.card(u.title("Monitors & lights"), u.grid(2,
                 "Monitors on" to { act("display", j("action" to "on")) },
                 "Monitors off" to { act("display", j("action" to "off")) },
-            ), grid(5,
-                "🔴" to { act("rgb", j("color" to "red")) }, "🟣" to { act("rgb", j("color" to "purple")) },
-                "🔵" to { act("rgb", j("color" to "blue")) }, "🟢" to { act("rgb", j("color" to "green")) },
-                "Off" to { act("rgb", j("color" to "off")) },
-            ), button("Lights follow the PC's load") { act("rgbauto", j("on" to true)) }),
-            card(label("AI", 16f, bold = true), ai, grid(2,
+            ), u.swatches(
+                0xFFEF4444.toInt() to { act("rgb", j("color" to "red")) },
+                0xFFA855F7.toInt() to { act("rgb", j("color" to "purple")) },
+                0xFF3B82F6.toInt() to { act("rgb", j("color" to "blue")) },
+                0xFF22C55E.toInt() to { act("rgb", j("color" to "green")) },
+                off = { act("rgb", j("color" to "off")) },
+            ), u.tonal("Lights follow the PC's load") { act("rgbauto", j("on" to true)) }),
+            u.card(u.title("AI"), ai.view, u.grid(2,
                 "Ollama" to { act("engine", j("engine" to "ollama")) },
                 "Strata" to { act("engine", j("engine" to "strata")) },
-            ), label("Switching engines works while the PC runs Linux.", 12f, alpha = 0.6f)),
-            card(label("Use the PC", 16f, bold = true),
-                label("Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad.", 13f, alpha = 0.7f),
-                button("Open Moonlight") { openMoonlight() },
-                button("Full dashboard (Studio, agent chat…)") { if (Dashboard.base.isNotEmpty()) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Dashboard.base))) },
-                label("Controls work while Tailscale is on (the dashboard refuses everything else).", 12f, alpha = 0.6f)),
+            ), u.hint("Switching engines works while the PC runs Linux.")),
+            u.card(u.title("Use the PC"),
+                u.label("Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad.", 14f, secondary = true),
+                u.primary("Open Moonlight") { openMoonlight() },
+                u.tonal("Full dashboard") { if (Dashboard.base.isNotEmpty()) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Dashboard.base))) },
+                u.hint("The controls only work over Tailscale (the dashboard refuses everything else).")),
         )
     }
 
@@ -396,7 +399,7 @@ class MainActivity : Activity() {
 
     private fun askDashboard() {
         val f = EditText(this).apply { setText(Prefs.dashboard(this@MainActivity)); hint = "http://100.x.y.z:8765"; inputType = InputType.TYPE_TEXT_VARIATION_URI }
-        AlertDialog.Builder(this).setTitle("Hermes dashboard address")
+        AlertDialog.Builder(this).setTitle("Dashboard address")
             .setMessage("Empty = use the one set on the Mac.")
             .setView(f).setPositiveButton("Save") { _, _ -> Prefs.setDashboard(this, f.text.toString().trim()); tick() }
             .setNegativeButton("Cancel", null).show()
@@ -416,142 +419,150 @@ class MainActivity : Activity() {
     // ---- Cast (this phone's screen) ----
 
     private fun castPage(): View {
-        val status = label("", 17f, bold = true)
-        val startBtn = button("") { toggleCast() }
-        val controlView = label("", 14f)
-        val controlBtn = button("") { openAccessibility() }
-        val qualityBtn = button("") {
-            val i = (qualities.indexOf(Prefs.maxSize(this)) + 1) % qualities.size
-            Prefs.setMaxSize(this, qualities[i]); CaptureService.instance?.restartVideo(); tick()
-        }
-        val bitrateBtn = button("") {
-            val i = (bitrates.indexOf(Prefs.bitrateMbps(this)) + 1) % bitrates.size
-            Prefs.setBitrateMbps(this, bitrates[i]); CaptureService.instance?.restartVideo(); tick()
-        }
-        val audioBtn = button("") {
-            Prefs.setAudio(this, !Prefs.audio(this)); tick()
+        val status = u.Status()
+        val startBtn = u.primary("") { toggleCast() }
+        val control = u.Status()
+        val controlBtn = u.tonal("") { openAccessibility() }
+        val res = u.Segmented("Resolution (long side)", listOf("1280" to 1280, "1920" to 1920, "2560" to 2560, "Native" to 0),
+            { Prefs.maxSize(this) }) { v -> Prefs.setMaxSize(this, v); CaptureService.instance?.restartVideo() }
+        val rate = u.Segmented("Bitrate (Mbit/s)", listOf("8" to 8, "16" to 16, "24" to 24, "40" to 40),
+            { Prefs.bitrateMbps(this) }) { v -> Prefs.setBitrateMbps(this, v); CaptureService.instance?.restartVideo() }
+        val audio = u.SwitchRow("Game audio", { Prefs.audio(this) }) { on ->
+            Prefs.setAudio(this, on); tick()
             if (CaptureService.instance != null) toast("Takes effect next time you start sharing")
         }
-        val shapeView = label("", 14f)
-        val shapeNormalBtn = button("Back to normal shape") { setShape(0, 0) }
-        val shapeMacBtn = button("") { Prefs.lastShape(this)?.let { (w, h) -> setShape(w, h) } }
+        val shapeView = u.label("", 14f, secondary = true)
+        val shapeNormalBtn = u.primary("Back to normal shape") { setShape(0, 0) }
+        val shapeMacBtn = u.tonal("") { Prefs.lastShape(this)?.let { (w, h) -> setShape(w, h) } }
+        val grantHelp = u.details("How to allow it",
+            u.label("Once, from a computer with USB debugging on:", 13f, secondary = true),
+            u.mono("adb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"))
 
         updaters += {
             val svc = CaptureService.instance
-            status.text = when {
-                svc == null -> "Not sharing"
-                svc.clientAddress != null && UsbBridge.active && svc.clientAddress == "127.0.0.1" -> "● Shown on the Mac (cable)"
-                svc.clientAddress != null -> "● Shown on ${svc.clientAddress}"
-                else -> "● Sharing — waiting for the Mac or PC"
+            when {
+                svc == null -> status.set(u.grey, "Not sharing", "Faster next time: the “Cast to Mac” Quick Settings tile.")
+                svc.clientAddress != null && UsbBridge.active && svc.clientAddress == "127.0.0.1" -> status.set(u.green, "Shown on the Mac", "over the USB cable")
+                svc.clientAddress != null -> status.set(u.green, "Shown on a computer", svc.clientAddress ?: "")
+                else -> status.set(u.orange, "Sharing", "Waiting for the Mac or PC to connect…")
             }
             startBtn.text = if (svc == null) "Cast this phone" else "Stop sharing"
             val enabled = accessibilityEnabled(); val connected = InputService.instance != null
-            controlView.text = when { connected -> "On — the Mac/PC can tap and type."; enabled -> "Enabled, starting…"; else -> "Off — they can only watch." }
+            when {
+                connected -> control.set(u.green, "On", "The Mac or PC can tap and type.")
+                enabled -> control.set(u.orange, "Starting…", "")
+                else -> control.set(u.grey, "Off", "The Mac or PC can only watch.")
+            }
             controlBtn.text = if (connected) "Accessibility settings" else "Turn on mouse & keyboard"
-            val q = Prefs.maxSize(this)
-            qualityBtn.text = "Resolution: " + if (q == 0) "native" else "${q}p long side"
-            bitrateBtn.text = "Bitrate: ${Prefs.bitrateMbps(this)} Mbit/s"
-            audioBtn.text = "Game audio: " + if (Prefs.audio(this)) "on" else "off"
+            res.refresh(); rate.refresh(); audio.refresh()
             val allowed = DisplaySize.hasPermission(this)
             val changed = DisplaySize.changedSize(this)
             val last = Prefs.lastShape(this)
             shapeView.text = when {
-                !allowed -> "The Mac can fit the phone's screen shape to its display. Needs a one-time permission " +
-                    "from a computer with USB debugging:\nadb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
+                !allowed -> "The Mac can fit the phone's screen shape to its display. That needs a one-time permission."
                 changed != null -> "Changed to fit the Mac (${changed.first}×${changed.second}). Set it back before using the phone on its own."
                 else -> "Normal."
             }
-            shapeNormalBtn.visibility = if (allowed && changed != null) View.VISIBLE else View.GONE
-            shapeMacBtn.visibility = if (allowed && changed == null && last != null) View.VISIBLE else View.GONE
+            u.gone(grantHelp, allowed)
+            u.gone(shapeNormalBtn, !(allowed && changed != null))
+            u.gone(shapeMacBtn, !(allowed && changed == null && last != null))
             if (last != null) shapeMacBtn.text = "Fit the Mac again (${last.first}:${last.second})"
         }
-        return page("Cast",
-            card(status, startBtn, label("Faster: the “Cast to Mac” Quick Settings tile.", 12f, alpha = 0.6f)),
-            card(label("Mouse & keyboard from the Mac/PC", 16f, bold = true), controlView, controlBtn,
-                label("Uses an Accessibility service to tap for you. If Android says \"Restricted setting\": " +
-                    "App info → ⋮ → Allow restricted settings, then try again. " +
-                    "Games may treat tap injection like a cheat tool — test on a throwaway account first.", 12f, alpha = 0.6f)),
-            card(label("Quality", 16f, bold = true), qualityBtn, bitrateBtn, audioBtn),
-            card(label("Screen shape", 16f, bold = true), shapeView, shapeNormalBtn, shapeMacBtn),
+        return u.page("Cast",
+            u.card(status.view, startBtn),
+            u.card(u.title("Mouse & keyboard"), control.view, controlBtn,
+                u.details("Help",
+                    u.hint("Uses an Accessibility service to tap for you. If Android says \"Restricted setting\": " +
+                        "App info → ⋮ → Allow restricted settings, then try again."),
+                    u.hint("Games may treat tap injection like a cheat tool. Test on a throwaway account first."))),
+            u.card(u.title("Quality"), res.view, rate.view, audio.view,
+                u.hint("A connected Mac or PC sets resolution and bitrate from its own Quality menu.")),
+            u.card(u.title("Screen shape"), shapeView, grantHelp, shapeNormalBtn, shapeMacBtn),
         )
     }
 
     // ---- Settings ----
 
     private fun settingsPage(): View {
-        val pinView = label("", 30f, bold = true).apply { typeface = Typeface.MONOSPACE; letterSpacing = 0.15f }
-        val addrView = label("", 14f, alpha = 0.8f)
-        val keyView = label("", 12f, alpha = 0.6f).apply { typeface = Typeface.MONOSPACE }
-        val notifBtn = button("Show phone notifications on the Mac") { openNotificationAccess() }
-        val clipBtn = button("") { Prefs.setAutoClip(this, !Prefs.autoClip(this)); tick() }
-        val featView = label("", 14f)
-        val dashView = label("", 13f, alpha = 0.75f)
-        val featBtn = button("Allow messages, calls, contacts & photos") { requestFeatures() }
-        val filesBtn = button("Allow browsing phone files from the Mac") {
+        val pinView = u.label("", 34f, bold = true).apply { letterSpacing = 0.18f; setTextIsSelectable(true); setPadding(0, dp(4), 0, dp(2)) }
+        val addrRows = u.Rows()
+        val keyView = u.mono()
+        val notif = u.Status()
+        val notifBtn = u.tonal("Allow notification access") { openNotificationAccess() }
+        val clip = u.SwitchRow("Copy to the Mac automatically", { Prefs.autoClip(this) }) { on -> Prefs.setAutoClip(this, on); tick() }
+        val featRows = u.Rows()
+        val dashView = u.label("", 14f, secondary = true)
+        val featBtn = u.primary("Allow messages, calls, contacts & photos") { requestFeatures() }
+        val filesBtn = u.tonal("Allow browsing phone files") {
             try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
             catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
         }
         updaters += {
             pinView.text = Prefs.pin(this)
-            addrView.text = addresses().ifEmpty { "No network address — connect to Wi-Fi" }
-            notifBtn.visibility = if (NotifListener.instance != null) View.GONE else View.VISIBLE
-            clipBtn.text = "Copy to the Mac automatically: " + when {
-                !Prefs.autoClip(this) -> "off"
-                InputService.instance == null -> "on (needs mouse & keyboard turned on)"
-                else -> "on"
-            }
+            addrRows.set(addressRows(), "No network. Connect to Wi-Fi.")
+            if (NotifListener.instance != null) notif.set(u.green, "Notifications go to the Mac", "")
+            else notif.set(u.grey, "Notifications stay on the phone", "")
+            u.gone(notifBtn, NotifListener.instance != null)
+            clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs mouse & keyboard turned on (Cast tab)" else "Copy here, paste on the Mac")
             val p = HubService.instance?.let { try { it.features.perms() } catch (_: Exception) { null } }
             if (p != null) {
-                val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer/dial", "contacts" to "Contacts",
+                val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer & dial", "contacts" to "Contacts",
                     "photos" to "Photos", "files" to "Files", "notifications" to "Notifications", "control" to "Mouse & keyboard")
-                featView.text = names.entries.joinToString("\n") { (k, v) -> (if (p.optBoolean(k)) "✓ " else "○ ") + v }
-                featBtn.visibility = if (listOf("sms", "calls", "callControl", "contacts", "photos").all { p.optBoolean(it) }) View.GONE else View.VISIBLE
-                filesBtn.visibility = if (p.optBoolean("files")) View.GONE else View.VISIBLE
-            }
+                featRows.set(names.map { (k, v) -> val ok = p.optBoolean(k); Ui.Row(v, if (ok) "allowed" else "off", if (ok) u.green else u.grey) })
+                u.gone(featBtn, listOf("sms", "calls", "callControl", "contacts", "photos").all { p.optBoolean(it) })
+                u.gone(filesBtn, p.optBoolean("files"))
+            } else featRows.set(emptyList(), "Starting…")
         }
-        keyView.text = "Link key (the Mac shows the same in Settings):\n" + Auth.fingerprint()
+        keyView.text = Auth.fingerprint()
         updaters += {
-            dashView.text = if (Dashboard.base.isEmpty()) "Not set. With a Hermes dashboard the PC tab shows the PC and its controls."
+            dashView.text = if (Dashboard.base.isEmpty()) "Not set. With a Hermes-style dashboard, the PC tab shows your PC and its controls."
                 else Dashboard.base + if (Prefs.dashboard(this).isEmpty()) "  (from the Mac)" else ""
         }
         val pairsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        var shownPairs = ""
+        var shownPairs: String? = null
         updaters += {
             val pairs = Auth.pairs(this).values.sortedBy { it.name.lowercase() }
             val sig = pairs.joinToString { it.id }
             if (sig != shownPairs) {       // rebuild the rows only when the list changed
                 shownPairs = sig
                 pairsBox.removeAllViews()
-                if (pairs.isEmpty()) pairsBox.addView(label("No computer paired by QR yet.", 13f, alpha = 0.7f))
+                if (pairs.isEmpty()) pairsBox.addView(u.hint("No computer paired yet."))
                 for (pr in pairs) pairsBox.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    addView(label("● " + pr.name, 15f), LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(Button(this@MainActivity).apply {
-                        text = "Remove"; isAllCaps = false
-                        setOnClickListener {
-                            AlertDialog.Builder(this@MainActivity).setTitle("Remove ${pr.name}?")
-                                .setMessage("It can't connect without scanning again (or the PIN).")
-                                .setPositiveButton("Remove") { _, _ -> Auth.removePair(this@MainActivity, pr.id); tick() }
-                                .setNegativeButton("Cancel", null).show()
-                        }
-                    })
+                    setPadding(0, dp(6), 0, 0)
+                    addView(View(this@MainActivity).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(u.green) } },
+                        LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) })
+                    addView(u.label(pr.name, 16f), LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(u.quiet("Remove", u.red) {
+                        AlertDialog.Builder(this@MainActivity).setTitle("Remove ${pr.name}?")
+                            .setMessage("It can't connect until you scan its code again (or enter the PIN).")
+                            .setPositiveButton("Remove") { _, _ -> Auth.removePair(this@MainActivity, pr.id); tick() }
+                            .setNegativeButton("Cancel", null).show()
+                    }.apply { layoutParams = LinearLayout.LayoutParams(-2, -2) })
                 })
             }
         }
-        return page("Settings",
-            card(label("Pair a computer", 16f, bold = true),
-                label("On the Mac or PC: PhoneCast → Settings shows a QR code. Scan it here: no PIN needed, and both sides prove a shared key on every connection.", 13f, alpha = 0.7f),
-                button("Scan computer's QR code") {
-                    Pairing.scan(this) { ok, msg -> toast(msg); if (ok) tick() }
-                },
-                pairsBox),
-            card(label("Or pair with the PIN (enter it on the computer once)", 13f, alpha = 0.7f), pinView, addrView, keyView,
-                button("New PIN (unpairs every Mac)") { Prefs.newPin(this); toast("New PIN. Enter it on the Mac again."); tick() }),
-            card(label("On the Mac", 16f, bold = true), notifBtn, clipBtn),
-            card(label("PC (Hermes dashboard)", 16f, bold = true), dashView,
-                button("Set the dashboard address…") { askDashboard() }),
-            card(label("Phone features on the Mac", 16f, bold = true), featView, featBtn, filesBtn),
+        return u.page("Settings",
+            u.card(u.title("Paired computers"), pairsBox,
+                u.primary("Scan a computer's QR code") { Pairing.scan(this) { ok, msg -> toast(msg); if (ok) tick() } },
+                u.hint("On the Mac or PC: PhoneCast → Settings shows the code. No PIN needed, and both sides prove a shared key on every connection."),
+                u.details("Pair with a PIN instead",
+                    u.label("Enter this on the computer once:", 14f, secondary = true),
+                    pinView, addrRows.view,
+                    u.label("Link key (the Mac shows the same in Settings)", 13f, secondary = true).apply { setPadding(0, dp(10), 0, dp(2)) },
+                    keyView,
+                    u.quiet("New PIN", u.red) {
+                        AlertDialog.Builder(this).setTitle("Make a new PIN?")
+                            .setMessage("Computers paired with the PIN have to enter the new one. QR-paired computers stay paired.")
+                            .setPositiveButton("New PIN") { _, _ -> Prefs.newPin(this); toast("New PIN made"); tick() }
+                            .setNegativeButton("Cancel", null).show()
+                    })),
+            u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view),
+            u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn,
+                u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
+            u.card(u.title("PC dashboard (optional)"), dashView,
+                u.tonal("Set the dashboard address…") { askDashboard() }),
         )
     }
 
@@ -570,12 +581,21 @@ class MainActivity : Activity() {
 
     // ---- helpers ----
 
-    private fun addresses(): String = try {
+    /** The phone's addresses a computer can reach: Wi-Fi, Tailscale/VPN, Ethernet (mobile data is useless for this). */
+    private fun addressRows(): List<Ui.Row> = try {
         NetworkInterface.getNetworkInterfaces().toList()
             .filter { it.isUp && !it.isLoopback }
-            .flatMap { ni -> ni.inetAddresses.toList().filterIsInstance<Inet4Address>().map { "${it.hostAddress}  (${ni.name})" } }
-            .joinToString("\n")
-    } catch (_: Exception) { "" }
+            .flatMap { ni ->
+                val kind = when {
+                    ni.name.startsWith("wlan") || ni.name.startsWith("swlan") -> "Wi-Fi"
+                    ni.name.startsWith("tun") -> "Tailscale / VPN"
+                    ni.name.startsWith("eth") || ni.name.startsWith("usb") || ni.name.startsWith("rndis") || ni.name.startsWith("ncm") -> "Cable"
+                    else -> null
+                }
+                if (kind == null) emptyList()
+                else ni.inetAddresses.toList().filterIsInstance<Inet4Address>().map { Ui.Row(kind, it.hostAddress ?: "") }
+            }
+    } catch (_: Exception) { emptyList() }
 
     private fun accessibilityEnabled(): Boolean {
         val list = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false

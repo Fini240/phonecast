@@ -196,8 +196,14 @@ class CaptureService : Service(), StreamServer.Listener {
         }
     }
 
-    /** Called when quality settings change in the app. */
-    fun restartVideo() = handler.post { safeStartVideo() }
+    private val restartTask = Runnable { safeStartVideo() }
+
+    /** Called when quality settings change (app or viewer). Debounced: several changes in a row
+     *  (two viewers connecting, quick taps in the app) restart the encoder once. Key frames stay immediate. */
+    fun restartVideo() {
+        handler.removeCallbacks(restartTask)
+        handler.postDelayed(restartTask, 350)
+    }
 
     // ---- StreamServer.Listener ----
 
