@@ -89,7 +89,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- no BROWSABLE: a website must not be able to open "Pair with <any name>?" -->
                 <data android:scheme="phonecast" />
             </intent-filter>
         </activity>

@@ -269,7 +269,8 @@ final class Hub: NSObject, NSMenuDelegate {
                 if pinned != nil {
                     if !pin.isEmpty { o["pin"] = pin }          // known phone (TLS key pinned): PIN is safe to send
                     answer(try? JSONSerialization.data(withJSONObject: o))
-                } else if usedQR && !self.qrRejected {
+                } else if usedQR && (pin.isEmpty || !self.qrRejected) {
+                    // (without a PIN there's nothing else to try: keep offering the QR proof until the phone scans)
                     answer(try? JSONSerialization.data(withJSONObject: o))   // first contact: QR only, no PIN
                 } else if !pin.isEmpty, let fp {
                     // the phone hasn't scanned this Mac: compare keys before the PIN goes out
@@ -312,6 +313,12 @@ final class Hub: NSObject, NSMenuDelegate {
             guard let self, let l else { return }
             self.packet(l, t, p)
         }
+        // an address that never answers (e.g. a stale Bonjour entry after the phone app restarted) can
+        // leave the connection "preparing" forever without an error: give up after 8 s, try the next one
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self, weak l] in
+            guard let self, let l, self.link === l, !l.ready, !self.asking else { return }
+            l.close("no answer")
+        }
         l.onClose = { [weak self, weak l] why in
             DispatchQueue.main.async {
                 guard let self, let l, self.link === l else { return }
@@ -341,7 +348,12 @@ final class Hub: NSObject, NSMenuDelegate {
                 Banners.shared.endCall()
                 if why == "qr not known" {
                     // the phone hasn't scanned this Mac's QR code: next try uses the PIN (with key check)
-                    self.qrRejected = true; self.scheduleRetry(0.5); return
+                    self.qrRejected = true
+                    // the phone may scan the code any moment: forget the refusal after 30 s
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.qrRejected = false }
+                    if pin.isEmpty { self.store.linkState = "Not paired yet: scan the QR code in Settings with PhoneCast on the phone"; self.scheduleRetry(4) }
+                    else { self.scheduleRetry(0.5) }
+                    return
                 }
                 if why == "wrong PIN" { return }
                 if why == "locked" {
