@@ -101,6 +101,10 @@ object Prefs {
     fun autoClip(c: Context): Boolean = p(c).getBoolean("autoClip", true)
     fun setAutoClip(c: Context, v: Boolean) = p(c).edit().putBoolean("autoClip", v).apply()
 
+    /** The PC's network card address for Wake-on-LAN ("" = not set). */
+    fun pcMac(c: Context): String = p(c).getString("pcMac", "") ?: ""
+    fun setPcMac(c: Context, v: String) = p(c).edit().putString("pcMac", v).apply()
+
     /** Longest side of the video in pixels; 0 = native resolution. */
     fun maxSize(c: Context): Int = p(c).getInt("maxSize", 1920)
     fun setMaxSize(c: Context, v: Int) = p(c).edit().putInt("maxSize", v).apply()

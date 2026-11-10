@@ -89,6 +89,7 @@ object HubProto {
     const val EVENT = 72         // phone->mac json {e: "call", state, number, name}
 
     const val INPUT = 60         // phone->mac, first byte = INPUT_*
+    const val MAC_ACTION = 61    // phone->mac utf8: volup voldown mute play next prev lock displaysleep screenshot
     const val IN_MOVE = 0        // u16 x, u16 y (0..65535 of the Mac screen)
     const val IN_DOWN = 1        // u8 button (0 left, 1 right), u16 x, u16 y
     const val IN_UP = 2          // same

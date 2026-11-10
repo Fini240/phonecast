@@ -14,7 +14,7 @@ enum HT {
     static let castReady: UInt8 = 40, castStopped: UInt8 = 41, castRequest: UInt8 = 42
     static let screenStart: UInt8 = 50, screenStop: UInt8 = 51, screenFormat: UInt8 = 52, screenConfig: UInt8 = 53
     static let screenFrame: UInt8 = 54, screenKey: UInt8 = 55, screenDenied: UInt8 = 56
-    static let input: UInt8 = 60
+    static let input: UInt8 = 60, macAction: UInt8 = 61
     static let req: UInt8 = 70, resp: UInt8 = 71, event: UInt8 = 72
 }
 
@@ -325,6 +325,7 @@ final class Hub: NSObject, NSMenuDelegate {
         switch t {
         case HT.ping: l.send(HT.pong, p)
         case HT.input: screen.input(p)       // straight from the network queue: lowest delay
+        case HT.macAction: let a = String(decoding: p, as: UTF8.self); DispatchQueue.main.async { MacActions.run(a) }
         case HT.screenKey: screen.forceKeyframe()
         case HT.fileData:
             guard p.count >= 4 else { return }
