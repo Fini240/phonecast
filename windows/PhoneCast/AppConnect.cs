@@ -537,7 +537,7 @@ sealed unsafe partial class App
         Full = 40, Fit, ScaleFit, ScaleFill, ScaleStretch, Mute, Stats,
         Res0 = 60, Rate0 = 70,
         ShapeWhole = 80, Shape169, ShapeNormal, Sharp0 = 90, Sharp2560, Sharp3200,
-        InstallUsbDk = 100, Help = 110, Pair = 111,
+        InstallUsbDk = 100, Help = 110, Pair = 111, CheckUpdates = 112,
         DecCpu = 130, DecGpu,
         QuickSettings = 120, LockPhone, Screenshot, VolUp, VolDown, MutePhone, PowerMenu,
     }
@@ -580,7 +580,7 @@ sealed unsafe partial class App
         q.Add((0, "#Sharpness (for the shapes above)"));
         q.Add((M.Sharp0, "Phone's own pixels (coolest)")); q.Add((M.Sharp2560, "Sharp — 2560 px wide")); q.Add((M.Sharp3200, "Sharpest — 3200 px wide (hotter)"));
         shapeMenu = Sub("&Quality", q.ToArray());
-        Sub("&Help", (M.Help, "Keyboard shortcuts\tCtrl+I"));
+        Sub("&Help", (M.Help, "Keyboard shortcuts\tCtrl+I"), (M.CheckUpdates, "Check for updates…"));
         Win32.SetMenu(hwnd, menuBar);
         RefreshMenu();
     }
@@ -642,6 +642,7 @@ sealed unsafe partial class App
             case M.Stats: ToggleStats(); break;
             case M.InstallUsbDk: InstallUsbDk(ask: false); break;
             case M.Help: ShowShortcuts(); break;
+            case M.CheckUpdates: Updater.Check(Owner, quiet: false); break;
             case >= M.Res0 and < M.Res0 + 4: Settings.Set("resolution", resolutions[id - (int)M.Res0].Item2); RefreshMenu(); SendSettings(); break;
             case >= M.Rate0 and < M.Rate0 + 4: Settings.Set("bitrate", bitrates[id - (int)M.Rate0]); RefreshMenu(); SendSettings(); break;
             case M.ShapeWhole:

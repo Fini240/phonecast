@@ -119,6 +119,7 @@ sealed unsafe partial class App
         BuildMenu();
         WindowIcon(false);
         Sdl.SDL_ShowWindow(win);
+        After(5, () => Updater.Check(new HwndOwner(hwnd), quiet: true));   // once at start, only speaks up if there is an update
         ren = Sdl.SDL_CreateRenderer(win, -1, Sdl.RENDERER_ACCELERATED);
         Sdl.SDL_RenderSetVSync(ren, 0);
         Sdl.SDL_EventState(Sdl.SYSWMEVENT, 1);

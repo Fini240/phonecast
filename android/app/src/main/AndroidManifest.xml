@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- granted once over adb (pm grant), needed to change the screen shape from the Mac -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
@@ -77,6 +78,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
+
+        <!-- In-app update: PackageInstaller reports back here (Updates.kt) -->
+        <receiver android:name=".UpdateReceiver" android:exported="false" />
 
         <!-- Opened by Android when the Mac connects over the cable (USB accessory mode). No UI. -->
         <activity

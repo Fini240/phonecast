@@ -212,12 +212,21 @@ class MainActivity : Activity() {
             }
         }
         val updateText = u.label("", 14f, secondary = true)
+        lateinit var updateBtn: Button
         val updateCard = u.card(u.title("Update available"), updateText,
-            u.primary("Download") { Updates.url?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } })
+            u.primary("Install update") {
+                if (Updates.apkUrl != null) Updates.install(this)
+                else Updates.url?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
+            }.also { updateBtn = it },
+            u.quiet("What's new") { Updates.url?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } })
         updaters += {
             val v = Updates.latest
             u.gone(updateCard, v == null)
-            if (v != null) updateText.text = "PhoneCast $v is out (you have ${Updates.current(this)}). Install the APK over this one: your pairing stays."
+            if (v != null) {
+                updateText.text = Updates.installing ?: "PhoneCast $v is out (you have ${Updates.current(this)}). It installs over this app; your pairing stays."
+                updateBtn.isEnabled = Updates.installing == null
+                updateBtn.alpha = if (Updates.installing == null) 1f else 0.5f
+            }
         }
         Updates.checkDaily(this)
         return u.page("PhoneCast",
