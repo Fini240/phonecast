@@ -110,7 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         // The main window (notifications, messages, files…) opens first; the mirror window opens when the
         // phone starts sharing (hub CAST_READY) or from "Mirror phone".
-        MainWindowController.shared.show(UserDefaults.standard.string(forKey: "pin") == nil ? .settings : nil)
+        let testPane = ProcessInfo.processInfo.environment["PHONECAST_PANE"].flatMap { Pane(rawValue: $0) }  // UI testing
+        MainWindowController.shared.show(testPane ?? (UserDefaults.standard.string(forKey: "pin") == nil ? .settings : nil))
         if ProcessInfo.processInfo.environment["PHONECAST_SHOW_MIRROR"] != nil { showWindow() }  // UI testing
         if Self.noUSB == false, UsbBridge.shared.phonePresent(), UserDefaults.standard.string(forKey: "pin") != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }  // cable: mirror right away

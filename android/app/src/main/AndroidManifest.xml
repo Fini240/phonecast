@@ -42,7 +42,8 @@
         android:label="PhoneCast"
         android:icon="@android:drawable/ic_menu_slideshow"
         android:theme="@android:style/Theme.DeviceDefault"
-        android:allowBackup="false">
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

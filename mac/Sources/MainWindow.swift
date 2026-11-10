@@ -4,13 +4,14 @@ import Quartz
 import UniformTypeIdentifiers
 
 enum Pane: String, CaseIterable, Identifiable {
-    case overview = "Overview", mirror = "Mirror", notifications = "Notifications", messages = "Messages", calls = "Calls"
+    case overview = "Overview", mirror = "Mirror", pc = "PC", notifications = "Notifications", messages = "Messages", calls = "Calls"
     case contacts = "Contacts", photos = "Photos", files = "Files", apps = "Apps", transfers = "Transfers", settings = "Settings"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .overview: "gauge.with.dots.needle.33percent"
         case .mirror: "rectangle.on.rectangle"
+        case .pc: "desktopcomputer"
         case .notifications: "bell"
         case .messages: "message"
         case .calls: "phone"
@@ -70,6 +71,7 @@ struct MainView: View {
                 switch nav.section {
                 case .overview: OverviewView()
                 case .mirror: MirrorView()
+                case .pc: PcView()
                 case .notifications: NotificationsView()
                 case .messages: MessagesView()
                 case .calls: CallsView()

@@ -292,29 +292,77 @@ class MainActivity : Activity() {
     // ---- PC ----
 
     private fun pcPage(): View {
-        val status = label("", 12f).apply { typeface = Typeface.MONOSPACE }
-        val macView = label("", 13f, alpha = 0.7f)
+        val head = label("", 18f, bold = true)
+        val sub = label("", 13f, alpha = 0.75f)
+        val stats = label("", 12f).apply { typeface = Typeface.MONOSPACE }
+        val ai = label("", 12f).apply { typeface = Typeface.MONOSPACE }
+        val msg = label("", 13f, alpha = 0.8f)
+        fun act(path: String, body: org.json.JSONObject, ask: String? = null) {
+            val go = {
+                msg.text = "…"
+                Dashboard.action(path, body) { m -> ui.post { msg.text = m; tick() } }
+            }
+            if (ask == null) go() else AlertDialog.Builder(this).setTitle(ask)
+                .setMessage("Anything unsaved on the PC may be lost.")
+                .setPositiveButton("Do it") { _, _ -> go() }.setNegativeButton("Cancel", null).show()
+        }
+        fun j(vararg kv: Pair<String, Any>) = org.json.JSONObject().apply { kv.forEach { (k, v) -> put(k, v) } }
+        fun gb(v: Double) = if (v > 0) "%.1f GB".format(v / 1e9) else "—"
         updaters += {
-            status.text = deviceLines(HubService.instance?.macStatus, all = false) { it.contains("pc", true) || it.contains("PC", false) }
-                .ifEmpty { "Add the PC in the Mac's Settings → Devices to watch." }
-            val mac = Prefs.pcMac(this)
-            macView.text = if (mac.isEmpty()) "Wake-on-LAN: no network card address set." else "Wake-on-LAN: $mac"
+            if (current == "pc") Dashboard.poll()
+            val pc = Dashboard.pc
+            val st = Dashboard.stats
+            head.text = when {
+                st == null -> "my-pc"
+                Dashboard.online -> "● my-pc · ${Dashboard.os.replaceFirstChar { it.uppercase() }}"
+                else -> "○ my-pc is asleep or off"
+            }
+            sub.text = Dashboard.error ?: st?.optJSONObject("boot")?.optString("message") ?: ""
+            stats.text = if (pc == null || !Dashboard.online) "" else buildString {
+                fun row(k: String, v: String) = append(k.padEnd(12) + v + "\n")
+                row("GPU", pc.optDouble("busy", -1.0).takeIf { it >= 0 }?.let { "%.0f %%".format(it) } ?: "—")
+                row("Video mem", gb(pc.optDouble("vram_used", 0.0)) + " / " + gb(pc.optDouble("vram_total", 0.0)))
+                pc.optDouble("temp", Double.NaN).takeIf { !it.isNaN() }?.let { row("GPU temp", "%.0f °C".format(it)) }
+                pc.optDouble("power", Double.NaN).takeIf { !it.isNaN() }?.let { row("GPU power", "%.0f W".format(it)) }
+                row("CPU", pc.optDouble("cpu_pct", -1.0).takeIf { it >= 0 }?.let { "%.0f %%".format(it) } ?: "—")
+                pc.optDouble("cpu_temp", Double.NaN).takeIf { !it.isNaN() }?.let { row("CPU temp", "%.0f °C".format(it)) }
+                row("RAM", gb(pc.optDouble("mem_used", 0.0)) + " / " + gb(pc.optDouble("mem_total", 0.0)))
+                pc.optLong("uptime", -1).takeIf { it >= 0 }?.let { row("Up for", if (it > 3600) "${it / 3600} h ${it % 3600 / 60} min" else "${it / 60} min") }
+            }.trimEnd()
+            ai.text = st?.let { s ->
+                val models = s.optJSONArray("ollama")
+                val names = (0 until (models?.length() ?: 0)).joinToString("\n") { models!!.getJSONObject(it).optString("name") }
+                "Engine      " + (s.optString("engine").takeIf { it.isNotEmpty() && it != "null" } ?: "—") +
+                    "\nLoaded      " + names.ifEmpty { "nothing" }
+            } ?: ""
         }
         return page("PC",
-            card(label("my-pc", 16f, bold = true), status,
-                label("Measured from the Mac every 5 seconds.", 12f, alpha = 0.6f)),
-            card(
-                label("Use the PC", 16f, bold = true),
+            card(head, sub, stats),
+            card(label("Power", 16f, bold = true), grid(3,
+                "Wake" to { if (Dashboard.stats == null && Prefs.pcMac(this).isNotEmpty()) wakePc() else act("wake", j()) },
+                "Sleep" to { act("power", j("action" to "suspend"), "Put the PC to sleep?") },
+                "Shut down" to { act("power", j("action" to "poweroff"), "Shut the PC down?") },
+            ), grid(2,
+                "Start Linux" to { act("boot", j("os" to "linux"), "Restart into Linux?") },
+                "Start Windows" to { act("boot", j("os" to "windows"), "Restart into Windows?") },
+            ), msg),
+            card(label("Monitors & lights", 16f, bold = true), grid(2,
+                "Monitors on" to { act("display", j("action" to "on")) },
+                "Monitors off" to { act("display", j("action" to "off")) },
+            ), grid(5,
+                "🔴" to { act("rgb", j("color" to "red")) }, "🟣" to { act("rgb", j("color" to "purple")) },
+                "🔵" to { act("rgb", j("color" to "blue")) }, "🟢" to { act("rgb", j("color" to "green")) },
+                "Off" to { act("rgb", j("color" to "off")) },
+            ), button("Lights follow the PC's load") { act("rgbauto", j("on" to true)) }),
+            card(label("AI", 16f, bold = true), ai, grid(2,
+                "Ollama" to { act("engine", j("engine" to "ollama")) },
+                "Strata" to { act("engine", j("engine" to "strata")) },
+            ), label("Switching engines works while the PC runs Linux.", 12f, alpha = 0.6f)),
+            card(label("Use the PC", 16f, bold = true),
                 label("Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad.", 13f, alpha = 0.7f),
                 button("Open Moonlight") { openMoonlight() },
-                button("Wake the PC") { wakePc() },
-                macView,
-                button("Set the PC's network card address…") { askPcMac() },
-            ),
-            card(
-                label("This phone on the PC", 16f, bold = true),
-                label("PhoneCast for Windows shows this phone on the PC like the Mac app does: tap Cast, then connect on the PC.", 13f, alpha = 0.7f),
-            ),
+                button("Full dashboard (Studio, agent chat…)") { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Dashboard.TAILNET))) },
+                label("Controls work while Tailscale is on (the dashboard refuses everything else).", 12f, alpha = 0.6f)),
         )
     }
 
