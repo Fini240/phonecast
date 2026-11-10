@@ -12,7 +12,7 @@
     <Version>0.2.1</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <ApplicationIcon></ApplicationIcon>
+    <ApplicationIcon>phonecast_off.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />
@@ -20,5 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\deps\*.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+    <!-- window/taskbar icon: phone screen lit = connected, dark = not (WindowIcon in App.cs) -->
+    <None Include="phonecast_on.ico;phonecast_off.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -309,6 +309,7 @@ sealed unsafe partial class App
                 case LinkState.Ready:
                     retryDelay = 2; wifiIndex = 0; linkWasReady = true; lastPong = 0;
                     stateText = "Connected"; SetMessage(null);
+                    WindowIcon(true);
                     Log($"connected via {label}{(l.UsedQr ? " (QR pairing, phone verified)" : "")}");
                     if (l.UsedQr) Settings.Set("qrPaired", true);
                     SendSettings();
@@ -338,6 +339,7 @@ sealed unsafe partial class App
                     audio.Stop();
                     SetMode(Mode.Normal);
                     stateText = "Disconnected";
+                    WindowIcon(false);
                     bool wasWifi = label != "USB cable", neverReady = !linkWasReady;
                     if (wantConnected && wasWifi && neverReady && wifiIndex + 1 < WifiCandidates().Count)
                     {

@@ -50,12 +50,32 @@
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
             android:exported="true"
             android:launchMode="singleTop"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
+
+        <!-- Two launcher entries with different icons; LauncherIcon.kt enables one at a time:
+             screen lit = the Mac is connected, screen dark = it isn't (the Duolingo trick). -->
+        <activity-alias
+            android:name=".LauncherOn"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_on"
+            android:enabled="false"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherOff"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_off"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Opened by Android when the Mac connects over the cable (USB accessory mode). No UI. -->
         <activity

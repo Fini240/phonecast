@@ -154,6 +154,9 @@ static unsafe class Usb
 /// Win32 menus and a few helpers.
 static class Win32
 {
+    [DllImport("user32", CharSet = CharSet.Unicode)] public static extern IntPtr LoadImageW(IntPtr inst, string name, uint type, int cx, int cy, uint flags);
+    [DllImport("user32")] public static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+    [DllImport("user32")] public static extern int GetSystemMetrics(int index);
     public const uint MF_STRING = 0, MF_POPUP = 0x10, MF_SEPARATOR = 0x800, MF_CHECKED = 0x8, MF_UNCHECKED = 0, MF_GRAYED = 1, MF_BYCOMMAND = 0;
     public const uint WM_COMMAND = 0x0111;
     [DllImport("user32")] public static extern IntPtr CreateMenu();

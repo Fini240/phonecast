@@ -560,6 +560,7 @@ class HubService : Service() {
     }
 
     private fun updateNotification() {
+        LauncherIcon.request(this, client != null)
         try { getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification()) } catch (_: Exception) {}
     }
 

@@ -117,6 +117,7 @@ sealed unsafe partial class App
         hwnd = Sdl.Hwnd(win);
         Sdl.SDL_SetWindowMinimumSize(win, 200, 200);
         BuildMenu();
+        WindowIcon(false);
         Sdl.SDL_ShowWindow(win);
         ren = Sdl.SDL_CreateRenderer(win, -1, Sdl.RENDERER_ACCELERATED);
         Sdl.SDL_RenderSetVSync(ren, 0);
@@ -334,6 +335,28 @@ sealed unsafe partial class App
         else { Sdl.SDL_SetWindowFullscreen(win, 0); Win32.SetMenu(hwnd, menuBar); Win32.DrawMenuBar(hwnd); }
         overlayDirty = true;
         RefreshMenu();
+        WindowIcon(iconConnected);   // SDL may reset it when switching full screen
+    }
+
+    // ---- window/taskbar icon: phone screen lit while connected, dark when not ----
+    bool iconConnected;
+    readonly Dictionary<string, IntPtr> icons = new();
+    IntPtr Icon(string file, int size)
+    {
+        var key = file + size;
+        if (!icons.TryGetValue(key, out var h))
+            icons[key] = h = Win32.LoadImageW(IntPtr.Zero, Path.Combine(AppContext.BaseDirectory, file), 1 /*IMAGE_ICON*/, size, size, 0x10 /*LR_LOADFROMFILE*/);
+        return h;
+    }
+    void WindowIcon(bool connected)
+    {
+        iconConnected = connected;
+        if (hwnd == IntPtr.Zero) return;
+        var file = connected ? "phonecast_on.ico" : "phonecast_off.ico";
+        var small = Icon(file, Win32.GetSystemMetrics(49 /*SM_CXSMICON*/));
+        var big = Icon(file, Win32.GetSystemMetrics(11 /*SM_CXICON*/));
+        if (small != IntPtr.Zero) Win32.SendMessageW(hwnd, 0x0080 /*WM_SETICON*/, (IntPtr)0 /*ICON_SMALL*/, small);
+        if (big != IntPtr.Zero) Win32.SendMessageW(hwnd, 0x0080, (IntPtr)1 /*ICON_BIG*/, big);
     }
 
     // =====================================================================

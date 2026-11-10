@@ -72,8 +72,8 @@ class MainActivity : Activity() {
         if (CaptureService.instance == null) toggleCast()
     }
 
-    override fun onResume() { super.onResume(); tick() }
-    override fun onPause() { super.onPause(); ui.removeCallbacksAndMessages(null) }
+    override fun onResume() { super.onResume(); LauncherIcon.appVisible = true; tick() }
+    override fun onPause() { super.onPause(); LauncherIcon.appVisible = false; ui.removeCallbacksAndMessages(null) }
 
     private lateinit var u: Ui
 

@@ -1,85 +1,94 @@
 #!/usr/bin/env python3
-"""Builds every PhoneCast icon from art/gen/glyph_mask.png (Recraft glyph, white = symbol).
-Two states: on (connected: blue→teal) and off (not connected: grey)."""
-import os, sys
-from PIL import Image, ImageDraw, ImageFilter, ImageChops
+"""Builds every PhoneCast icon from art/src_on.png (screen lit = connected) and
+art/src_off.png (screen dark = not connected), both made with GPT Image 2 via Higgsfield.
+Small monochrome glyphs (menu bar, status bar, tiles) are drawn here to match the object."""
+import os
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 HERE = os.path.dirname(os.path.abspath(__file__))
-G = Image.open(os.path.join(HERE, 'gen/glyph_mask.png')).convert('L')
 OUT = os.path.join(HERE, 'out'); os.makedirs(OUT, exist_ok=True)
-STATES = {'on': ((0x2F, 0x6B, 0xF2), (0x12, 0xB5, 0xA6)), 'off': ((0x7A, 0x80, 0x8C), (0x4A, 0x50, 0x5C))}
 
-def gradient(size, a, b):
-    w, h = size
-    # diagonal: top-left a -> bottom-right b
-    m = Image.new('L', size)
-    m.putdata([int(255 * (x + y) / max(1, w + h - 2)) for y in range(h) for x in range(w)])
-    return Image.composite(Image.new('RGB', size, b), Image.new('RGB', size, a), m)
-
-def glyph(size, frac, alpha=255):
-    """White glyph scaled so its larger side is frac*size, centred, as an RGBA layer."""
-    s = int(size * frac); gw, gh = G.size; k = s / max(gw, gh)
-    g = G.resize((max(1, int(gw * k)), max(1, int(gh * k))), Image.LANCZOS)
-    if alpha != 255: g = g.point(lambda v: v * alpha // 255)
-    layer = Image.new('RGBA', (size, size), (255, 255, 255, 0))
-    layer.putalpha(0)
-    m = Image.new('L', (size, size), 0); m.paste(g, ((size - g.width) // 2, (size - g.height) // 2))
-    layer = Image.new('RGBA', (size, size), (255, 255, 255, 255)); layer.putalpha(m)
-    return layer
+def load(st):
+    im = Image.open(os.path.join(HERE, f'src_{st}.png')).convert('RGB')
+    if st == 'off':   # asleep: a little dimmer and greyer, so the state reads even at 32 px
+        im = ImageEnhance.Color(im).enhance(0.7); im = ImageEnhance.Brightness(im).enhance(0.9)
+    return im
+SRC = {st: load(st) for st in ('on', 'off')}
 
 def rounded_mask(size, inset, radius):
     m = Image.new('L', (size * 4, size * 4), 0)
     ImageDraw.Draw(m).rounded_rectangle([inset * 4, inset * 4, (size - inset) * 4 - 1, (size - inset) * 4 - 1], radius * 4, fill=255)
     return m.resize((size, size), Image.LANCZOS)
 
-def tile(state, size, inset_frac, radius_frac, glyph_frac, shadow=False):
-    """Rounded-square icon (Mac, Windows, legacy Android)."""
-    a, b = STATES[state]
-    inset = int(size * inset_frac); radius = int((size - 2 * inset) * radius_frac)
+def tile(st, size, inset_frac, radius_frac, shadow=False):
+    inset = int(size * inset_frac); body = size - 2 * inset
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    mask = rounded_mask(size, inset, radius)
+    mask = rounded_mask(size, inset, int(body * radius_frac))
     if shadow:
-        sh = Image.new('RGBA', (size, size), (0, 0, 0, 0)); sh.putalpha(mask.point(lambda v: v * 90 // 255))
-        sh = sh.filter(ImageFilter.GaussianBlur(size * 0.012)); img.alpha_composite(sh, (0, int(size * 0.008)))
-    bg = gradient((size, size), a, b).convert('RGBA'); bg.putalpha(mask)
-    img.alpha_composite(bg)
-    # soft top highlight
-    hl = Image.new('RGBA', (size, size), (255, 255, 255, 0))
-    hm = Image.linear_gradient('L').transpose(Image.FLIP_TOP_BOTTOM).resize((size, size)).point(lambda v: v * 28 // 255)
-    hl.putalpha(ImageChops.multiply(hm, mask)); img.alpha_composite(hl)
-    img.alpha_composite(glyph(size, glyph_frac, 255 if state == 'on' else 225))
+        sh = Image.new('RGBA', (size, size), (0, 0, 0, 0)); sh.putalpha(mask.point(lambda v: v * 110 // 255))
+        img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(size * 0.014)), (0, int(size * 0.01)))
+    art = Image.new('RGBA', (size, size)); art.paste(SRC[st].resize((body, body), Image.LANCZOS), (inset, inset))
+    art.putalpha(mask); img.alpha_composite(art)
     return img
+
+def bleed(st, n, scale=0.78):
+    """Full-bleed square for Android adaptive icons: the art a bit smaller, edges continued by a blur
+    of itself, so the 66dp safe zone holds the whole phone + panel."""
+    src = SRC[st]
+    base = src.resize((n, n), Image.LANCZOS).filter(ImageFilter.GaussianBlur(n * 0.06))
+    k = int(n * scale); art = src.resize((k, k), Image.LANCZOS)
+    feather = Image.new('L', (k, k), 0); e = int(k * 0.06)
+    ImageDraw.Draw(feather).rectangle([e, e, k - e, k - e], fill=255); feather = feather.filter(ImageFilter.GaussianBlur(e * 0.6))
+    base.paste(art, ((n - k) // 2, (n - k) // 2), feather)
+    return base
+
+def glyph(size, lit, pad=0.10):
+    """Monochrome phone-on-a-stand: lit = filled screen, not lit = empty screen. White on transparent."""
+    S = 8; N = size * S
+    m = Image.new('L', (N, N), 0); d = ImageDraw.Draw(m)
+    p = N * pad; w = N - 2 * p
+    pw, ph = w * 0.46, w * 0.74; x0 = (N - pw) / 2; y0 = p
+    t = w * 0.085
+    d.rounded_rectangle([x0, y0, x0 + pw, y0 + ph], radius=pw * 0.22, fill=255)
+    if lit: d.rounded_rectangle([x0 + t, y0 + t, x0 + pw - t, y0 + ph - t], radius=pw * 0.12, fill=0); \
+            d.rounded_rectangle([x0 + t * 1.9, y0 + t * 1.9, x0 + pw - t * 1.9, y0 + ph - t * 1.9], radius=pw * 0.06, fill=255)
+    else: d.rounded_rectangle([x0 + t, y0 + t, x0 + pw - t, y0 + ph - t], radius=pw * 0.12, fill=0)
+    bw, bh = w * 0.66, w * 0.15; by = y0 + ph + w * 0.04
+    d.rounded_rectangle([(N - bw) / 2, by, (N + bw) / 2, by + bh], radius=bh / 2, fill=255)
+    out = Image.new('RGBA', (size, size), (255, 255, 255, 255)); out.putalpha(m.resize((size, size), Image.LANCZOS))
+    return out
 
 def save(img, *path):
     p = os.path.join(OUT, *path); os.makedirs(os.path.dirname(p), exist_ok=True); img.save(p); return p
 
-# ---- Mac (.icns per state; Apple grid: 824 px body on 1024, ~22.5 % corners) ----
-for st in STATES:
-    big = tile(st, 1024, 100 / 1024, 0.225, 0.50, shadow=True)
+# Mac: Apple grid (824 px body on 1024), .icns + Dock images
+for st in SRC:
+    big = tile(st, 1024, 100 / 1024, 0.225, shadow=True)
     save(big, 'mac', f'icon_{st}_1024.png')
     iconset = os.path.join(OUT, 'mac', f'AppIcon_{st}.iconset'); os.makedirs(iconset, exist_ok=True)
     for s in (16, 32, 128, 256, 512):
         big.resize((s, s), Image.LANCZOS).save(f'{iconset}/icon_{s}x{s}.png')
         big.resize((s * 2, s * 2), Image.LANCZOS).save(f'{iconset}/icon_{s}x{s}@2x.png')
     os.system(f'iconutil -c icns "{iconset}" -o "{OUT}/mac/AppIcon_{st}.icns"')
+for s, name in ((16, 'MenuGlyph'), (32, 'MenuGlyph@2x')):
+    for lit in (True, False):
+        save(glyph(s, lit, pad=0.04), 'mac', f'{name.replace("Glyph", "Glyph" + ("On" if lit else "Off"))}.png')
 
-# ---- Windows .ico per state ----
-for st in STATES:
-    big = tile(st, 256, 0.03, 0.22, 0.60)
-    big.save(os.path.join(OUT, 'windows', f'phonecast_{st}.ico') if os.makedirs(os.path.join(OUT, 'windows'), exist_ok=True) is None else '',
-             sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    save(big, 'windows', f'phonecast_{st}_256.png')
+# Windows .ico
+os.makedirs(os.path.join(OUT, 'windows'), exist_ok=True)
+for st in SRC:
+    big = tile(st, 256, 0.02, 0.2)
+    big.save(os.path.join(OUT, 'windows', f'phonecast_{st}.ico'), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
-# ---- Android ----
+# Android: adaptive (art as background, empty foreground), legacy, themed mono, status bar
 dens = {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}
-for st in STATES:
-    a, b = STATES[st]
-    for d, k in dens.items():
-        n = int(108 * k)   # adaptive layers are 108dp; the safe zone is the middle 66dp
-        save(gradient((n, n), a, b), 'android', f'mipmap-{d}', f'ic_launcher_{st}_bg.png')
-        save(glyph(n, 0.48, 255 if st == 'on' else 225), 'android', f'mipmap-{d}', f'ic_launcher_{st}_fg.png')
-        m = int(48 * k)    # legacy icon for old launchers
-        save(tile(st, m, 0.04, 0.24, 0.58), 'android', f'mipmap-{d}', f'ic_launcher_{st}.png')
 for d, k in dens.items():
-    save(glyph(int(108 * k), 0.48), 'android', f'mipmap-{d}', 'ic_launcher_mono.png')     # themed icons
-    save(glyph(int(24 * k), 0.92), 'android', f'drawable-{d}', 'ic_stat_phonecast.png')   # status bar
-print('done', OUT)
+    n = int(108 * k)
+    for st in SRC:
+        save(bleed(st, n), 'android', f'mipmap-{d}', f'ic_launcher_{st}_bg.png')
+        save(tile(st, int(48 * k), 0.04, 0.22), 'android', f'mipmap-{d}', f'ic_launcher_{st}.png')
+    save(Image.new('RGBA', (n, n), (0, 0, 0, 0)), 'android', f'mipmap-{d}', 'ic_launcher_fg.png')
+    mono = Image.new('RGBA', (n, n), (0, 0, 0, 0)); g = glyph(int(n * 0.5), True, pad=0.0); mono.alpha_composite(g, ((n - g.width) // 2, (n - g.height) // 2))
+    save(mono, 'android', f'mipmap-{d}', 'ic_launcher_mono.png')
+    save(glyph(int(24 * k), True), 'android', f'drawable-{d}', 'ic_stat_phonecast.png')
+    save(glyph(int(24 * k), False), 'android', f'drawable-{d}', 'ic_stat_phonecast_off.png')
+print('done')
