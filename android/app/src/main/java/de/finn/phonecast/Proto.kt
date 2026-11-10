@@ -126,6 +126,13 @@ object Prefs {
     fun shapeLong(c: Context): Int = p(c).getInt("shapeLong", 0)
     fun setShapeLong(c: Context, v: Int) = p(c).edit().putInt("shapeLong", v).apply()
 
+    /** The clipboard picture from the Mac kept in Downloads/PhoneCast/Clipboard (only the newest is kept). */
+    fun lastClipImage(c: Context): String? = p(c).getString("lastClipImage", null)
+    fun setLastClipImage(c: Context, v: String) = p(c).edit().putString("lastClipImage", v).apply()
+    /** Alarm volume to restore if the app died while ringing (-1 = nothing to restore). */
+    fun ringOldVolume(c: Context): Int = p(c).getInt("ringOldVol", -1)
+    fun setRingOldVolume(c: Context, v: Int) = p(c).edit().putInt("ringOldVol", v).apply()
+
     /** New screenshots go to the Mac by themselves. */
     fun autoShots(c: Context): Boolean = p(c).getBoolean("autoShots", true)
     fun setAutoShots(c: Context, v: Boolean) = p(c).edit().putBoolean("autoShots", v).apply()

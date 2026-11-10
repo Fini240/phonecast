@@ -20,6 +20,7 @@ import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
+import android.os.SystemClock
 import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
@@ -113,8 +114,6 @@ class HubService : Service() {
         private const val CHANNEL_CAST = "cast"
         const val ACTION_SEND_FILES = "de.finn.phonecast.SEND_FILES"
         const val ACTION_SEND_TEXT = "de.finn.phonecast.SEND_TEXT"
-        /** File request id for "a copied picture" (both directions). */
-        const val CLIP_IMAGE_REQ = 9002
         const val EXTRA_URIS = "uris"
         const val EXTRA_TEXT = "text"
 
@@ -217,15 +216,19 @@ class HubService : Service() {
         send(HubProto.CLIP, text.toByteArray()); toast("Copied to the Mac")
     }
 
-    /** A copied picture -> the Mac's clipboard (file req CLIP_IMAGE_REQ, the Mac keeps no copy in Downloads). */
+    /** A copied picture -> the Mac's clipboard (FILE_BEGIN kind "clipimg"; the Mac keeps no copy in Downloads). */
     fun sendClipImage(u: Uri) {
         val c = client ?: run { toast("Not connected to the Mac"); return }
         Thread({
-            try { sendOne(c, u, CLIP_IMAGE_REQ); toast("Picture copied to the Mac") }
+            try { sendOne(c, u, 0, "clipimg"); toast("Picture copied to the Mac") }
             catch (e: Exception) { Log.w(TAG, "clip image", e) }
             transfer = null; updateNotification()
         }, "hub-clipimg").start()
     }
+
+    /** The picture this app last put on the clipboard (from the Mac), so it isn't sent straight back. */
+    @Volatile var clipImageUri: Uri? = null
+    @Volatile var clipImageSetAt = 0L
 
     fun castStarted() = send(HubProto.CAST_READY)
     fun castStopped() = send(HubProto.CAST_STOPPED)
@@ -242,7 +245,7 @@ class HubService : Service() {
         }, "hub-send").start()
     }
 
-    private fun sendOne(c: Client, u: Uri, req: Int = 0) {
+    private fun sendOne(c: Client, u: Uri, req: Int = 0, kind: String? = null) {
         var name = "file"; var size = -1L
         try {
             contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cur ->
@@ -256,13 +259,13 @@ class HubService : Service() {
             val ext = contentResolver.getType(u)?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
             name = "picture" + (ext?.let { ".$it" } ?: "")
         }
-        sendStream(c, name, size, req) { contentResolver.openInputStream(u)!! }
+        sendStream(c, name, size, req, kind) { contentResolver.openInputStream(u)!! }
     }
 
     /** The Mac asked for a photo/video ([req] = its request id, so it knows where the file belongs). */
-    fun sendUriAsFile(u: Uri, req: Int) {
+    fun sendUriAsFile(u: Uri, req: Int, kind: String? = null) {
         val c = client ?: return
-        Thread({ try { sendOne(c, u, req) } catch (e: Exception) { Log.w(TAG, "send $u", e) }; transfer = null; updateNotification() }, "hub-get").start()
+        Thread({ try { sendOne(c, u, req, kind) } catch (e: Exception) { Log.w(TAG, "send $u", e) }; transfer = null; updateNotification() }, "hub-get").start()
     }
 
     /** A file or folder from the phone's storage (folders arrive as a .zip). */
@@ -288,9 +291,10 @@ class HubService : Service() {
         }, "hub-get").start()
     }
 
-    private fun sendStream(c: Client, name: String, size: Long, req: Int, open: () -> java.io.InputStream) {
+    /** [kind] tells the Mac what an unrequested file is for ("screenshot", "clipimg"); [req] answers a request. */
+    private fun sendStream(c: Client, name: String, size: Long, req: Int, kind: String? = null, open: () -> java.io.InputStream) {
         val id = fileIds.getAndIncrement()
-        c.control(HubProto.FILE_BEGIN, JSONObject().put("id", id).put("name", name).put("size", size).put("req", req).toString().toByteArray())
+        c.control(HubProto.FILE_BEGIN, JSONObject().put("id", id).put("name", name).put("size", size).put("req", req).apply { if (kind != null) put("kind", kind) }.toString().toByteArray())
         var sent = 0L; var lastPct = -1
         open().use { ins ->
             val buf = ByteArray(256 * 1024)
@@ -468,7 +472,7 @@ class HubService : Service() {
             } else {
             val v = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PhoneCast")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + if (clip) "/PhoneCast/Clipboard" else "/PhoneCast")
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v)
@@ -493,8 +497,12 @@ class HubService : Service() {
             contentResolver.update(u, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             transfer = null; updateNotification()
             if (clip) {
-                // a picture copied on the Mac: onto this phone's clipboard, ready to paste
+                // a picture copied on the Mac: onto this phone's clipboard, ready to paste. Android pastes
+                // pictures from a file, so it is kept in Downloads/PhoneCast/Clipboard, but only the newest one.
+                clipImageSetAt = SystemClock.elapsedRealtime(); clipImageUri = u
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newUri(contentResolver, "Picture from the Mac", u))
+                Prefs.lastClipImage(this@HubService)?.let { old -> if (old != u.toString()) try { contentResolver.delete(Uri.parse(old), null, null) } catch (_: Exception) {} }
+                Prefs.setLastClipImage(this@HubService, u.toString())
                 toast("Picture copied from the Mac")
                 return
             }

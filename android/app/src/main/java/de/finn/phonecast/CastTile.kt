@@ -60,6 +60,9 @@ class ClipActivity : android.app.Activity() {
         val hub = HubService.instance
         // a copied picture goes to the Mac's clipboard as a picture
         val img = clip?.takeIf { it.itemCount > 0 && it.description.hasMimeType("image/*") }?.getItemAt(0)?.uri
+        // the picture the Mac just put on the clipboard: the clipboard preview shows it, don't echo it back
+        val echo = img != null && hub != null && (img == hub.clipImageUri || android.os.SystemClock.elapsedRealtime() - hub.clipImageSetAt < 3000)
+        if (img != null && auto && echo) { finish(); overridePendingTransition(0, 0); return }
         if (img != null && !sensitive) {
             if (hub?.connected == true) hub.sendClipImage(img)
             finish(); overridePendingTransition(0, 0); return

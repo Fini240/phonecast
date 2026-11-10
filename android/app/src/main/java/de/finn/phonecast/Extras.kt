@@ -34,14 +34,12 @@ import java.io.ByteArrayOutputStream
  * v0.3 link extras:
  *  - Now playing: the phone's active media session -> EVENT {e:"media"}; the Mac sends "media.cmd".
  *  - Ring my phone: "phone.ring" plays the ringtone on the alarm stream (rings on silent) + vibrates.
- *  - New screenshots go to the Mac by themselves (file req = SCREENSHOT_REQ).
+ *  - New screenshots go to the Mac by themselves (FILE_BEGIN kind "screenshot").
  */
 class Extras(private val ctx: Context, private val hub: HubService) {
 
     companion object {
         private const val TAG = "PhoneCastExtras"
-        /** File request id the Mac treats as "a new screenshot": copy to clipboard + banner. */
-        const val SCREENSHOT_REQ = 9001
         const val ACTION_STOP_RING = "de.finn.phonecast.STOP_RING"
         private const val CHANNEL_RING = "ring"
         private const val RING_NOTIF = 7
@@ -51,12 +49,16 @@ class Extras(private val ctx: Context, private val hub: HubService) {
     private val h = Handler(thread.looper)
 
     fun start() {
-        h.post { startMedia() }
+        // the app died while ringing last time: give the alarm volume back
+        Prefs.ringOldVolume(ctx).takeIf { it >= 0 }?.let { v ->
+            ctx.getSystemService(AudioManager::class.java).setStreamVolume(AudioManager.STREAM_ALARM, v, 0); Prefs.setRingOldVolume(ctx, -1)
+        }
+        h.post { safe { startMedia() } }
         h.post { startScreenshots() }
     }
 
     /** A Mac (re)connected: tell it what's playing right now. */
-    fun connected() { h.post { lastSent = 0; sendMedia() } }
+    fun connected() { h.post { safe { lastSent = 0; sendMedia() } } }
 
     // ---------------- now playing ----------------
 
@@ -66,11 +68,14 @@ class Extras(private val ctx: Context, private val hub: HubService) {
     private var artFor = ""
     private var artB64: String? = null
 
-    private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { list -> h.post { pick(list) } }
+    private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { list -> h.post { safe { pick(list) } } }
+
+    /** Notification access can be revoked at any moment: never let that crash the app. */
+    private inline fun safe(f: () -> Unit) { try { f() } catch (e: Exception) { Log.w(TAG, "media", e) } }
     private val cb = object : MediaController.Callback() {
-        override fun onPlaybackStateChanged(state: PlaybackState?) { h.post { sendMedia() } }
-        override fun onMetadataChanged(metadata: MediaMetadata?) { h.post { sendMedia() } }
-        override fun onSessionDestroyed() { h.post { pick(msm?.getActiveSessions(listener())) } }
+        override fun onPlaybackStateChanged(state: PlaybackState?) { h.post { safe { sendMedia() } } }
+        override fun onMetadataChanged(metadata: MediaMetadata?) { h.post { safe { sendMedia() } } }
+        override fun onSessionDestroyed() { h.post { safe { pick(msm?.getActiveSessions(listener())) } } }
     }
 
     private fun listener() = ComponentName(ctx, NotifListener::class.java)
@@ -152,6 +157,7 @@ class Extras(private val ctx: Context, private val hub: HubService) {
     // ---------------- ring my phone ----------------
 
     private var player: MediaPlayer? = null
+    private var ringing = false
     private var oldAlarmVol = -1
     private val autoStop = Runnable { ring(false) }
 
@@ -161,17 +167,19 @@ class Extras(private val ctx: Context, private val hub: HubService) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         if (!on) {
             player?.let { try { it.stop() } catch (_: Exception) {}; it.release() }
-            player = null
+            player = null; ringing = false
             vib?.cancel()
-            if (oldAlarmVol >= 0) { am.setStreamVolume(AudioManager.STREAM_ALARM, oldAlarmVol, 0); oldAlarmVol = -1 }
+            if (oldAlarmVol >= 0) { am.setStreamVolume(AudioManager.STREAM_ALARM, oldAlarmVol, 0); oldAlarmVol = -1; Prefs.setRingOldVolume(ctx, -1) }
             nm.cancel(RING_NOTIF)
             h.removeCallbacks(autoStop)
             if (hub.connected) hub.sendJson(HubProto.EVENT, JSONObject().put("e", "ring").put("on", false))
             return true
         }
-        if (player != null) return true
-        // the alarm stream rings even when the phone is on silent or vibrate
-        oldAlarmVol = am.getStreamVolume(AudioManager.STREAM_ALARM)
+        if (ringing) return true
+        ringing = true
+        // the alarm stream rings even when the phone is on silent or vibrate; the old volume is kept
+        // (also on disk, in case the app dies mid-ring) and only saved once
+        if (oldAlarmVol < 0) { oldAlarmVol = am.getStreamVolume(AudioManager.STREAM_ALARM); Prefs.setRingOldVolume(ctx, oldAlarmVol) }
         am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
         val uri = RingtoneManager.getActualDefaultRingtoneUri(ctx, RingtoneManager.TYPE_RINGTONE)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -226,7 +234,7 @@ class Extras(private val ctx: Context, private val hub: HubService) {
                     if (!sentShots.add(id)) continue
                     while (sentShots.size > 50) sentShots.remove(sentShots.first())
                     Log.i(TAG, "new screenshot $name -> Mac")
-                    hub.sendUriAsFile(android.content.ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id), SCREENSHOT_REQ)
+                    hub.sendUriAsFile(android.content.ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id), 0, "screenshot")
                 }
             }
         } catch (e: Exception) { Log.w(TAG, "screenshots", e) }

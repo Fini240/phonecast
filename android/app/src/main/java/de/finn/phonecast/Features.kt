@@ -197,7 +197,7 @@ class Features(private val ctx: Context, private val hub: HubService) {
     private fun thumb(u: Uri): String? = try {
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         ctx.contentResolver.openInputStream(u)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
-        var sample = 1; while (maxOf(o.outWidth, o.outHeight) / sample > 640) sample *= 2
+        var sample = 1; while (maxOf(o.outWidth, o.outHeight) / sample > 320) sample *= 2
         val bmp = ctx.contentResolver.openInputStream(u)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
         bmp?.let { b -> ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray() }?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
     } catch (_: Exception) { null }

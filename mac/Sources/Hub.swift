@@ -162,8 +162,6 @@ final class HubLink {
 /// UI state lives in `Store`; this class talks to the phone.
 final class Hub: NSObject, NSMenuDelegate {
     static let shared = Hub()
-    static let screenshotReq = 9001   // Extras.SCREENSHOT_REQ on the phone
-    static let clipImageReq = 9002    // HubService.CLIP_IMAGE_REQ: a picture copied on the phone
     let store = Store.shared
 
     private(set) var link: HubLink?
@@ -327,6 +325,7 @@ final class Hub: NSObject, NSMenuDelegate {
                 let wasConnected = self.store.connected
                 self.link = nil
                 self.store.connected = false; self.store.phoneCasting = false
+                self.store.nowPlaying = nil; self.store.ringing = false   // nothing to control while disconnected
                 let keyChanged = why.contains("certificate") || why.contains("-98") || why.contains("handshake")
                 if why == "pairing cancelled" {
                     // not paired (no QR scan, no PIN) or the key check was declined: keep the message, try now and then
@@ -513,28 +512,32 @@ final class Hub: NSObject, NSMenuDelegate {
                 let name = o["name"] as? String ?? "file"
                 let size = (o["size"] as? NSNumber)?.int64Value ?? -1
                 let req = o["req"] as? Int ?? 0
+                // unrequested files say what they are for: "screenshot" (new on the phone), "clipimg" (a copied picture)
+                let kind = o["kind"] as? String
                 let tid = store.beginTransfer(name: name, outgoing: false, size: size)
-                incoming[id] = IncomingFile(name: name, size: size, temp: tempReqs.contains(req) || req == Self.clipImageReq) { [weak self] f in
+                incoming[id] = IncomingFile(name: name, size: size, temp: tempReqs.contains(req) || kind == "clipimg") { [weak self] f in
                     self?.store.progress(tid, f)
                 }
                 incomingReq[id] = (req, tid)
+                if let kind { incomingKind[id] = kind }
             }
         case HT.fileEnd:
             guard let id = fileId(p) else { return }
             let (req, tid) = incomingReq.removeValue(forKey: id) ?? (0, 0)
+            let kind = incomingKind.removeValue(forKey: id)
             if let f = incoming.removeValue(forKey: id), let url = f.finish() {
                 NSLog("hub: received file \(url.path)")
                 store.finishTransfer(tid, url: url)
                 tempReqs.remove(req)
-                if let then = wanted.removeValue(forKey: req) { then(url) }
-                else if req == Self.clipImageReq, let img = NSImage(contentsOf: url) {
+                if kind == nil, req != 0, let then = wanted.removeValue(forKey: req) { then(url) }
+                else if kind == "clipimg", let img = NSImage(contentsOf: url) {
                     let pb = NSPasteboard.general
                     pb.clearContents(); pb.writeObjects([img])
                     clipFromPhone = pb.changeCount; clipCount = pb.changeCount
                     Banners.shared.info(tr("Picture copied from %@", store.phoneName), "Paste it anywhere (⌘V)")
                     try? FileManager.default.removeItem(at: url)
                 }
-                else if req == Self.screenshotReq, let img = NSImage(contentsOf: url) {
+                else if kind == "screenshot", let img = NSImage(contentsOf: url) {
                     // a new screenshot on the phone: also on the Mac's clipboard, ready to paste
                     let pb = NSPasteboard.general
                     pb.clearContents(); pb.writeObjects([img, url as NSURL])
@@ -583,23 +586,36 @@ final class Hub: NSObject, NSMenuDelegate {
         // skip what password managers mark as secret
         if pb.types?.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) == true { return }
         if let s = pb.string(forType: .string), !s.isEmpty, s.utf8.count < 1_000_000 { link?.send(HT.clip, Data(s.utf8)) }
-        else if let png = Self.clipboardPNG(pb) { sendClipImage(png) }
+        else if pb.types?.contains(.fileURL) != true, let raw = pb.data(forType: .png) ?? pb.data(forType: .tiff) {
+            // converting a big copied picture to PNG takes a moment: not on the main thread (the mirror would stutter)
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let png = Self.pngData(raw) else { return }
+                DispatchQueue.main.async { self?.sendClipImage(png) }
+            }
+        }
+    }
+
+    static func pngData(_ raw: Data) -> Data? {
+        if raw.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return raw }      // already PNG
+        return NSBitmapImageRep(data: raw)?.representation(using: .png, properties: [:])
     }
 
     /// A copied picture as PNG (copied files are not pictures: Finder copies put file URLs, not image data).
     static func clipboardPNG(_ pb: NSPasteboard) -> Data? {
         if pb.types?.contains(.fileURL) == true { return nil }
-        if let d = pb.data(forType: .png) { return d }
-        guard let t = pb.data(forType: .tiff), let rep = NSBitmapImageRep(data: t) else { return nil }
-        return rep.representation(using: .png, properties: [:])
+        return (pb.data(forType: .png) ?? pb.data(forType: .tiff)).flatMap(pngData)
     }
 
     private func sendClipImage(_ png: Data) {
         guard png.count < 30_000_000 else { return }
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         let u = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard \(f.string(from: Date())).png")
-        guard (try? png.write(to: u)) != nil else { return }
-        sendFiles([u], clip: true) { DispatchQueue.global().asyncAfter(deadline: .now() + 10) { try? FileManager.default.removeItem(at: u) } }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard (try? png.write(to: u)) != nil else { return }
+            DispatchQueue.main.async {
+                self?.sendFiles([u], clip: true) { DispatchQueue.global().asyncAfter(deadline: .now() + 10) { try? FileManager.default.removeItem(at: u) } }
+            }
+        }
     }
 
     @objc func sendClipboard(_ s: Any?) {
@@ -616,6 +632,7 @@ final class Hub: NSObject, NSMenuDelegate {
 
     private var incoming: [Int: IncomingFile] = [:]
     private var incomingReq: [Int: (Int, Int)] = [:]
+    private var incomingKind: [Int: String] = [:]
     private var nextFileId: UInt32 = 1
     private let sendQueue = DispatchQueue(label: "phonecast.hub.files")
 
