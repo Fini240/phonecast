@@ -18,6 +18,9 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
 
        xattr -dr com.apple.quarantine /Applications/PhoneCast.app
 
+**Windows (x64):** unzip `PhoneCast-windows-x64.zip` anywhere and start `PhoneCast.exe`. See
+[windows/README.md](windows/README.md) for the cable (USB tethering) and the Ctrl shortcuts.
+
 **Phone:**
 1. Copy `PhoneCast.apk` to the phone and open it. Android will ask you to allow installing from that app.
    If **Google Play Protect** says "App blocked to protect your device" (with only a "Got it" button):
