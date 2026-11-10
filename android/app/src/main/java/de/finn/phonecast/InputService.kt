@@ -191,7 +191,11 @@ class InputService : AccessibilityService() {
             android.util.Log.i("PhoneCastInput", "touch ${listOf("down", "move", "up", "cancelAll")[action.coerceIn(0, 3)]} finger=$id fingersNow=${fingers.keys}")
         }
         if (action == Proto.TOUCH_CANCEL_ALL) {
-            for (f in fingers.values) f.up = true
+            // Several viewers can control the phone at once, each with its own finger ids
+            // (StreamServer.FINGER_SLOT apiece): only lift the fingers of the viewer that asked.
+            // id -1: every finger (sharing stops).
+            val slot = id / StreamServer.FINGER_SLOT
+            for ((k, f) in fingers) if (id < 0 || k / StreamServer.FINGER_SLOT == slot) f.up = true
             schedule()
             return
         }

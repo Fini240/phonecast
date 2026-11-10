@@ -286,7 +286,7 @@ class CaptureService : Service(), StreamServer.Listener {
         instance = null
         HubService.instance?.castStopped()
         InputService.onControlChanged = null
-        InputService.instance?.handle(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), 0, 0, 0, 0, 0))
+        InputService.instance?.handle(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), -1, 0, 0, 0, 0)) // -1: all viewers' fingers
         try { getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener) } catch (_: Exception) {}
         nsdListener?.let { try { getSystemService(NsdManager::class.java).unregisterService(it) } catch (_: Exception) {} }
         multicastLock?.release()
