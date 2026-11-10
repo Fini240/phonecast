@@ -103,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         Hub.shared.onOpenWindow = { [weak self] in self?.showWindow() }
         Hub.shared.onOpenMain = { MainWindowController.shared.show() }
         Hub.shared.start()
+        UpdateCheck.shared.start()
         view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tickFps() }
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.ping() }

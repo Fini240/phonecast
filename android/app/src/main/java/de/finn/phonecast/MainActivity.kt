@@ -211,7 +211,17 @@ class MainActivity : Activity() {
                 missing.firstOrNull()?.let { (n, _, f) -> setupFix.addView(u.primary("Set up: $n", f)) }
             }
         }
+        val updateText = u.label("", 14f, secondary = true)
+        val updateCard = u.card(u.title("Update available"), updateText,
+            u.primary("Download") { Updates.url?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } })
+        updaters += {
+            val v = Updates.latest
+            u.gone(updateCard, v == null)
+            if (v != null) updateText.text = "PhoneCast $v is out (you have ${Updates.current(this)}). Install the APK over this one: your pairing stays."
+        }
+        Updates.checkDaily(this)
         return u.page("PhoneCast",
+            updateCard,
             u.card(status.view,
                 u.primary("Cast this phone") { toggleCast() }.also { castBtn = it },
                 u.grid(3,

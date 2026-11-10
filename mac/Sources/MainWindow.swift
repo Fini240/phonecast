@@ -39,6 +39,8 @@ final class MainWindowController {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 660),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
             w.title = "PhoneCast"
+            w.titleVisibility = .hidden              // each page has its own big title
+            w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: MainView().environmentObject(Store.shared).environmentObject(nav))
             w.setFrameAutosaveName("PhoneCastMain")
@@ -179,14 +181,20 @@ struct OverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Overview").font(.largeTitle.bold())
+                UpdateBanner()
                 HStack(alignment: .top, spacing: 16) {
                     Panel(title: store.phoneName, symbol: "smartphone") {
                         if store.connected {
                             let s = store.phoneStatus
                             Row("Link", store.rttMs >= 0 ? "\(Int(store.rttMs.rounded())) ms round trip" : "—")
-                            Row("Battery", (s["battery"] as? Int).map { "\($0) %" + ((s["charging"] as? Bool ?? false) ? " · charging" : "") } ?? "—")
+                            if let b = s["battery"] as? Int {
+                                BarRow("Battery", Double(b) / 100, "\(b) %" + ((s["charging"] as? Bool ?? false) ? " · charging" : ""),
+                                       tint: b <= 15 ? .red : b <= 30 ? .orange : .green)
+                            } else { Row("Battery", "—") }
                             Row("Temperature", (s["batteryTemp"] as? Double).map { String(format: "%.1f °C", $0) } ?? "—")
-                            Row("Heat", ["normal", "warm", "hot", "throttling", "very hot", "emergency", "shutdown"][min(6, max(0, s["thermal"] as? Int ?? 0))])
+                            let heat = min(6, max(0, s["thermal"] as? Int ?? 0))
+                            BarRow("Heat", Double(heat + 1) / 7, ["normal", "warm", "hot", "throttling", "very hot", "emergency", "shutdown"][heat],
+                                   tint: heat == 0 ? .green : heat <= 2 ? .orange : .red)
                             Row("Network", (s["net"] as? String ?? "—") + ((s["rssi"] as? Int).map { " · \($0) dBm" } ?? ""))
                             Row("Free storage", (s["freeGB"] as? Double).map { String(format: "%.0f GB", $0) } ?? "—")
                             Row("Screen", store.phoneCasting ? "shared with this Mac" : "not shared")
@@ -196,13 +204,28 @@ struct OverviewView: View {
                     }
                     Panel(title: Host.current().localizedName ?? "This Mac", symbol: "laptopcomputer") {
                         let m = store.macStats
-                        Row("Battery", (m["battery"] as? Int).map { "\($0) %" + ((m["charging"] as? Bool ?? false) ? " · on power" : "") } ?? "—")
-                        Row("CPU", (m["cpu"] as? Int).map { "\($0) %" } ?? "—")
-                        Row("Memory", (m["mem"] as? Int).map { "\($0) %" } ?? "—")
+                        if let b = m["battery"] as? Int {
+                            BarRow("Battery", Double(b) / 100, "\(b) %" + ((m["charging"] as? Bool ?? false) ? " · on power" : ""),
+                                   tint: b <= 15 ? .red : b <= 30 ? .orange : .green)
+                        } else { Row("Battery", "—") }
+                        if let c = m["cpu"] as? Int { BarRow("CPU", Double(c) / 100, "\(c) %", tint: c > 85 ? .orange : .accentColor) } else { Row("CPU", "—") }
+                        if let c = m["mem"] as? Int { BarRow("Memory", Double(c) / 100, "\(c) %", tint: c > 90 ? .orange : .accentColor) } else { Row("Memory", "—") }
                         Row("Heat", m["thermal"] as? String ?? "—")
-                        Row("Phone controls Mac", store.phoneControlsMac ? "yes, right now" : "no")
+                        Row("Mac screen on the phone", store.phoneControlsMac ? "in use" : "not in use")
                     }
                 }
+                HStack(spacing: 10) {
+                    Button { Hub.shared.mirror() } label: {
+                        Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle").padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
+                    Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files…", systemImage: "square.and.arrow.up") }
+                    Button { Hub.shared.sendClipboard(nil) } label: { Label("Send clipboard", systemImage: "doc.on.clipboard") }
+                    Button { nav.section = .messages } label: { Label("New message", systemImage: "square.and.pencil") }
+                }
+                .controlSize(.large)
+                .disabled(!store.connected)
                 Panel(title: "Devices", symbol: "point.3.connected.trianglepath.dotted") {
                     ForEach(store.devices) { d in
                         HStack {
@@ -214,14 +237,6 @@ struct OverviewView: View {
                     }
                     Text("Time to open a connection, every 5 s. Edit the list in Settings.").font(.caption).foregroundStyle(.tertiary)
                 }
-                HStack(spacing: 10) {
-                    Button { Hub.shared.mirror() } label: { Label("Mirror phone", systemImage: "rectangle.on.rectangle") }
-                    Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files…", systemImage: "square.and.arrow.up") }
-                    Button { Hub.shared.sendClipboard(nil) } label: { Label("Send clipboard", systemImage: "doc.on.clipboard") }
-                    Button { nav.section = .messages } label: { Label("New message", systemImage: "square.and.pencil") }
-                }
-                .controlSize(.large)
-                .disabled(!store.connected)
             }
             .padding(24)
         }
@@ -240,6 +255,21 @@ struct Panel<Content: View>: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// A row with a small capacity bar (battery, CPU, memory, heat).
+struct BarRow: View {
+    let k: String, frac: Double, v: String, tint: Color
+    init(_ k: String, _ frac: Double, _ v: String, tint: Color) { self.k = k; self.frac = frac; self.v = v; self.tint = tint }
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(k).foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Capsule().fill(.quaternary).frame(width: 70, height: 6)
+                .overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 70 * max(0.04, min(1, frac)), height: 6) }
+            Text(v).monospacedDigit().frame(minWidth: 70, alignment: .trailing)
+        }.font(.callout)
     }
 }
 
