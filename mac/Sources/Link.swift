@@ -102,6 +102,7 @@ final class Link {
 
     private var pin = ""
     private var helloSent = false
+    private var q1Nonce: Data?
 
     private func sendHello(nonce: Data?) {
         if helloSent || closed { return }
@@ -111,6 +112,10 @@ final class Link {
             mac.update(data: nonce); mac.update(data: Data("phonecast-mirror".utf8))
             let hex = Data(mac.finalize()).map { String(format: "%02x", $0) }.joined()
             send(CT.hello, Data("T1:\(hex)".utf8))
+        } else if let nonce, UserDefaults.standard.bool(forKey: "qrPaired") {
+            // QR pairing: prove the Mac's key; the phone proves its own in HELLO_OK (checked below)
+            q1Nonce = nonce
+            send(CT.hello, Data("Q1:\(Pairing.id):\(Pairing.hex(Pairing.proof(nonce, "phonecast-mirror")))".utf8))
         } else {
             send(CT.hello, Data(pin.utf8))
         }
@@ -119,7 +124,11 @@ final class Link {
     private func deliver(_ type: UInt8, _ payload: Data) {
         switch type {
         case PT.nonce: sendHello(nonce: payload)
-        case PT.helloOK: onState?(.ready); onPacket?(type, payload)
+        case PT.helloOK:
+            if let n = q1Nonce, payload.count < 33 || payload.subdata(in: 1..<33) != Pairing.proof(n, "phonecast-phone") {
+                finish("the phone couldn't prove the QR pairing"); return
+            }
+            onState?(.ready); onPacket?(type, payload)
         case PT.helloBad: onState?(.badPin); finish("wrong PIN")
         case PT.stopped:
             finish(payload.first == 1

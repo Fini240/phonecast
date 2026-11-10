@@ -856,6 +856,7 @@ struct SettingsView: View {
     @State private var tailnet = UserDefaults.standard.string(forKey: "tailnetHost") ?? ""
     @State private var devices = Hub.shared.probes.config
     @State private var dashURL = PcDashboard.shared.base
+    @State private var qr = Pairing.qrImage(size: 360)
     @State private var login = Hub.loginEnabled
     @State private var axOK = AXIsProcessTrusted()
     @State private var screenOK = CGPreflightScreenCaptureAccess()
@@ -868,7 +869,23 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Pairing") {
+            Section("Pair a phone") {
+                HStack(alignment: .top, spacing: 18) {
+                    Image(nsImage: qr).interpolation(.none).resizable().frame(width: 180, height: 180)
+                        .padding(8).background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Scan this with PhoneCast on the phone").font(.headline)
+                        Text("Phone app → Settings → “Scan computer's QR code”. Both sides then prove a shared key to each other on every connection: no PIN to type, and nothing secret crosses the network.")
+                            .font(.callout).foregroundStyle(.secondary)
+                        Text(store.linkState).font(.caption).foregroundStyle(store.connected ? .green : .secondary)
+                        Button("New QR code (phones paired by QR must scan again)") {
+                            Pairing.reset(); qr = Pairing.qrImage(size: 360); Hub.shared.pairingChanged()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+            Section("Or pair with the PIN") {
                 TextField("PIN (shown in the phone app)", text: $pin)
                 TextField("Phone IP address (optional, found automatically on the same Wi-Fi)", text: $host)
                 TextField("Phone Tailscale address (optional, for other networks)", text: $tailnet)
@@ -880,7 +897,7 @@ struct SettingsView: View {
                         d.set(pin.trimmingCharacters(in: .whitespaces), forKey: "pin")
                         d.set(host.trimmingCharacters(in: .whitespaces), forKey: "host")
                         d.set(tailnet.trimmingCharacters(in: .whitespaces), forKey: "tailnetHost")
-                        Hub.shared.reconnect()
+                        Hub.shared.pairingChanged()
                     }
                 }
             }

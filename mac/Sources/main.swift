@@ -111,7 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         // The main window (notifications, messages, files…) opens first; the mirror window opens when the
         // phone starts sharing (hub CAST_READY) or from "Mirror phone".
         let testPane = ProcessInfo.processInfo.environment["PHONECAST_PANE"].flatMap { Pane(rawValue: $0) }  // UI testing
-        MainWindowController.shared.show(testPane ?? (UserDefaults.standard.string(forKey: "pin") == nil ? .settings : nil))
+        let unpaired = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil
+        MainWindowController.shared.show(testPane ?? (unpaired ? .settings : nil))
         if ProcessInfo.processInfo.environment["PHONECAST_SHOW_MIRROR"] != nil { showWindow() }  // UI testing
         if Self.noUSB == false, UsbBridge.shared.phonePresent(), UserDefaults.standard.string(forKey: "pin") != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.connectSaved() }  // cable: mirror right away
@@ -714,7 +715,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     /// Cable first (if a phone is plugged in), Wi-Fi otherwise.
     private func connectSaved() {
-        guard let pin = UserDefaults.standard.string(forKey: "pin") else { showConnect(nil); return }
+        // paired by QR (or holding the mirror key from the link) works without a PIN
+        let d = UserDefaults.standard
+        let pin = d.string(forKey: "pin") ?? ""
+        if pin.isEmpty && !d.bool(forKey: "qrPaired") && (d.string(forKey: "mirrorKey") ?? "").isEmpty {
+            MainWindowController.shared.show(.settings); return
+        }
         wantConnected = true
         if !usbBusy && !usbGaveUp && !Self.noUSB && UsbBridge.shared.phonePresent() {
             usbBusy = true

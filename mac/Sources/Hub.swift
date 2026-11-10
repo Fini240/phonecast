@@ -8,6 +8,7 @@ import CryptoKit
 /// Hub packet types (same numbers as HubProto on the phone). Both directions: [u8 type][u32 len][payload].
 enum HT {
     static let hello: UInt8 = 1, helloOK: UInt8 = 2, helloBad: UInt8 = 3, ping: UInt8 = 4, pong: UInt8 = 5, status: UInt8 = 6
+    static let hubNonce: UInt8 = 7   // phone->mac, 16 bytes, first packet (QR pairing proofs)
     static let notif: UInt8 = 10, notifGone: UInt8 = 11, notifAction: UInt8 = 12
     static let fileBegin: UInt8 = 20, fileData: UInt8 = 21, fileEnd: UInt8 = 22, fileCancel: UInt8 = 23
     static let clip: UInt8 = 30
@@ -33,8 +34,12 @@ final class HubLink {
     private(set) var certFingerprint: String?
     /// The phone accepted the PIN (HELLO_OK). Nothing but pings is acted on before that.
     private(set) var ready = false
-    /// First pairing (no key pinned yet): ask the user to compare the key BEFORE the PIN is sent.
-    var confirmFirst: ((String, @escaping (Bool) -> Void) -> Void)?
+    /// The phone's nonce (QR proofs are HMACs over it); nil from phones older than QR pairing.
+    private(set) var nonce: Data?
+    /// HELLO_OK check (the phone's QR proof); false closes the link.
+    var verifyOK: ((Data) -> Bool)?
+    private var helloSent = false
+    private var makeHello: ((Data?, String?, @escaping (Data?) -> Void) -> Void)?
 
     /// `trust(fingerprint)` decides whether this is the paired phone (key pinned on first pairing).
     init(endpoint: NWEndpoint, trust: @escaping (String) -> Bool) {
@@ -62,17 +67,17 @@ final class HubLink {
     }
     private var fpGetter: () -> String? = { nil }
 
-    func start(hello: Data) {
+    /// `hello(nonce, fingerprint, answer)` builds HELLO once the phone's nonce is in (answer nil = close).
+    func start(hello: @escaping (Data?, String?, @escaping (Data?) -> Void) -> Void) {
+        makeHello = hello
         conn.stateUpdateHandler = { [weak self] st in
             guard let self else { return }
             switch st {
             case .ready:
                 self.certFingerprint = self.fpGetter()
-                if let ask = self.confirmFirst, let fp = self.certFingerprint {
-                    ask(fp) { ok in
-                        self.queue.async { if ok { self.send(HT.hello, hello); self.readHeader() } else { self.finish("pairing cancelled") } }
-                    }
-                } else { self.send(HT.hello, hello); self.readHeader() }
+                self.readHeader()
+                // phones from before QR pairing don't send a nonce: say hello without one
+                self.queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.sayHello() }
             case .failed(let e): self.finish("failed: \(e.localizedDescription)")
             case .waiting(let e): self.finish("unreachable: \(e.localizedDescription)")
             case .cancelled: self.finish("disconnected")
@@ -83,6 +88,15 @@ final class HubLink {
     }
 
     func close(_ why: String = "closed") { queue.async { self.finish(why) } }
+
+    private func sayHello() {
+        if helloSent || closed { return }
+        helloSent = true
+        makeHello?(nonce, certFingerprint) { [weak self] d in
+            guard let self else { return }
+            self.queue.async { if let d { self.send(HT.hello, d) } else { self.finish("pairing cancelled") } }
+        }
+    }
 
     private func finish(_ why: String) {
         if closed { return }
@@ -110,8 +124,15 @@ final class HubLink {
     }
 
     private func deliver(_ t: UInt8, _ p: Data) {
-        if t == HT.helloOK { ready = true; onReady?() }
-        if t == HT.helloBad { finish(p == Data("locked".utf8) ? "locked" : "wrong PIN"); return }
+        if t == HT.hubNonce { if !helloSent, p.count == 16 { nonce = p; sayHello() }; return }
+        if t == HT.helloOK {
+            if let v = verifyOK, !v(p) { finish("the phone couldn't prove the QR pairing"); return }
+            ready = true; onReady?()
+        }
+        if t == HT.helloBad {
+            let why = String(decoding: p, as: UTF8.self)
+            finish(why == "locked" ? "locked" : why == "qr" ? "qr not known" : "wrong PIN"); return
+        }
         onPacket?(t, p)
     }
 
@@ -221,9 +242,7 @@ final class Hub: NSObject, NSMenuDelegate {
     func connect() {
         retryWork?.cancel(); retryWork = nil
         guard link == nil else { return }
-        guard let pin = UserDefaults.standard.string(forKey: "pin"), !pin.isEmpty else {
-            store.linkState = "Not paired yet — enter the phone's PIN in Settings"; return
-        }
+        let pin = UserDefaults.standard.string(forKey: "pin") ?? ""
         let c = candidates()
         guard !c.isEmpty else { store.linkState = "Looking for the phone…"; scheduleRetry(); return }
         if candidateIndex >= c.count { candidateIndex = 0 }
@@ -233,12 +252,47 @@ final class Hub: NSObject, NSMenuDelegate {
             guard let pinned = UserDefaults.standard.string(forKey: "phoneKey") else { return true }
             return pinned == fp
         }
-        if UserDefaults.standard.string(forKey: "phoneKey") == nil {
-            l.confirmFirst = { [weak self] fp, answer in DispatchQueue.main.async { self?.confirmPairing(fp, answer) ?? answer(false) } }
-        }
         link = l
         if !store.connected { store.linkState = "Connecting to \(label)…" }
-        let hello = try! JSONSerialization.data(withJSONObject: ["pin": pin, "name": Host.current().localizedName ?? "Mac"])
+        var usedQR = false
+        let hello: (Data?, String?, @escaping (Data?) -> Void) -> Void = { [weak self] nonce, fp, answer in
+            DispatchQueue.main.async {
+                guard let self else { answer(nil); return }
+                let pinned = UserDefaults.standard.string(forKey: "phoneKey")
+                var o: [String: Any] = ["name": Pairing.name]
+                // QR proof, bound to the certificate this Mac sees (a relay through another phone fails)
+                if let nonce, let fp {
+                    o["qr"] = Pairing.id
+                    o["proof"] = Pairing.hex(Pairing.proof(nonce, "phonecast-hub", fp))
+                    usedQR = true
+                }
+                if pinned != nil {
+                    if !pin.isEmpty { o["pin"] = pin }          // known phone (TLS key pinned): PIN is safe to send
+                    answer(try? JSONSerialization.data(withJSONObject: o))
+                } else if usedQR && !self.qrRejected {
+                    answer(try? JSONSerialization.data(withJSONObject: o))   // first contact: QR only, no PIN
+                } else if !pin.isEmpty, let fp {
+                    // the phone hasn't scanned this Mac: compare keys before the PIN goes out
+                    self.confirmPairing(fp) { ok in
+                        if ok { o["pin"] = pin; usedQR = false; o.removeValue(forKey: "proof"); o.removeValue(forKey: "qr") }
+                        answer(ok ? try? JSONSerialization.data(withJSONObject: o) : nil)
+                    }
+                } else {
+                    self.store.linkState = "Not paired yet: scan the QR code in Settings with PhoneCast on the phone"
+                    answer(nil)
+                }
+            }
+        }
+        l.verifyOK = { [weak l] p in
+            // with QR, the phone must prove it knows the key too (otherwise it's an impostor)
+            guard usedQR else { return true }
+            guard let l, let nonce = l.nonce, let fp = l.certFingerprint,
+                  let o = (try? JSONSerialization.jsonObject(with: p)) as? [String: Any],
+                  let proof = o["proof"] as? String else { return UserDefaults.standard.string(forKey: "phoneKey") != nil }
+            let ok = proof == Pairing.hex(Pairing.proof(nonce, "phonecast-hub-phone", fp))
+            if ok { DispatchQueue.main.async { UserDefaults.standard.set(fp, forKey: "phoneKey"); UserDefaults.standard.set(true, forKey: "qrPaired") } }
+            return ok
+        }
         l.onReady = { [weak self, weak l] in
             DispatchQueue.main.async {
                 guard let self, let l, self.link === l else { return }
@@ -266,6 +320,15 @@ final class Hub: NSObject, NSMenuDelegate {
                 self.link = nil
                 self.store.connected = false; self.store.phoneCasting = false
                 let keyChanged = why.contains("certificate") || why.contains("-98") || why.contains("handshake")
+                if why == "pairing cancelled" {
+                    // not paired (no QR scan, no PIN) or the key check was declined: keep the message, try now and then
+                    if !self.store.linkState.hasPrefix("Not paired") { self.store.linkState = "Pairing cancelled — scan the QR code in Settings" }
+                    self.scheduleRetry(6); return
+                }
+                if why == "the phone couldn't prove the QR pairing" {
+                    self.store.linkState = "Something answered as your phone but couldn't prove the QR pairing — not connected"
+                    self.scheduleRetry(10); return
+                }
                 self.store.linkState = why == "wrong PIN" ? "Wrong PIN (or too many tries: wait 5 minutes) — check Settings"
                     : keyChanged && UserDefaults.standard.string(forKey: "phoneKey") != nil
                         ? "The phone's key doesn't match the paired one. Reinstalled PhoneCast on the phone? Settings → Forget phone key"
@@ -276,6 +339,10 @@ final class Hub: NSObject, NSMenuDelegate {
                 let p = self.pending; self.pending.removeAll()
                 p.values.forEach { $0(.failure(HubError(message: "The phone disconnected.", permission: false))) }
                 Banners.shared.endCall()
+                if why == "qr not known" {
+                    // the phone hasn't scanned this Mac's QR code: next try uses the PIN (with key check)
+                    self.qrRejected = true; self.scheduleRetry(0.5); return
+                }
                 if why == "wrong PIN" { return }
                 if why == "locked" {
                     self.store.linkState = "The phone is locked for a few minutes after wrong PINs — trying again…"
@@ -289,6 +356,10 @@ final class Hub: NSObject, NSMenuDelegate {
     }
 
     private var rejectedKeys = Set<String>()
+    /// This session the phone said it doesn't know our QR id: use the PIN path.
+    private var qrRejected = false
+    /// Settings: the QR was just scanned / PIN changed — try QR again.
+    func pairingChanged() { qrRejected = false; rejectedKeys.removeAll(); reconnect() }
     private var asking = false
 
     /// First pairing: the phone app shows its link key in Settings; only send the PIN if they match.
