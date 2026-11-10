@@ -29,6 +29,41 @@ sealed unsafe partial class App
     }
 
     bool UsbGaveUp => Now < usbRetryAt;
+
+    // ---- QR pairing (this computer's identity; the phone scans it, see ShowPairing) ----
+
+    /// The PIN to log in with, "" when only QR pairing is set up, null when neither is.
+    string LoginPin => Settings.Str("pin") ?? (Settings.Bool("qrPaired") ? "" : null);
+    /// The phone refused our QR login this session (code not scanned / removed): use the PIN.
+    bool qrRejected;
+
+    static (string id, byte[] key) PairIdentity()
+    {
+        var id = Settings.Str("pairId"); var k = Settings.Str("pairKey");
+        if (id == null || k == null || k.Length != 64)
+        {
+            id = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+            k = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+            Settings.Set("pairId", id); Settings.Set("pairKey", k);
+        }
+        return (id, Convert.FromHexString(k));
+    }
+
+    static string PairCode()
+    {
+        var (id, key) = PairIdentity();
+        return $"phonecast:pair?v=1&id={id}&k={Convert.ToHexString(key).ToLowerInvariant()}&n={Uri.EscapeDataString(Environment.MachineName)}";
+    }
+
+    void ShowPairing()
+    {
+        if (mode == Mode.Game) SetMode(Mode.Normal);
+        using var d = new PairDialog(PairCode());
+        if (d.ShowDialog(Owner) != DialogResult.OK) return;
+        Settings.Set("qrPaired", true);
+        qrRejected = false; wifiIndex = 0;
+        ConnectSaved();
+    }
     const string TetherLabel = "USB cable (tethering)";
     /// The old cable mode (Android Open Accessory via libusb + UsbDk). Off on Windows: Windows puts its
     /// own MTP driver on the accessory interface, so opening it hangs. USB tethering is used instead.
@@ -114,7 +149,7 @@ sealed unsafe partial class App
     /// Cable first (if a phone is plugged in), Wi-Fi otherwise.
     void ConnectSaved()
     {
-        var pin = Settings.Str("pin");
+        var pin = LoginPin;
         if (pin == null) { ShowConnect(); return; }
         wantConnected = true;
         var usb = UsbBridge.Shared;
@@ -174,12 +209,12 @@ sealed unsafe partial class App
             bool appeared = tg != "" && lastTether == "";
             lastTether = tg;
             if (appeared) new Thread(CheckTetherRoute) { IsBackground = true }.Start();
-            if (appeared && wantConnected && deviceLabel != TetherLabel && Settings.Str("pin") is string pin0)
+            if (appeared && wantConnected && deviceLabel != TetherLabel && LoginPin is string pin0)
             { wifiIndex = 0; ConnectWifi(pin0); return; }
         }
         // On Wi-Fi while the tethering cable is there (the phone wasn't ready on the cable yet when
         // we connected): switch over as soon as the phone answers on the cable.
-        if (tg != "" && stateText == "Connected" && deviceLabel != TetherLabel && !tetherProbing && Settings.Str("pin") is string pin1)
+        if (tg != "" && stateText == "Connected" && deviceLabel != TetherLabel && !tetherProbing && LoginPin is string pin1)
         {
             tetherProbing = true;
             var gw = tg.Split(',')[0];
@@ -201,7 +236,7 @@ sealed unsafe partial class App
         {
             Log("cable: USB start hangs, using Wi-Fi meanwhile");
             usbBusy = false; usbRetryAt = Now + 30;
-            if (stateText != "Connected" && Settings.Str("pin") is string pin) ConnectWifi(pin);
+            if (stateText != "Connected" && LoginPin is string pin) ConnectWifi(pin);
             return;
         }
         bool present = UsbBridge.Shared.PhonePresent();
@@ -274,10 +309,23 @@ sealed unsafe partial class App
                 case LinkState.Ready:
                     retryDelay = 2; wifiIndex = 0; linkWasReady = true; lastPong = 0;
                     stateText = "Connected"; SetMessage(null);
-                    Log($"connected via {label}");
+                    Log($"connected via {label}{(l.UsedQr ? " (QR pairing, phone verified)" : "")}");
+                    if (l.UsedQr) Settings.Set("qrPaired", true);
                     SendSettings();
                     break;
                 case LinkState.BadPin:
+                    if (l.UsedQr)
+                    {
+                        // the phone doesn't know this PC's QR code (not scanned, or removed on the phone)
+                        Log("pairing: the phone refused our QR login");
+                        qrRejected = true;
+                        if (!string.IsNullOrEmpty(Settings.Str("pin"))) { After(0.3, () => { if (link == l) ConnectSaved(); }); break; }
+                        wantConnected = false;
+                        stateText = "Not paired";
+                        SetMessage("The phone doesn't know this PC yet.\nScan its QR code with the phone (Ctrl+P)");
+                        After(0.2, ShowPairing);
+                        break;
+                    }
                     wantConnected = false;
                     stateText = "Wrong PIN";
                     SetMessage("Wrong PIN — check the PIN in the phone app");
@@ -312,7 +360,8 @@ sealed unsafe partial class App
             UpdateTitle();
         });
         l.OnPacket = (t, p) => Packet(l, t, p);
-        l.Start(pin);
+        var (pid, pkey) = PairIdentity();
+        l.Start(new Login(pin, pid, pkey, UseQr: Settings.Bool("qrPaired") && !qrRejected));
     }
 
     void Disconnect()
@@ -486,7 +535,7 @@ sealed unsafe partial class App
         Full = 40, Fit, ScaleFit, ScaleFill, ScaleStretch, Mute, Stats,
         Res0 = 60, Rate0 = 70,
         ShapeWhole = 80, Shape169, ShapeNormal, Sharp0 = 90, Sharp2560, Sharp3200,
-        InstallUsbDk = 100, Help = 110,
+        InstallUsbDk = 100, Help = 110, Pair = 111,
         DecCpu = 130, DecGpu,
         QuickSettings = 120, LockPhone, Screenshot, VolUp, VolDown, MutePhone, PowerMenu,
     }
@@ -505,7 +554,7 @@ sealed unsafe partial class App
             return m;
         }
         Sub("&Device",
-            (M.Connect, "Connect…\tCtrl+K"), (M.Disconnect, "Disconnect\tCtrl+Shift+D"), (0, "-"),
+            (M.Connect, "Connect…\tCtrl+K"), (M.Pair, "Pair with QR code…\tCtrl+P"), (M.Disconnect, "Disconnect\tCtrl+Shift+D"), (0, "-"),
             (M.Back, "Back\tCtrl+B"), (M.Home, "Home\tCtrl+H"), (M.Recents, "Recent apps\tCtrl+R"), (M.Notifications, "Notifications\tCtrl+N"), (M.QuickSettings, "Quick settings"), (0, "-"),
             (M.VolUp, "Volume up\tCtrl+Up"), (M.VolDown, "Volume down\tCtrl+Down"), (M.MutePhone, "Mute the phone"),
             (M.Screenshot, "Screenshot on the phone"), (M.LockPhone, "Lock the phone"), (M.PowerMenu, "Power menu"), (0, "-"),
@@ -556,6 +605,7 @@ sealed unsafe partial class App
         switch (m)
         {
             case M.Connect: ShowConnect(); break;
+            case M.Pair: ShowPairing(); break;
             case M.Disconnect: Disconnect(); break;
             case M.Back: link?.Send(CT.Global, new[] { GlobalA.Back }); break;
             case M.Home: link?.Send(CT.Global, new[] { GlobalA.Home }); break;

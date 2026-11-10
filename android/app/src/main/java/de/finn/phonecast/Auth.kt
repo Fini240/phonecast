@@ -25,7 +25,10 @@ import javax.security.auth.x500.X500Principal
  *  - Over that encrypted link the phone hands the Mac a random 256-bit mirror key. The mirror then
  *    proves itself with HMAC(key, nonce) instead of sending the PIN in the clear. The PIN alone still
  *    works for a Mac that has no key yet (first pairing, cable).
- *  - Wrong PINs: 5 tries, then 5 minutes locked (for both connections).
+ *  - QR pairing: the computer shows a QR code with its id and a random 256-bit secret; the phone scans
+ *    it (Pairing.kt). From then on both sides prove they know the secret (HMAC over a fresh nonce),
+ *    in both directions, so neither a guessed PIN nor a fake phone on the network gets in.
+ *  - Wrong PINs / proofs: 5 tries, then 5 minutes locked (for both connections).
  */
 object Auth {
     private const val ALIAS = "phonecast-hub-tls"
@@ -55,14 +58,92 @@ object Auth {
         return m.doFinal().joinToString("") { "%02x".format(it) }
     }
 
-    /** HELLO from the mirror: "T1:<hmac hex>" (mirror key) or the plain PIN. */
+    /** HELLO from the mirror: "Q1:<id>:<hmac hex>" (QR-paired), "T1:<hmac hex>" (mirror key) or the plain PIN. */
     fun checkMirrorHello(c: Context, hello: String, nonce: ByteArray): Boolean {
         if (locked()) return false
-        val ok = if (hello.startsWith("T1:")) MessageDigest.isEqual(hello.substring(3).toByteArray(), hmacHex(Prefs.token(c), nonce).toByteArray())
-                 else MessageDigest.isEqual(hello.toByteArray(), Prefs.pin(c).toByteArray())
+        if (hello.startsWith("Q1:")) {
+            // not counted towards the PIN limit: a 256-bit key can't be guessed, and a computer that
+            // doesn't know yet whether the phone scanned its code mustn't use up the tries
+            return qrMirrorKey(c, hello)?.let { k ->
+                MessageDigest.isEqual(hello.substringAfterLast(':').toByteArray(), hex(mac(k, nonce, "phonecast-mirror".toByteArray())).toByteArray())
+            } ?: false
+        }
+        val ok = when {
+            hello.startsWith("T1:") -> MessageDigest.isEqual(hello.substring(3).toByteArray(), hmacHex(Prefs.token(c), nonce).toByteArray())
+            else -> MessageDigest.isEqual(hello.toByteArray(), Prefs.pin(c).toByteArray())
+        }
         if (ok) succeeded() else failed()
         return ok
     }
+
+    /** For a QR-paired viewer: the phone's own proof (appended to HELLO_OK), so the viewer knows it
+     *  reached the real phone. Empty for PIN / mirror-key logins. */
+    fun mirrorProof(c: Context, hello: String, nonce: ByteArray): ByteArray =
+        qrMirrorKey(c, hello)?.let { mac(it, nonce, "phonecast-phone".toByteArray()) } ?: ByteArray(0)
+
+    private fun qrMirrorKey(c: Context, hello: String): ByteArray? {
+        if (!hello.startsWith("Q1:")) return null
+        val id = hello.removePrefix("Q1:").substringBefore(':')
+        return pairs(c)[id]?.key
+    }
+
+    // ---- QR pairing ----
+
+    class Pair(val id: String, val key: ByteArray, val name: String, val time: Long)
+
+    private fun prefs(c: Context) = c.getSharedPreferences("phonecast", Context.MODE_PRIVATE)
+
+    /** Computers paired by QR code (id -> secret + name). */
+    fun pairs(c: Context): Map<String, Pair> {
+        val o = try { org.json.JSONObject(prefs(c).getString("pairs", "{}")!!) } catch (_: Exception) { org.json.JSONObject() }
+        val out = LinkedHashMap<String, Pair>()
+        for (id in o.keys()) {
+            val e = o.optJSONObject(id) ?: continue
+            val k = unhex(e.optString("k")) ?: continue
+            out[id] = Pair(id, k, e.optString("n", "Computer"), e.optLong("t"))
+        }
+        return out
+    }
+
+    @Synchronized fun addPair(c: Context, id: String, keyHex: String, name: String): Boolean {
+        if (!id.matches(Regex("[0-9a-f]{16}")) || unhex(keyHex)?.size != 32) return false
+        val o = try { org.json.JSONObject(prefs(c).getString("pairs", "{}")!!) } catch (_: Exception) { org.json.JSONObject() }
+        o.put(id, org.json.JSONObject().put("k", keyHex).put("n", name.take(60)).put("t", System.currentTimeMillis()))
+        prefs(c).edit().putString("pairs", o.toString()).apply()
+        return true
+    }
+
+    @Synchronized fun removePair(c: Context, id: String) {
+        val o = try { org.json.JSONObject(prefs(c).getString("pairs", "{}")!!) } catch (_: Exception) { return }
+        o.remove(id)
+        prefs(c).edit().putString("pairs", o.toString()).apply()
+    }
+
+    /** The link's HELLO {qr, proof} from a QR-paired computer; returns the pair or null.
+     *  The proof covers the certificate fingerprint the computer saw: relayed through anyone else's
+     *  TLS certificate it no longer matches ours. Not counted towards the PIN limit (see above). */
+    fun checkHubQr(c: Context, id: String, proofHex: String, nonce: ByteArray): Pair? {
+        val p = pairs(c)[id] ?: return null
+        val want = hex(mac(p.key, nonce, "phonecast-hub".toByteArray(), certSha256Hex().toByteArray()))
+        return if (MessageDigest.isEqual(proofHex.lowercase().toByteArray(), want.toByteArray())) p else null
+    }
+
+    /** The phone's answer on the link: binds the secret to this phone's TLS certificate, so the
+     *  computer can pin the certificate without anyone comparing keys. */
+    fun hubPhoneProof(p: Pair, nonce: ByteArray): String =
+        hex(mac(p.key, nonce, "phonecast-hub-phone".toByteArray(), certSha256Hex().toByteArray()))
+
+    fun mac(key: ByteArray, vararg parts: ByteArray): ByteArray {
+        val m = Mac.getInstance("HmacSHA256")
+        m.init(SecretKeySpec(key, "HmacSHA256"))
+        for (x in parts) m.update(x)
+        return m.doFinal()
+    }
+
+    fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+    fun unhex(s: String): ByteArray? =
+        if (s.length % 2 != 0 || !s.matches(Regex("[0-9a-fA-F]*"))) null
+        else ByteArray(s.length / 2) { s.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 
     fun checkPin(c: Context, pin: String): Boolean {
         if (locked()) return false
@@ -100,6 +181,12 @@ object Auth {
         ss.enabledProtocols = arrayOf("TLSv1.3")
         return ss
     }
+
+    /** Full SHA-256 of the link certificate, UPPERCASE hex, 64 chars (what the QR proofs are bound to). */
+    fun certSha256Hex(): String = try {
+        ensureKey()
+        hex(MessageDigest.getInstance("SHA-256").digest(keyStore().getCertificate(ALIAS).encoded)).uppercase()
+    } catch (e: Exception) { "" }
 
     /** SHA-256 of the certificate, as the Mac shows it ("AB12 CD34 …", first 8 groups). */
     fun fingerprint(): String = try {

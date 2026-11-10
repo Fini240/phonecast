@@ -28,4 +28,6 @@ android {
 
 dependencies {
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
+    // QR pairing (Pairing.kt): Google's code scanner, runs in Play services, no camera permission
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

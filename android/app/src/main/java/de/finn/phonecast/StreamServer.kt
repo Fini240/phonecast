@@ -115,7 +115,8 @@ class StreamServer(
             val type = input.readUnsignedByte()
             val len = input.readUnsignedShort()
             val payload = ByteArray(len).also { input.readFully(it) }
-            if (type != Proto.HELLO || !Auth.checkMirrorHello(ctx, String(payload, Charsets.UTF_8), nonce)) {
+            val hello = String(payload, Charsets.UTF_8)
+            if (type != Proto.HELLO || !Auth.checkMirrorHello(ctx, hello, nonce)) {
                 Log.w(TAG, "rejected ${s.inetAddress}: bad pin")
                 s.getOutputStream().write(packet(Proto.HELLO_BAD, ByteArray(0)))
                 s.close()
@@ -134,7 +135,8 @@ class StreamServer(
                 c = Client(s, (0 until MAX_VIEWERS).first { it !in used })
                 clients.add(c)
             }
-            c.sendControl(packet(Proto.HELLO_OK, byteArrayOf(if (listener.controlAvailable()) 1 else 0)))
+            // QR-paired viewers also get the phone's proof (32 bytes after the control flag)
+            c.sendControl(packet(Proto.HELLO_OK, byteArrayOf(if (listener.controlAvailable()) 1 else 0) + Auth.mirrorProof(ctx, hello, nonce)))
             if (width > 0) c.sendControl(formatPacket())
             config?.let { c.sendControl(packet(Proto.CONFIG, it)) }
             c.waitingForKey = true
