@@ -3,6 +3,7 @@ import Network
 import IOKit.ps
 import ServiceManagement
 import Combine
+import CryptoKit
 
 /// Hub packet types (same numbers as HubProto on the phone). Both directions: [u8 type][u32 len][payload].
 enum HT {
@@ -28,22 +29,40 @@ final class HubLink {
     private(set) var videoInFlight = 0
     private let lock = NSLock()
 
-    init(endpoint: NWEndpoint) {
+    /// SHA-256 of the phone's TLS certificate seen on this connection.
+    private(set) var certFingerprint: String?
+
+    /// `trust(fingerprint)` decides whether this is the paired phone (key pinned on first pairing).
+    init(endpoint: NWEndpoint, trust: @escaping (String) -> Bool) {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.connectionTimeout = 5
         tcp.enableKeepalive = true
         tcp.keepaliveIdle = 5
-        let params = NWParameters(tls: nil, tcp: tcp)
+        let tls = NWProtocolTLS.Options()
+        let sec = tls.securityProtocolOptions
+        sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv13)
+        let q = DispatchQueue(label: "phonecast.hub.tls")
+        var seen: String?
+        sec_protocol_options_set_verify_block(sec, { _, secTrust, complete in
+            let t = sec_trust_copy_ref(secTrust).takeRetainedValue()
+            guard let chain = SecTrustCopyCertificateChain(t) as? [SecCertificate], let leaf = chain.first else { complete(false); return }
+            let fp = SHA256.hash(data: SecCertificateCopyData(leaf) as Data).map { String(format: "%02X", $0) }.joined()
+            seen = fp
+            complete(trust(fp))
+        }, q)
+        let params = NWParameters(tls: tls, tcp: tcp)
         params.serviceClass = .responsiveData
         conn = NWConnection(to: endpoint, using: params)
+        fpGetter = { seen }
     }
+    private var fpGetter: () -> String? = { nil }
 
     func start(hello: Data) {
         conn.stateUpdateHandler = { [weak self] st in
             guard let self else { return }
             switch st {
-            case .ready: self.send(HT.hello, hello); self.readHeader()
+            case .ready: self.certFingerprint = self.fpGetter(); self.send(HT.hello, hello); self.readHeader()
             case .failed(let e): self.finish("failed: \(e.localizedDescription)")
             case .waiting(let e): self.finish("unreachable: \(e.localizedDescription)")
             case .cancelled: self.finish("disconnected")
@@ -199,7 +218,11 @@ final class Hub: NSObject, NSMenuDelegate {
         guard !c.isEmpty else { store.linkState = "Looking for the phone…"; scheduleRetry(); return }
         if candidateIndex >= c.count { candidateIndex = 0 }
         let (ep, label) = c[candidateIndex]
-        let l = HubLink(endpoint: ep)
+        let l = HubLink(endpoint: ep) { fp in
+            // first pairing: remember the phone's key; afterwards only that phone is accepted
+            guard let pinned = UserDefaults.standard.string(forKey: "phoneKey") else { return true }
+            return pinned == fp
+        }
         link = l
         if !store.connected { store.linkState = "Connecting to \(label)…" }
         let hello = try! JSONSerialization.data(withJSONObject: ["pin": pin, "name": Host.current().localizedName ?? "Mac"])
@@ -208,6 +231,9 @@ final class Hub: NSObject, NSMenuDelegate {
                 guard let self, let l, self.link === l else { return }
                 NSLog("hub: connected via \(label)")
                 if case .hostPort(let h, _) = ep, label != "test phone" { UserDefaults.standard.set("\(h)", forKey: "lastHubHost") }
+                if UserDefaults.standard.string(forKey: "phoneKey") == nil, let fp = l.certFingerprint {
+                    UserDefaults.standard.set(fp, forKey: "phoneKey")   // pinned now that the PIN was right
+                }
                 self.store.connected = true; self.store.linkState = "Connected via \(label)"
                 self.candidateIndex = 0; self.lastPong = CACurrentMediaTime()
                 self.sendStatus()
@@ -226,7 +252,11 @@ final class Hub: NSObject, NSMenuDelegate {
                 let wasConnected = self.store.connected
                 self.link = nil
                 self.store.connected = false; self.store.phoneCasting = false
-                self.store.linkState = why == "wrong PIN" ? "Wrong PIN — pair again in Settings" : "Looking for the phone…"
+                let keyChanged = why.contains("certificate") || why.contains("-98") || why.contains("handshake")
+                self.store.linkState = why == "wrong PIN" ? "Wrong PIN (or too many tries: wait 5 minutes) — check Settings"
+                    : keyChanged && UserDefaults.standard.string(forKey: "phoneKey") != nil
+                        ? "The phone's key doesn't match the paired one. Reinstalled PhoneCast on the phone? Settings → Forget phone key"
+                        : "Looking for the phone…"
                 self.screen.stop()
                 self.incoming.values.forEach { $0.abort() }; self.incoming.removeAll()
                 self.incomingReq.values.forEach { self.store.failTransfer($0.1) }; self.incomingReq.removeAll()
@@ -318,7 +348,10 @@ final class Hub: NSObject, NSMenuDelegate {
                 store.rttMs = store.rttMs < 0 ? ms : store.rttMs * 0.7 + ms * 0.3
             }
         case HT.helloOK:
-            if let o = json(p), let n = o["name"] as? String { store.phoneName = n }
+            if let o = json(p) {
+                if let n = o["name"] as? String { store.phoneName = n }
+                if let k = o["mirrorKey"] as? String { UserDefaults.standard.set(k, forKey: "mirrorKey") }
+            }
         case HT.status:
             if let o = json(p) { store.applyStatus(o) }
         case HT.notif: if let o = json(p) { store.addNotification(o) }

@@ -111,7 +111,7 @@ class CaptureService : Service(), StreamServer.Listener {
         }, handler)
         projection = proj
 
-        val srv = StreamServer(Prefs.pin(this), this)
+        val srv = StreamServer(this, this)
         server = srv
         srv.start()
 

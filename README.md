@@ -6,7 +6,7 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
   and **control the Mac from the phone**.
 - **Notifications** from the phone as Mac banners, with reply, clear and open-on-phone.
 - **Messages (SMS), calls, contacts, photos, phone files and apps** in one Mac window.
-- **Files** both ways (folders as .zip), **clipboard** and links.
+- **Files** both ways (folders as .zip), **clipboard** both ways (copy on the phone lands on the Mac by itself) and links.
 - **Monitor**: battery, heat and link latency of the phone and the Mac, plus your other machines.
 
 No developer options or USB debugging needed.
@@ -71,6 +71,10 @@ App info → ⋮ → **Allow restricted settings**.
 
 - **Quick Settings tiles:** *Cast to Mac* (one tap to mirror; the Mac opens the window by itself) and
   *Clipboard to Mac*.
+- **Copy on the phone → Mac clipboard automatically** (like LinkMyDroid): Android only lets the app in
+  front read the clipboard, so when the Accessibility service sees a copy ("Copy" button, "Copied" toast,
+  the clipboard preview), an invisible PhoneCast screen comes to the front for a moment, reads it and closes.
+  Passwords marked sensitive are skipped. Turn it off in the phone app.
 - **Share → "PhoneCast to Mac"** from any app: files go to `~/Downloads/PhoneCast`, text and links to the Mac's clipboard.
 - **Control the Mac from this phone:** tap = click, drag = drag, long press or two-finger tap = right click,
   two fingers = scroll; the top bar has a keyboard, Esc, Tab, arrows and ⌘ ⌥ ⌃ ⇧. The Mac needs
@@ -78,6 +82,13 @@ App info → ⋮ → **Allow restricted settings**.
 
 Banners are PhoneCast's own (top right), so reply and Answer/Decline work without macOS notification
 permission. Mute them all, per app, or during quiet hours.
+
+### The bar under the mirror
+
+Back, Home, Recents, notifications, quick settings, volume, mute, lock, flashlight, open an app, send files,
+send clipboard, typing mode, mouse aiming, key map, stats, screenshot to the Desktop and full screen. In a
+narrow window the less used buttons move into **⋯** (which always lists everything, plus power menu,
+split screen, phone screenshot, screen shape and quality). Full screen hides the bar.
 
 ## Mouse and keyboard
 
@@ -133,9 +144,14 @@ lost over half the frames. On the phone's Moonlight, set about 15–20 Mbit/s wh
 - **Online games:** using a mouse and keyboard through injected touches may break a game's rules, and
   anti-cheat systems could flag it. **Your account could be penalised or banned.** This is untested,
   so use it at your own risk and check the game's terms first.
-- **Wi-Fi security:** the stream and the link (notifications, messages, files, clipboard) aren't encrypted, and anyone on the network who gets the 6-digit PIN can
-  see and control the phone. There is no limit on PIN attempts. Use only on networks you trust,
-  or use the cable. Stop sharing when you're done.
+- **Encryption:** the link (notifications, messages, files, clipboard, Mac control) uses TLS 1.3 with a
+  key that stays in the phone's keystore; the Mac pins it at the first pairing (compare the key shown in
+  the phone app and in the Mac's Settings once). The mirror proves itself with a 256-bit key it received
+  over that link, so the PIN isn't sent in the clear, and 5 wrong PINs lock both for 5 minutes.
+  **The mirror's video and touches are not encrypted**, to keep game latency as low as possible: on the
+  cable that's local anyway; away from home use Tailscale, which encrypts everything.
+- **Wi-Fi (mirror):** someone on the same network could watch the unencrypted picture while you share.
+  Use networks you trust (or the cable / Tailscale) and stop sharing when you're done.
 - **Accessibility access:** this permission lets PhoneCast tap and type on your phone, so only install
   builds you trust.
 

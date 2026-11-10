@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
  * dropped and we wait for the next keyframe instead of building up delay.
  */
 class StreamServer(
-    private val pin: String,
+    private val ctx: android.content.Context,
     private val listener: Listener,
 ) {
     interface Listener {
@@ -91,10 +91,12 @@ class StreamServer(
             s.soTimeout = 10_000
             s.sendBufferSize = 1 shl 20
             val input = DataInputStream(s.getInputStream())
+            val nonce = Auth.nonce()
+            s.getOutputStream().write(packet(Proto.NONCE, nonce))
             val type = input.readUnsignedByte()
             val len = input.readUnsignedShort()
             val payload = ByteArray(len).also { input.readFully(it) }
-            if (type != Proto.HELLO || String(payload, Charsets.UTF_8) != pin) {
+            if (type != Proto.HELLO || !Auth.checkMirrorHello(ctx, String(payload, Charsets.UTF_8), nonce)) {
                 Log.w(TAG, "rejected ${s.inetAddress}: bad pin")
                 s.getOutputStream().write(packet(Proto.HELLO_BAD, ByteArray(0)))
                 s.close()

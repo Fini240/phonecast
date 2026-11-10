@@ -853,6 +853,12 @@ struct SettingsView: View {
     @State private var login = Hub.loginEnabled
     @State private var axOK = AXIsProcessTrusted()
     @State private var screenOK = CGPreflightScreenCaptureAccess()
+    private var phoneKeyShort: String {
+        guard let k = UserDefaults.standard.string(forKey: "phoneKey") else { return "not paired yet" }
+        return stride(from: 0, to: min(32, k.count), by: 4).map { i -> String in
+            let a = k.index(k.startIndex, offsetBy: i); return String(k[a..<k.index(a, offsetBy: 4)])
+        }.joined(separator: " ")
+    }
 
     var body: some View {
         Form {
@@ -870,6 +876,17 @@ struct SettingsView: View {
                         d.set(tailnet.trimmingCharacters(in: .whitespaces), forKey: "tailnetHost")
                         Hub.shared.reconnect()
                     }
+                }
+            }
+            Section("Security") {
+                LabeledContent("Phone's link key") {
+                    Text(phoneKeyShort).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                }
+                Text("The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted to keep it as fast as possible; away from home, Tailscale encrypts it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Forget phone key (after reinstalling PhoneCast on the phone)") {
+                    UserDefaults.standard.removeObject(forKey: "phoneKey"); UserDefaults.standard.removeObject(forKey: "mirrorKey")
+                    Hub.shared.reconnect()
                 }
             }
             Section("Notifications") {

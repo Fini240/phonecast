@@ -46,13 +46,25 @@ class ClipTile : TileService() {
 }
 
 class ClipActivity : android.app.Activity() {
+    companion object { const val EXTRA_AUTO = "auto" }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus) return
-        val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip
+        val auto = intent.getBooleanExtra(EXTRA_AUTO, false)
+        val cm = getSystemService(android.content.ClipboardManager::class.java)
+        val clip = cm.primaryClip
+        // passwords from password managers are marked sensitive: never send those on their own
+        val sensitive = android.os.Build.VERSION.SDK_INT >= 33 &&
+            clip?.description?.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true
         val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-        if (text.isNullOrEmpty()) android.widget.Toast.makeText(this, "The clipboard is empty", android.widget.Toast.LENGTH_SHORT).show()
-        else HubService.instance?.sendClip(text)
+        val hub = HubService.instance
+        when {
+            text.isNullOrEmpty() -> if (!auto) android.widget.Toast.makeText(this, "The clipboard is empty", android.widget.Toast.LENGTH_SHORT).show()
+            auto && (sensitive || text == hub?.lastClip) -> {}
+            else -> hub?.sendClip(text)
+        }
         finish()
+        overridePendingTransition(0, 0)
     }
 }

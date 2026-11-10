@@ -130,6 +130,9 @@ class HubService : Service() {
     @Volatile var transfer: String? = null   // "Sending photo.jpg 40 %" for the UI
         private set
 
+    /** Last clipboard text that went either way (so an automatic copy isn't sent straight back). */
+    @Volatile var lastClip: String? = null
+
     /** The activity showing the Mac's screen (gets SCREEN_* packets). */
     @Volatile var screenSink: ((Int, ByteArray) -> Unit)? = null
 
@@ -194,7 +197,8 @@ class HubService : Service() {
 
     fun sendClip(text: String) {
         if (client == null) { toast("Not connected to the Mac"); return }
-        send(HubProto.CLIP, text.toByteArray()); toast("Sent to the Mac's clipboard")
+        lastClip = text
+        send(HubProto.CLIP, text.toByteArray()); toast("Copied to the Mac")
     }
 
     fun castStarted() = send(HubProto.CAST_READY)
@@ -276,7 +280,8 @@ class HubService : Service() {
 
     private fun acceptLoop() {
         try {
-            val ss = ServerSocket()
+            // TLS 1.3, key kept in the phone's keystore (Auth)
+            val ss = Auth.serverSocket()
             ss.reuseAddress = true
             ss.bind(InetSocketAddress(HubProto.PORT))
             serverSocket = ss
@@ -304,7 +309,7 @@ class HubService : Service() {
             val input = DataInputStream(s.getInputStream().buffered(64 * 1024))
             val (t, p) = readPacket(input)
             val hello = try { JSONObject(String(p)) } catch (_: Exception) { JSONObject() }
-            if (t != HubProto.HELLO || hello.optString("pin") != Prefs.pin(this)) {
+            if (t != HubProto.HELLO || !Auth.checkPin(this, hello.optString("pin"))) {
                 Log.w(TAG, "rejected ${s.inetAddress}: bad pin")
                 s.getOutputStream().write(byteArrayOf(HubProto.HELLO_BAD.toByte(), 0, 0, 0, 0))
                 s.close(); return
@@ -314,7 +319,8 @@ class HubService : Service() {
             client?.close()
             client = c
             macName = hello.optString("name", "Mac")
-            c.control(HubProto.HELLO_OK, JSONObject().put("name", deviceName()).toString().toByteArray())
+            // the mirror key: lets the mirror connect without sending the PIN in the clear
+            c.control(HubProto.HELLO_OK, JSONObject().put("name", deviceName()).put("mirrorKey", Prefs.token(this)).toString().toByteArray())
             if (CaptureService.instance != null) c.control(HubProto.CAST_READY, ByteArray(0))
             NotifListener.instance?.connected()
             updateNotification()
@@ -349,6 +355,7 @@ class HubService : Service() {
             HubProto.STATUS -> { macStatus = try { JSONObject(String(p)) } catch (_: Exception) { null } }
             HubProto.CLIP -> {
                 val text = String(p)
+                lastClip = text
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("From the Mac", text))
                 toast("Copied from the Mac")
             }

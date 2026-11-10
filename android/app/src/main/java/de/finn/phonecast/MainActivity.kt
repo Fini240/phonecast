@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private lateinit var devicesView: TextView
     private lateinit var notifBtn: Button
     private lateinit var featView: TextView
+    private lateinit var clipBtn: Button
     private lateinit var featBtn: Button
     private lateinit var filesBtn: Button
 
@@ -122,6 +123,7 @@ class MainActivity : Activity() {
             button("Control the Mac from this phone") { startActivity(Intent(this, MacViewActivity::class.java)) },
             button("Send files to the Mac") { pickFiles() },
             button("Send clipboard to the Mac") { sendClipboard() },
+            button("") { Prefs.setAutoClip(this, !Prefs.autoClip(this)); tick() }.also { clipBtn = it },
             notifBtn,
         ))
 
@@ -143,7 +145,8 @@ class MainActivity : Activity() {
             label("Pairing PIN (enter it on the Mac once)", 13f, alpha = 0.7f),
             pinView,
             addrView,
-            button("New PIN") { Prefs.newPin(this); toast("New PIN. Restart sharing to use it."); tick() },
+            label("Link key (the Mac shows the same one in Settings): " + Auth.fingerprint(), 12f, alpha = 0.6f).apply { typeface = Typeface.MONOSPACE },
+            button("New PIN (unpairs every Mac)") { Prefs.newPin(this); toast("New PIN. Enter it on the Mac again."); tick() },
         ))
 
         controlView = label("", 14f)
@@ -247,6 +250,11 @@ class MainActivity : Activity() {
             hub?.transfer?.let { append(it) }
         }.trimEnd()
         notifBtn.visibility = if (NotifListener.instance != null) View.GONE else View.VISIBLE
+        clipBtn.text = "Copy to the Mac automatically: " + when {
+            !Prefs.autoClip(this) -> "off"
+            InputService.instance == null -> "on (needs mouse & keyboard turned on)"
+            else -> "on"
+        }
         val p = HubService.instance?.takeIf { true }?.let { try { it.features.perms() } catch (_: Exception) { null } }
         if (p != null) {
             val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer/dial", "contacts" to "Contacts",
