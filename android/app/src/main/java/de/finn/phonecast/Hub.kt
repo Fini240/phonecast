@@ -311,7 +311,9 @@ class HubService : Service() {
             val hello = try { JSONObject(String(p)) } catch (_: Exception) { JSONObject() }
             if (t != HubProto.HELLO || !Auth.checkPin(this, hello.optString("pin"))) {
                 Log.w(TAG, "rejected ${s.inetAddress}: bad pin")
-                s.getOutputStream().write(byteArrayOf(HubProto.HELLO_BAD.toByte(), 0, 0, 0, 0))
+                // "locked" = too many wrong PINs lately: the Mac waits and tries again instead of giving up
+                val why = if (Auth.locked()) "locked".toByteArray() else ByteArray(0)
+                s.getOutputStream().write(ByteBuffer.allocate(5 + why.size).put(HubProto.HELLO_BAD.toByte()).putInt(why.size).put(why).array())
                 s.close(); return
             }
             s.soTimeout = 8_000  // the Mac pings every second

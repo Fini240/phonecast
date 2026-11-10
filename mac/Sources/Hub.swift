@@ -101,7 +101,7 @@ final class HubLink {
 
     private func deliver(_ t: UInt8, _ p: Data) {
         if t == HT.helloOK { onReady?() }
-        if t == HT.helloBad { finish("wrong PIN"); return }
+        if t == HT.helloBad { finish(p == Data("locked".utf8) ? "locked" : "wrong PIN"); return }
         onPacket?(t, p)
     }
 
@@ -264,6 +264,10 @@ final class Hub: NSObject, NSMenuDelegate {
                 p.values.forEach { $0(.failure(HubError(message: "The phone disconnected.", permission: false))) }
                 Banners.shared.endCall()
                 if why == "wrong PIN" { return }
+                if why == "locked" {
+                    self.store.linkState = "The phone is locked for a few minutes after wrong PINs — trying again…"
+                    self.scheduleRetry(30); return
+                }
                 if !wasConnected { self.candidateIndex += 1 }
                 self.scheduleRetry(wasConnected ? 1 : (self.candidateIndex < self.candidates().count ? 0.3 : 4))
             }
