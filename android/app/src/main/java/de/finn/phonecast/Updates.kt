@@ -55,7 +55,7 @@ object Updates {
     fun install(c: Context) {
         val src = apkUrl ?: return
         if (installing != null) return
-        installing = "Downloading…"
+        installing = tr("Downloading…")
         val app = c.applicationContext
         Thread {
             try {
@@ -74,12 +74,12 @@ object Updates {
                                 val n = ins.read(buf); if (n < 0) break
                                 out.write(buf, 0, n); got += n
                                 val pct = if (total > 0) (got * 100 / total).toInt() else -1
-                                if (pct != last && pct >= 0) { last = pct; installing = "Downloading… $pct %" }
+                                if (pct != last && pct >= 0) { last = pct; installing = tr("Downloading… {0} %", pct) }
                             }
                         }
                         session.fsync(out)
                     }
-                    installing = "Installing…"
+                    installing = tr("Installing…")
                     val done = android.app.PendingIntent.getBroadcast(app, 11, android.content.Intent(app, UpdateReceiver::class.java),
                         android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE)
                     session.commit(done.intentSender)
@@ -88,7 +88,7 @@ object Updates {
                 android.util.Log.w("PhoneCastUpdate", "install", e)
                 installing = null
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    android.widget.Toast.makeText(app, "Update failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(app, tr("Update failed: {0}", e.message), android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }.start()
@@ -108,7 +108,7 @@ class UpdateReceiver : android.content.BroadcastReceiver() {
             else -> {
                 Updates.installing = null
                 val msg = i.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "cancelled"
-                android.widget.Toast.makeText(c, "Update not installed: $msg", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(c, tr("Update not installed: {0}", msg), android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }

@@ -69,7 +69,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         surfaceView = SurfaceView(this)
         surfaceView.holder.addCallback(this)
         root.addView(surfaceView, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
-        msg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; text = "Connecting to the Mac…" }
+        msg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; text = tr("Connecting to the Mac…") }
         root.addView(msg, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         keys = KeyCatcher(this)
         root.addView(keys, FrameLayout.LayoutParams(1, 1))
@@ -85,7 +85,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
             root.setBackgroundColor(Color.rgb(24, 25, 28))
             surfaceView.alpha = 0f
             msg.setTextColor(Color.argb(150, 255, 255, 255)); msg.textSize = 15f
-            msg.text = "Trackpad\n\nOne finger: move   ·   tap: click\nTwo fingers: scroll   ·   two-finger tap: right click\nHold, then move: drag"
+            msg.text = tr("Trackpad\n\nOne finger: move   ·   tap: click\nTwo fingers: scroll   ·   two-finger tap: right click\nHold, then move: drag")
         }
     }
 
@@ -93,7 +93,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         super.onStart()
         val hub = HubService.instance
         if (hub == null || !hub.connected) {
-            msg.text = "Not connected to the Mac.\nOpen PhoneCast on the Mac first (it connects by itself)."
+            msg.text = tr("Not connected to the Mac.\nOpen PhoneCast on the Mac first (it connects by itself).")
             return
         }
         if (trackpad) return

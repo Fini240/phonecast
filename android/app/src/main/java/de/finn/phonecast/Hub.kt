@@ -441,8 +441,8 @@ class HubService : Service() {
         val pi = PendingIntent.getActivity(this, 3, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         getSystemService(NotificationManager::class.java).notify(4, Notification.Builder(this, CHANNEL_CAST)
             .setSmallIcon(android.R.drawable.ic_menu_slideshow)
-            .setContentTitle("The Mac wants to show this phone")
-            .setContentText("Tap to start sharing")
+            .setContentTitle(tr("The Mac wants to show this phone"))
+            .setContentText(tr("Tap to start sharing"))
             .setContentIntent(pi).setAutoCancel(true).build())
     }
 
@@ -504,8 +504,8 @@ class HubService : Service() {
             val pi = PendingIntent.getActivity(this@HubService, u.hashCode(), view, PendingIntent.FLAG_IMMUTABLE)
             getSystemService(NotificationManager::class.java).notify(u.hashCode(), Notification.Builder(this@HubService, CHANNEL_FILES)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("From the Mac: $name")
-                .setContentText("Saved in Downloads/PhoneCast · ${human(got)}")
+                .setContentTitle(tr("From the Mac: {0}", name))
+                .setContentText(tr("Saved in Downloads/PhoneCast · {0}", human(got)))
                 .setContentIntent(pi).setAutoCancel(true).build())
         }
 
@@ -593,10 +593,10 @@ class HubService : Service() {
 
     private fun notification(): Notification {
         val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val text = transfer ?: if (client != null) "Connected to ${macName ?: "the Mac"}" else "Waiting for the Mac"
+        val text = transfer ?: if (client != null) tr("Connected to {0}", macName ?: "Mac") else tr("Waiting for the Mac")
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(if (client != null) R.drawable.ic_stat_phonecast else R.drawable.ic_stat_phonecast_off)
-            .setContentTitle("PhoneCast link")
+            .setContentTitle(tr("PhoneCast link"))
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
@@ -609,7 +609,7 @@ class HubService : Service() {
     }
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
-    private fun toast(s: String) = main.post { android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show() }
+    private fun toast(s: String) = main.post { android.widget.Toast.makeText(this, tr(s), android.widget.Toast.LENGTH_SHORT).show() }
 
     /**
      * One Mac. Two send queues: control packets (pings, notifications, input echoes) always go

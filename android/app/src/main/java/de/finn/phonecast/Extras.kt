@@ -187,10 +187,10 @@ class Extras(private val ctx: Context, private val hub: HubService) {
         val stop = PendingIntent.getService(ctx, 7, Intent(ctx, HubService::class.java).setAction(ACTION_STOP_RING), PendingIntent.FLAG_IMMUTABLE)
         nm.notify(RING_NOTIF, Notification.Builder(ctx, CHANNEL_RING)
             .setSmallIcon(R.drawable.ic_stat_phonecast)
-            .setContentTitle("Found it!")
-            .setContentText("Your Mac is ringing this phone. Tap to stop.")
+            .setContentTitle(tr("Found it!"))
+            .setContentText(tr("Your Mac is ringing this phone. Tap to stop."))
             .setContentIntent(stop).setDeleteIntent(stop).setAutoCancel(true)
-            .addAction(Notification.Action.Builder(null, "Stop", stop).build())
+            .addAction(Notification.Action.Builder(null, tr("Stop"), stop).build())
             .build())
         h.postDelayed(autoStop, 60_000)   // never rings forever
         if (hub.connected) hub.sendJson(HubProto.EVENT, JSONObject().put("e", "ring").put("on", true))

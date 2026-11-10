@@ -63,7 +63,7 @@ class Ui(private val a: Activity) {
     // ---- text ----
 
     fun label(s: String = "", size: Float = 15f, bold: Boolean = false, secondary: Boolean = false) = TextView(a).apply {
-        text = s; textSize = size
+        text = tr(s); textSize = size
         setTextColor(if (secondary) text2 else this@Ui.text)
         if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         setLineSpacing(0f, 1.12f)
@@ -105,7 +105,7 @@ class Ui(private val a: Activity) {
     // ---- buttons ----
 
     private fun baseButton(s: String, fill: Int, fg: Int, onClick: () -> Unit) = Button(a).apply {
-        text = s; isAllCaps = false; textSize = 15f
+        text = tr(s); isAllCaps = false; textSize = 15f
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         setTextColor(fg)
         background = ripple(rounded(fill, 24), 24)
@@ -174,7 +174,7 @@ class Ui(private val a: Activity) {
         }
         fun refresh(subtitle: String? = null) {
             updating = true; sw.isChecked = get(); updating = false
-            sub.text = subtitle ?: ""; sub.visibility = if (subtitle.isNullOrEmpty()) View.GONE else View.VISIBLE
+            sub.text = subtitle?.let { tr(it) } ?: ""; sub.visibility = if (subtitle.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
     }
 
@@ -194,7 +194,7 @@ class Ui(private val a: Activity) {
                 setPadding(dp(3), dp(3), dp(3), dp(3))
                 for ((name, v) in options) {
                     val cell = TextView(a).apply {
-                        text = name; textSize = 14f; gravity = Gravity.CENTER
+                        text = tr(name); textSize = 14f; gravity = Gravity.CENTER
                         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                         minHeight = dp(40)
                         isClickable = true
@@ -208,7 +208,7 @@ class Ui(private val a: Activity) {
         fun refresh() {
             val cur = get()
             // a value set elsewhere (by the Mac) that isn't one of the buttons: say so in the heading
-            head.text = if (other != null && options.none { it.second == cur }) "$t · now ${other.invoke(cur)}" else t
+            head.text = if (other != null && options.none { it.second == cur }) tr(t) + " · " + other.invoke(cur) else tr(t)
             options.forEachIndexed { i, (_, v) ->
                 val on = v == cur
                 cells[i].background = if (on) rounded(tonalBg, 17) else ripple(null, 17)
@@ -244,8 +244,8 @@ class Ui(private val a: Activity) {
                 val dot = row.getChildAt(0)
                 if (r.dot == null) dot.visibility = View.GONE
                 else { dot.visibility = View.VISIBLE; dot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(r.dot) } }
-                (row.getChildAt(1) as TextView).text = r.label
-                (row.getChildAt(2) as TextView).text = r.value
+                (row.getChildAt(1) as TextView).text = tr(r.label)
+                (row.getChildAt(2) as TextView).text = tr(r.value)
             }
         }
     }
@@ -268,7 +268,7 @@ class Ui(private val a: Activity) {
         }
         fun set(color: Int, h: String, s: String) {
             dot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
-            head.text = h; sub.text = s; sub.visibility = if (s.isEmpty()) View.GONE else View.VISIBLE
+            head.text = tr(h); sub.text = tr(s); sub.visibility = if (s.isEmpty()) View.GONE else View.VISIBLE
         }
     }
 
@@ -277,13 +277,14 @@ class Ui(private val a: Activity) {
     /** "Details ▸" row that shows/hides its views. */
     fun details(t: String, vararg views: View): View {
         val box = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; views.forEach { addView(it) } }
-        val head = label("$t  ▸", 14f).apply {
+        val title = tr(t)
+        val head = label("$title  ▸", 14f).apply {
             setTextColor(accent); setPadding(0, dp(12), 0, dp(4))
             isClickable = true
             setOnClickListener {
                 val open = box.visibility != View.VISIBLE
                 box.visibility = if (open) View.VISIBLE else View.GONE
-                text = "$t  " + if (open) "▾" else "▸"
+                text = "$title  " + if (open) "▾" else "▸"
             }
         }
         return LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; addView(head); addView(box) }
