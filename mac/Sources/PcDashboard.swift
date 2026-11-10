@@ -87,7 +87,7 @@ struct PcView: View {
                         .help("Studio (video and pictures), agent chat and everything else")
                 }
                 if !d.reachable {
-                    Text("Dashboard not reachable at \(d.base) (\(d.lastError ?? "…")). It runs on ZimaOS; Tailscale must be on.")
+                    Text("Dashboard not reachable at \(d.base) (\(d.lastError ?? "…")). Is the dashboard running, and Tailscale on?")
                         .foregroundStyle(.orange)
                 }
                 statusPanel
@@ -165,13 +165,13 @@ struct PcView: View {
                 Toggle("Follow load", isOn: Binding(get: { d.stats["rgb_auto"] as? Bool ?? false },
                                                     set: { d.post("rgbauto", ["on": $0], label: "Lights") })).toggleStyle(.switch).controlSize(.small)
             }
-            HStack {
+            if PcStream.name != nil { HStack {
                 Text("Stream").foregroundStyle(.secondary)
-                Button { PC.stream(Array(PC.targets(d.os == "linux" ? PC.linux : PC.windows).prefix(1))) } label: { Label("Monitor 1", systemImage: "play.display") }
-                Button { PC.stream(Array(PC.targets(d.os == "linux" ? PC.linux : PC.windows).suffix(1))) } label: { Label("Monitor 2", systemImage: "play.display") }
-                Button { PC.stream(PC.targets(d.os == "linux" ? PC.linux : PC.windows)) } label: { Label("Both", systemImage: "rectangle.split.2x1") }
+                Button { PcStream.stream(Array(PcStream.targets(d.os == "linux" ? PcStream.linux : PcStream.windows).prefix(1))) } label: { Label("Monitor 1", systemImage: "play.display") }
+                Button { PcStream.stream(Array(PcStream.targets(d.os == "linux" ? PcStream.linux : PcStream.windows).suffix(1))) } label: { Label("Monitor 2", systemImage: "play.display") }
+                Button { PcStream.stream(PcStream.targets(d.os == "linux" ? PcStream.linux : PcStream.windows)) } label: { Label("Both", systemImage: "rectangle.split.2x1") }
             }
-            .disabled(!d.online)
+            .disabled(!d.online) }
             Text("Controls work from Tailscale devices only (the dashboard refuses everything else).").font(.caption).foregroundStyle(.tertiary)
         }
     }

@@ -5,12 +5,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * my-pc through the Hermes dashboard on ZimaOS (its JSON API): stats, wake, sleep, shut down,
+ * A PC through a Hermes dashboard (its JSON API): stats, wake, sleep, shut down,
  * boot into Linux/Windows, monitors, RGB, AI engine. The dashboard only accepts controls from
  * Tailscale addresses, so its Tailscale address works best.
  */
 object Dashboard {
-    /** e.g. http://<zimaos>:8765 — set in Settings or passed on by the Mac; "" = no PC tab. */
+    /** e.g. http://<dashboard host>:8765 — set in Settings or passed on by the Mac; "" = no PC tab. */
     @Volatile var base = ""
 
     @Volatile var stats: JSONObject? = null

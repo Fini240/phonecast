@@ -14,7 +14,7 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
-    <!-- the Hermes dashboard on ZimaOS speaks plain HTTP (over Tailscale / the home LAN) -->
+    <!-- a Hermes dashboard speaks plain HTTP (over Tailscale / the home LAN) -->
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
     <key>NSLocalNetworkUsageDescription</key><string>PhoneCast finds your phone on the local network and receives its screen.</string>
     <key>NSBonjourServices</key><array><string>_phonecast._tcp</string><string>_phonecasthub._tcp</string></array>

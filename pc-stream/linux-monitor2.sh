@@ -1,9 +1,10 @@
 #!/bin/bash
-# Second Sunshine on pc Linux that streams monitor 2 (Moonlight host "my-pc (Linux) Monitor 2",
+# Second Sunshine on the PC's Linux that streams monitor 2 (Moonlight host "<pc name> (Linux) Monitor 2",
 # port 48089). Also stops the older setup that switched monitor 2 off during a stream.
-# Run as finn on pc: bash linux-monitor2.sh <web-ui password>
+# Run as your user on the PC: bash linux-monitor2.sh <web-ui password> [pc name, default: hostname]
 set -e
-PW="$1"; [ -n "$PW" ] || { echo "usage: $0 <web ui password>"; exit 1; }
+PW="$1"; [ -n "$PW" ] || { echo "usage: $0 <web ui password> [pc name]"; exit 1; }
+PC="${2:-$(hostname)}"
 C=~/.config/sunshine; M=~/.config/sunshine-m2
 cp $C/sunshine.conf $C/sunshine.conf.bak-$(date +%Y%m%d-%H%M)
 # monitor 1: KMS output 0, no more switching the other monitor off
@@ -15,7 +16,7 @@ systemctl --user disable --now sunshine-single-monitor.service 2>/dev/null || tr
 mkdir -p $M/credentials
 cp $C/apps.json $M/apps.json 2>/dev/null || true
 cat > $M/sunshine.conf <<CONF
-sunshine_name = my-pc (Linux) Monitor 2
+sunshine_name = $PC (Linux) Monitor 2
 port = 48089
 capture = kms
 output_name = 1
@@ -28,7 +29,7 @@ cert = $M/credentials/cacert.pem
 log_path = $M/sunshine.log
 CONF
 SUN=$(command -v sunshine)
-$SUN $M/sunshine.conf --creds finn "$PW" | tail -1
+$SUN $M/sunshine.conf --creds "$USER" "$PW" | tail -1
 
 # same unit as the main Sunshine (incl. its display-wake ExecStartPre), other config
 MAIN=app-dev.lizardbyte.app.Sunshine.service
