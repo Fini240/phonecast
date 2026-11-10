@@ -8,6 +8,12 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Messages (SMS), calls, contacts, photos, phone files and apps** in one Mac window.
 - **Files** both ways (folders as .zip), **clipboard** both ways (copy on the phone lands on the Mac by itself) and links.
 - **Monitor**: battery, heat and link latency of the phone and the Mac, plus your other machines.
+- **Now playing**: the phone's music or video with play/pause and skip, in the menu bar and on Overview.
+- **Find my phone**: rings the phone at full volume, even on silent.
+- **Game controllers**: an Xbox, PlayStation or Switch Pro controller on the Mac plays phone games.
+- **New screenshots** on the phone land on the Mac (Downloads and clipboard) by themselves.
+- **The app icon shows the link**: the little phone's screen is lit while the phone and the computer are
+  connected, dark when not (Mac Dock and menu bar, Android home screen, Windows taskbar).
 
 No developer options or USB debugging needed.
 
@@ -61,7 +67,7 @@ icon) after you close it. Turn on **Open PhoneCast at login** in Settings so it'
 
 | Section | What it does |
 |---|---|
-| Overview | Phone and Mac battery, heat, CPU, memory, link latency; other machines (edit the list in Settings) |
+| Overview | Phone and Mac battery, heat, CPU, memory, link latency; now playing; **Find phone**; other machines (edit the list in Settings) |
 | Mirror | Asks the phone to share its screen and opens the mirror window |
 | Notifications | History of phone notifications; reply, clear, open on phone; right-click to silence an app |
 | Messages | SMS conversations: read, reply, start new ones. WhatsApp/Signal/RCS chats are answered from Notifications |
@@ -83,7 +89,12 @@ App info → ⋮ → **Allow restricted settings**.
   front read the clipboard, so when the Accessibility service sees a copy ("Copy" button, "Copied" toast,
   the clipboard preview), an invisible PhoneCast screen comes to the front for a moment, reads it and closes.
   Passwords marked sensitive are skipped. Turn it off in the phone app.
-- **Share → "PhoneCast to Mac"** from any app: files go to `~/Downloads/PhoneCast`, text and links to the Mac's clipboard.
+- **Share → "PhoneCast to Mac"** from any app: files go to `~/Downloads/PhoneCast`, web links open in the
+  Mac's browser, other text goes to the Mac's clipboard.
+- **New screenshots** go to the Mac by themselves (`~/Downloads/PhoneCast` and the clipboard, ready to paste).
+  Turn it off in the phone app → Settings.
+- **Menu bar:** what the phone is playing with ⏮ ⏯ ⏭, and **Ring phone** to find it (it rings on silent too;
+  stop it from the Mac or the phone's notification; it stops by itself after a minute).
 - **Control the Mac from this phone:** tap = click, drag = drag, long press or two-finger tap = right click,
   two fingers = scroll; the top bar has a keyboard, Esc, Tab, arrows and ⌘ ⌥ ⌃ ⇧. The Mac needs
   **Screen Recording** and **Accessibility** for PhoneCast (Settings shows both).
@@ -115,6 +126,12 @@ middle-click for Home. Typing goes into the focused text field.
 2. **⌘G** starts mouse aiming, which captures the mouse. Esc leaves it. **⌘+ / ⌘−** change the speed.
 3. For aiming without mouse acceleration, allow PhoneCast under System Settings → Privacy & Security →
    **Input Monitoring**, then reopen the app. Without it, PhoneCast falls back to accelerated mouse movement.
+
+**Game controller** (Xbox, PlayStation, Switch Pro, any MFi controller connected to the Mac): the left stick
+is the movement joystick (half a push = walk), the right stick looks around (needs the look area), and
+buttons, triggers and the d-pad are bound like keys: in the key map (⌘E) click a spot, then press the
+controller button (purple markers). With a spot picked, pushing a stick sets the joystick or the look area
+there. The controller works while PhoneCast is the front app.
 
 ## Fitting your screen
 
