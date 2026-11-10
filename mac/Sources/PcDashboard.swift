@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// my-pc through the Hermes dashboard on ZimaOS (its JSON API): live stats, wake, sleep,
+/// A PC through a Hermes dashboard (its JSON API): live stats, wake, sleep,
 /// shut down, boot into Linux or Windows, monitors, RGB, AI engine, loaded models, tokens.
 /// Control needs a Tailscale address (the dashboard only accepts it from the tailnet).
 final class PcDashboard: ObservableObject {
@@ -16,7 +16,7 @@ final class PcDashboard: ObservableObject {
     private var watchers = 0
 
     var base: String {
-        get { UserDefaults.standard.string(forKey: "dashboardURL") ?? "http://100.64.0.4:8765" }
+        get { (UserDefaults.standard.string(forKey: "dashboardURL") ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) }
         set { UserDefaults.standard.set(newValue, forKey: "dashboardURL") }
     }
 
@@ -30,7 +30,7 @@ final class PcDashboard: ObservableObject {
     }
 
     func refresh() {
-        guard let u = URL(string: base + "/api/stats") else { return }
+        guard !base.isEmpty, let u = URL(string: base + "/api/stats") else { return }
         var r = URLRequest(url: u); r.timeoutInterval = 4
         URLSession.shared.dataTask(with: r) { d, _, e in
             let o = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -81,7 +81,7 @@ struct PcView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("my-pc").font(.largeTitle.bold())
+                    Text("PC").font(.largeTitle.bold())
                     Spacer()
                     Button { NSWorkspace.shared.open(URL(string: d.base)!) } label: { Label("Full dashboard", systemImage: "safari") }
                         .help("Studio (video and pictures), agent chat and everything else")
@@ -119,7 +119,7 @@ struct PcView: View {
     }
 
     private var gpuPanel: some View {
-        Panel(title: "Graphics (RX 6700 XT)", symbol: "cpu") {
+        Panel(title: "Graphics", symbol: "cpu") {
             Row("Busy", pct(d.pc["busy"]))
             Row("Video memory", "\(gb(d.pc["vram_used"])) of \(gb(d.pc["vram_total"]))")
             Row("Temperature", temp(d.pc["temp"]) + (num(d.pc["temp_edge"]).map { String(format: " (edge %.0f)", $0) } ?? ""))

@@ -31,6 +31,10 @@ final class HubLink {
 
     /// SHA-256 of the phone's TLS certificate seen on this connection.
     private(set) var certFingerprint: String?
+    /// The phone accepted the PIN (HELLO_OK). Nothing but pings is acted on before that.
+    private(set) var ready = false
+    /// First pairing (no key pinned yet): ask the user to compare the key BEFORE the PIN is sent.
+    var confirmFirst: ((String, @escaping (Bool) -> Void) -> Void)?
 
     /// `trust(fingerprint)` decides whether this is the paired phone (key pinned on first pairing).
     init(endpoint: NWEndpoint, trust: @escaping (String) -> Bool) {
@@ -62,7 +66,13 @@ final class HubLink {
         conn.stateUpdateHandler = { [weak self] st in
             guard let self else { return }
             switch st {
-            case .ready: self.certFingerprint = self.fpGetter(); self.send(HT.hello, hello); self.readHeader()
+            case .ready:
+                self.certFingerprint = self.fpGetter()
+                if let ask = self.confirmFirst, let fp = self.certFingerprint {
+                    ask(fp) { ok in
+                        self.queue.async { if ok { self.send(HT.hello, hello); self.readHeader() } else { self.finish("pairing cancelled") } }
+                    }
+                } else { self.send(HT.hello, hello); self.readHeader() }
             case .failed(let e): self.finish("failed: \(e.localizedDescription)")
             case .waiting(let e): self.finish("unreachable: \(e.localizedDescription)")
             case .cancelled: self.finish("disconnected")
@@ -100,7 +110,7 @@ final class HubLink {
     }
 
     private func deliver(_ t: UInt8, _ p: Data) {
-        if t == HT.helloOK { onReady?() }
+        if t == HT.helloOK { ready = true; onReady?() }
         if t == HT.helloBad { finish(p == Data("locked".utf8) ? "locked" : "wrong PIN"); return }
         onPacket?(t, p)
     }
@@ -223,6 +233,9 @@ final class Hub: NSObject, NSMenuDelegate {
             guard let pinned = UserDefaults.standard.string(forKey: "phoneKey") else { return true }
             return pinned == fp
         }
+        if UserDefaults.standard.string(forKey: "phoneKey") == nil {
+            l.confirmFirst = { [weak self] fp, answer in DispatchQueue.main.async { self?.confirmPairing(fp, answer) ?? answer(false) } }
+        }
         link = l
         if !store.connected { store.linkState = "Connecting to \(label)…" }
         let hello = try! JSONSerialization.data(withJSONObject: ["pin": pin, "name": Host.current().localizedName ?? "Mac"])
@@ -275,6 +288,28 @@ final class Hub: NSObject, NSMenuDelegate {
         l.start(hello: hello)
     }
 
+    private var rejectedKeys = Set<String>()
+    private var asking = false
+
+    /// First pairing: the phone app shows its link key in Settings; only send the PIN if they match.
+    private func confirmPairing(_ fp: String, _ answer: @escaping (Bool) -> Void) {
+        if rejectedKeys.contains(fp) || asking { answer(false); return }
+        if let pinned = UserDefaults.standard.string(forKey: "phoneKey") { answer(pinned == fp); return }
+        asking = true
+        let short = stride(from: 0, to: 32, by: 4).map { i -> String in
+            let a = fp.index(fp.startIndex, offsetBy: i); return String(fp[a..<fp.index(a, offsetBy: 4)])
+        }.joined(separator: " ")
+        let a = NSAlert()
+        a.messageText = "Pair with this phone?"
+        a.informativeText = "Open PhoneCast on the phone → Settings. Its link key must be exactly:\n\n\(short)\n\nIf it's different, something else on this network is pretending to be your phone: don't pair."
+        a.addButton(withTitle: "Same key, pair"); a.addButton(withTitle: "Different / cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        let ok = a.runModal() == .alertFirstButtonReturn
+        asking = false
+        if ok { UserDefaults.standard.set(fp, forKey: "phoneKey") } else { rejectedKeys.insert(fp) }
+        answer(ok)
+    }
+
     private func scheduleRetry(_ after: Double = 4) {
         retryWork?.cancel()
         let w = DispatchWorkItem { [weak self] in self?.connect() }
@@ -322,6 +357,8 @@ final class Hub: NSObject, NSMenuDelegate {
     // MARK: packets (on the link queue)
 
     private func packet(_ l: HubLink, _ t: UInt8, _ p: Data) {
+        // nothing from a link that hasn't been accepted with the PIN may click, type or write files
+        guard l.ready || t == HT.helloOK || t == HT.ping else { return }
         switch t {
         case HT.ping: l.send(HT.pong, p)
         case HT.input: screen.input(p)       // straight from the network queue: lowest delay
@@ -524,6 +561,7 @@ final class Hub: NSObject, NSMenuDelegate {
             if let ms = r.ms { d["ms"] = Int(ms.rounded()) }
             return d
         }
+        if !PcDashboard.shared.base.isEmpty { o["dashboard"] = PcDashboard.shared.base }   // the phone's PC tab uses it too
         if let t = store.transfers.first(where: { $0.state == .running }) { o["transfer"] = "\(t.outgoing ? "Sending" : "Receiving") \(t.name) \(Int(t.progress * 100)) %" }
         if let d = try? JSONSerialization.data(withJSONObject: o) { l.send(HT.status, d) }
     }
@@ -677,12 +715,7 @@ final class DeviceProbes {
     var onUpdate: (([Result]) -> Void)?
     private let q = DispatchQueue(label: "phonecast.probes")
 
-    static let defaultConfig = """
-    my-pc (Linux)   100.64.0.2:22
-    my-pc (Windows) 100.64.0.3:47989
-    ZimaOS                100.64.0.4:22
-    TrueNAS               100.64.0.5:443
-    """
+    static let defaultConfig = ""   // set in Settings → Devices to watch
 
     var config: String {
         get { UserDefaults.standard.string(forKey: "monitorDevices") ?? Self.defaultConfig }

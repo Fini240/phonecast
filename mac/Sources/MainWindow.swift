@@ -54,12 +54,15 @@ final class MainWindowController {
 struct MainView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var nav: MainWindowController.Nav
+    @ObservedObject var dash = PcDashboard.shared
+    /// The PC page only for people with a Hermes dashboard (address in Settings).
+    private var hasPc: Bool { !dash.base.isEmpty }
 
     var body: some View {
         NavigationSplitView {
             List(selection: Binding(get: { nav.section }, set: { if let s = $0 { nav.section = s } })) {
                 PhoneHeader()
-                ForEach(Pane.allCases) { s in
+                ForEach(Pane.allCases.filter { $0 != .pc || hasPc }) { s in
                     Label(s.rawValue, systemImage: s.symbol)
                         .badge(badge(s))
                         .tag(s)
@@ -852,6 +855,7 @@ struct SettingsView: View {
     @State private var host = UserDefaults.standard.string(forKey: "host") ?? ""
     @State private var tailnet = UserDefaults.standard.string(forKey: "tailnetHost") ?? ""
     @State private var devices = Hub.shared.probes.config
+    @State private var dashURL = PcDashboard.shared.base
     @State private var login = Hub.loginEnabled
     @State private var axOK = AXIsProcessTrusted()
     @State private var screenOK = CGPreflightScreenCaptureAccess()
@@ -915,6 +919,14 @@ struct SettingsView: View {
                 Toggle("Copy to the phone automatically when I copy on the Mac", isOn: $store.autoClipboard)
                 Text("From the phone: Share → “PhoneCast to Mac”, or the “Clipboard to Mac” Quick Settings tile. Android doesn't let apps read the clipboard in the background.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("PC (Hermes dashboard)") {
+                TextField("Dashboard address, e.g. http://100.x.y.z:8765 (empty = no PC page)", text: $dashURL)
+                HStack {
+                    Text("Use its Tailscale address: the dashboard only accepts controls from Tailscale devices. The phone gets it too.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Save") { PcDashboard.shared.base = dashURL.trimmingCharacters(in: .whitespaces); PcDashboard.shared.objectWillChange.send() }
+                }
             }
             Section("Devices to watch") {
                 TextEditor(text: $devices).font(.system(.body, design: .monospaced)).frame(height: 90)

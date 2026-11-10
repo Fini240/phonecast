@@ -71,7 +71,7 @@ class Features(private val ctx: Context, private val hub: HubService) {
         "photo.get" -> { hub.sendUriAsFile(Uri.parse(p.getString("uri")), p.optInt("req")); true }
         "files" -> files(p.optString("path", ""))
         "file.get" -> { hub.sendPathAsFile(p.getString("path"), p.optInt("req")); true }
-        "file.delete" -> File(storagePath(p.getString("path"))).deleteRecursively()
+        "file.delete" -> deletePath(p.getString("path"))
         "apps" -> apps()
         "app.open" -> openApp(p.getString("pkg"))
         else -> throw IllegalArgumentException("unknown request $m")
@@ -272,8 +272,17 @@ class Features(private val ctx: Context, private val hub: HubService) {
     /** Paths from the Mac are relative to the phone's storage root ("" = root). */
     fun storagePath(rel: String): String {
         val f = File(root, rel.trimStart('/')).canonicalFile
-        require(f.path.startsWith(root)) { "outside storage" }
+        // inside the storage root only ("/storage/emulated/0x" must not pass as "…/0")
+        require(f.path == root || f.path.startsWith("$root/")) { "outside storage" }
         return f.path
+    }
+
+    /** Deletes a file or folder, but never the storage root or a top-level folder (DCIM, Download…). */
+    private fun deletePath(rel: String): Boolean {
+        if (!Environment.isExternalStorageManager()) throw SecurityException("files")
+        val f = File(storagePath(rel))
+        require(f.path != root && f.parentFile?.path != root) { "PhoneCast doesn't delete the storage or its top-level folders" }
+        return f.deleteRecursively()
     }
 
     private fun files(rel: String): JSONObject {

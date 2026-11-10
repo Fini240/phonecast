@@ -36,7 +36,7 @@ import java.net.NetworkInterface
 
 /**
  * The phone app: a bottom bar with Home (link + quick actions), Mac (control it, media keys),
- * PC (pc: Moonlight, wake), Cast (share this phone's screen) and Settings.
+ * PC (Hermes dashboard: wake, sleep, boot, lights…; Moonlight), Cast (share this phone's screen) and Settings.
  */
 class MainActivity : Activity() {
 
@@ -313,9 +313,9 @@ class MainActivity : Activity() {
             val pc = Dashboard.pc
             val st = Dashboard.stats
             head.text = when {
-                st == null -> "my-pc"
-                Dashboard.online -> "● my-pc · ${Dashboard.os.replaceFirstChar { it.uppercase() }}"
-                else -> "○ my-pc is asleep or off"
+                st == null -> "PC"
+                Dashboard.online -> "● PC · ${Dashboard.os.replaceFirstChar { it.uppercase() }}"
+                else -> "○ The PC is asleep or off"
             }
             sub.text = Dashboard.error ?: st?.optJSONObject("boot")?.optString("message") ?: ""
             stats.text = if (pc == null || !Dashboard.online) "" else buildString {
@@ -361,7 +361,7 @@ class MainActivity : Activity() {
             card(label("Use the PC", 16f, bold = true),
                 label("Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad.", 13f, alpha = 0.7f),
                 button("Open Moonlight") { openMoonlight() },
-                button("Full dashboard (Studio, agent chat…)") { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Dashboard.TAILNET))) },
+                button("Full dashboard (Studio, agent chat…)") { if (Dashboard.base.isNotEmpty()) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Dashboard.base))) },
                 label("Controls work while Tailscale is on (the dashboard refuses everything else).", 12f, alpha = 0.6f)),
         )
     }
@@ -392,6 +392,14 @@ class MainActivity : Activity() {
             } catch (_: Exception) {}
             ui.post { toast(if (sent > 0) "Wake signal sent. The PC needs about 20 s to boot." else "Couldn't send (no Wi-Fi?)") }
         }.start()
+    }
+
+    private fun askDashboard() {
+        val f = EditText(this).apply { setText(Prefs.dashboard(this@MainActivity)); hint = "http://100.x.y.z:8765"; inputType = InputType.TYPE_TEXT_VARIATION_URI }
+        AlertDialog.Builder(this).setTitle("Hermes dashboard address")
+            .setMessage("Empty = use the one set on the Mac.")
+            .setView(f).setPositiveButton("Save") { _, _ -> Prefs.setDashboard(this, f.text.toString().trim()); tick() }
+            .setNegativeButton("Cancel", null).show()
     }
 
     private fun askPcMac() {
@@ -477,6 +485,7 @@ class MainActivity : Activity() {
         val notifBtn = button("Show phone notifications on the Mac") { openNotificationAccess() }
         val clipBtn = button("") { Prefs.setAutoClip(this, !Prefs.autoClip(this)); tick() }
         val featView = label("", 14f)
+        val dashView = label("", 13f, alpha = 0.75f)
         val featBtn = button("Allow messages, calls, contacts & photos") { requestFeatures() }
         val filesBtn = button("Allow browsing phone files from the Mac") {
             try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
@@ -501,10 +510,16 @@ class MainActivity : Activity() {
             }
         }
         keyView.text = "Link key (the Mac shows the same in Settings):\n" + Auth.fingerprint()
+        updaters += {
+            dashView.text = if (Dashboard.base.isEmpty()) "Not set. With a Hermes dashboard the PC tab shows the PC and its controls."
+                else Dashboard.base + if (Prefs.dashboard(this).isEmpty()) "  (from the Mac)" else ""
+        }
         return page("Settings",
             card(label("Pairing PIN (enter it on the Mac once)", 13f, alpha = 0.7f), pinView, addrView, keyView,
                 button("New PIN (unpairs every Mac)") { Prefs.newPin(this); toast("New PIN. Enter it on the Mac again."); tick() }),
             card(label("On the Mac", 16f, bold = true), notifBtn, clipBtn),
+            card(label("PC (Hermes dashboard)", 16f, bold = true), dashView,
+                button("Set the dashboard address…") { askDashboard() }),
             card(label("Phone features on the Mac", 16f, bold = true), featView, featBtn, filesBtn),
         )
     }
@@ -512,6 +527,11 @@ class MainActivity : Activity() {
     // ---- refresh ----
 
     private fun tick() {
+        // the PC tab only exists for people with a Hermes dashboard (set here or on the Mac)
+        Dashboard.base = Prefs.dashboard(this).ifEmpty { HubService.instance?.macStatus?.optString("dashboard") ?: "" }.trimEnd('/')
+        val hasPc = Dashboard.base.isNotEmpty()
+        tabViews["pc"]?.visibility = if (hasPc) View.VISIBLE else View.GONE
+        if (!hasPc && current == "pc") show("home")
         updaters.forEach { it() }
         ui.removeCallbacksAndMessages(null)
         ui.postDelayed({ tick() }, 1000)

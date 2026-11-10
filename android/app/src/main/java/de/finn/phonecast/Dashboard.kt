@@ -7,11 +7,11 @@ import java.net.URL
 /**
  * my-pc through the Hermes dashboard on ZimaOS (its JSON API): stats, wake, sleep, shut down,
  * boot into Linux/Windows, monitors, RGB, AI engine. The dashboard only accepts controls from
- * Tailscale addresses, so those go to its tailnet address; reading falls back to the home LAN.
+ * Tailscale addresses, so its Tailscale address works best.
  */
 object Dashboard {
-    const val TAILNET = "http://100.64.0.4:8765"
-    const val LAN = "http://192.168.1.4:8765"
+    /** e.g. http://<zimaos>:8765 — set in Settings or passed on by the Mac; "" = no PC tab. */
+    @Volatile var base = ""
 
     @Volatile var stats: JSONObject? = null
         private set
@@ -31,8 +31,8 @@ object Dashboard {
         lastPoll = now; polling = true
         Thread {
             try {
-                val o = get(TAILNET) ?: get(LAN)
-                if (o != null) { stats = o; error = null } else error = "Dashboard not reachable (Tailscale or home Wi-Fi needed)"
+                val o = if (base.isEmpty()) null else get(base)
+                if (o != null) { stats = o; error = null } else error = "Dashboard not reachable at $base"
             } finally { polling = false }
         }.start()
     }
@@ -47,7 +47,8 @@ object Dashboard {
     fun action(path: String, body: JSONObject, done: (String) -> Unit) {
         Thread {
             val msg = try {
-                val c = URL("$TAILNET/api/$path").openConnection() as HttpURLConnection
+                if (base.isEmpty()) throw IllegalStateException("no dashboard address set")
+                val c = URL("$base/api/$path").openConnection() as HttpURLConnection
                 c.requestMethod = "POST"; c.doOutput = true
                 c.connectTimeout = 4000; c.readTimeout = 30000
                 c.setRequestProperty("Content-Type", "application/json")

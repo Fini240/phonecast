@@ -101,6 +101,10 @@ object Prefs {
     fun autoClip(c: Context): Boolean = p(c).getBoolean("autoClip", true)
     fun setAutoClip(c: Context, v: Boolean) = p(c).edit().putBoolean("autoClip", v).apply()
 
+    /** Hermes dashboard address ("" = learn it from the Mac; no PC tab without one). */
+    fun dashboard(c: Context): String = p(c).getString("dashboard", "") ?: ""
+    fun setDashboard(c: Context, v: String) = p(c).edit().putString("dashboard", v).apply()
+
     /** The PC's network card address for Wake-on-LAN ("" = not set). */
     fun pcMac(c: Context): String = p(c).getString("pcMac", "") ?: ""
     fun setPcMac(c: Context, v: String) = p(c).edit().putString("pcMac", v).apply()

@@ -152,6 +152,11 @@ lost over half the frames. On the phone's Moonlight, set about 15–20 Mbit/s wh
   cable that's local anyway; away from home use Tailscale, which encrypts everything.
 - **Wi-Fi (mirror):** someone on the same network could watch the unencrypted picture while you share.
   Use networks you trust (or the cable / Tailscale) and stop sharing when you're done.
+- **Permissions & Play Protect:** the phone features ask for messages, calls, contacts, photos and all-files
+  access. Together with Accessibility that makes Google Play Protect even stricter about a sideloaded APK
+  (see Install). Only allow the features you use. The Mac keeps the PIN and keys in its app settings.
+- **PC page:** only appears once you enter a Hermes dashboard address in
+  Settings; it shows that PC's stats and passes on wake / sleep / boot / lights requests to the dashboard.
 - **Accessibility access:** this permission lets PhoneCast tap and type on your phone, so only install
   builds you trust.
 
