@@ -9,8 +9,10 @@ or a USB cable (USB tethering).
 1. Download `PhoneCast-windows-x64.zip` from the release and unzip it anywhere (for example to
    `C:\Users\you\PhoneCast`).
 2. Start `PhoneCast.exe`. No .NET or other runtime is needed.
-3. Open PhoneCast on the phone and tap **Start sharing**. In the Windows app, choose the phone
-   (or type its IP) and enter the PIN shown on the phone.
+3. Pair once: **Device → Pair with QR code** (Ctrl+P) shows a code; on the phone open PhoneCast →
+   Settings → **Scan computer's QR code**, then click Done. (Or use the PIN from the phone app in the
+   Connect dialog, Ctrl+K.)
+4. Open PhoneCast on the phone and tap **Start sharing**. The PC connects by itself.
 
 Windows SmartScreen may warn the first time, because the app isn't signed. Click "More info",
 then "Run anyway".
@@ -49,7 +51,7 @@ Ctrl is used wherever the Mac version uses ⌘:
 | Ctrl+T | Keys type text instead of pressing mapped buttons |
 | Ctrl+= / Ctrl+- | Mouse aiming faster / slower |
 | Ctrl+M / Ctrl+O | Mute / stats overlay |
-| Ctrl+K / Ctrl+Shift+D | Connect / disconnect |
+| Ctrl+K / Ctrl+P / Ctrl+Shift+D | Connect / pair with QR code / disconnect |
 | Ctrl+I | List of shortcuts |
 
 Mouse: a click is a tap, a drag is a swipe, and the wheel or touchpad scrolls. Right-click or

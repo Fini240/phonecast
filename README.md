@@ -42,8 +42,13 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
 
 - **USB cable:** plug the phone into the Mac with a data cable and open PhoneCast on the Mac. Allow
   PhoneCast on the phone when it asks about the USB accessory.
-- **Wi-Fi:** put both on the same trusted network, open PhoneCast on the Mac, pick the phone, and enter
-  the PIN shown in the phone app.
+- **Pair once with a QR code (recommended):** the Mac (PhoneCast → Settings) or Windows PC (Device →
+  Pair with QR code, Ctrl+P) shows a QR code; on the phone open PhoneCast → Settings → **Scan computer's
+  QR code**. No PIN afterwards: on every connection the computer and the phone prove to each other that
+  they know the code's secret, so nobody can pretend to be either of them. Remove computers in the
+  phone's Settings.
+- **Wi-Fi:** put both on the same trusted network, open PhoneCast on the Mac, pick the phone, and (if
+  you didn't pair with the QR code) enter the PIN shown in the phone app.
 - **Other networks:** the phone gets a new IP on every Wi-Fi, so the Mac doesn't rely on the saved one: it
   tries the phone it finds on the current network first, then the saved IP. Where the network keeps devices
   apart (some school or hotel Wi-Fi), install [Tailscale](https://tailscale.com) on both and enter the
@@ -157,8 +162,9 @@ When `homeNetworkPrefix` is set and the Mac isn't on that network, the menu stre
   anti-cheat systems could flag it. **Your account could be penalised or banned.** This is untested,
   so use it at your own risk and check the game's terms first.
 - **Encryption:** the link (notifications, messages, files, clipboard, Mac control) uses TLS 1.3 with a
-  key that stays in the phone's keystore; the Mac pins it at the first pairing (compare the key shown in
-  the phone app and in the Mac's Settings once). The mirror proves itself with a 256-bit key it received
+  key that stays in the phone's keystore. With QR pairing the Mac checks that key by itself (both sides
+  prove the code's secret, bound to that key); with the PIN, compare the key shown in the phone app and in
+  the Mac's Settings once. Failed QR logins don't use up the PIN tries. The mirror proves itself with a 256-bit key it received
   over that link, so the PIN isn't sent in the clear, and 5 wrong PINs lock both for 5 minutes.
   **The mirror's video and touches are not encrypted**, to keep game latency as low as possible: on the
   cable that's local anyway; away from home use Tailscale, which encrypts everything.
