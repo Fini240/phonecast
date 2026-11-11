@@ -106,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         Hub.shared.start()
         try? AgentShell.writeScript()
         AgentHub.shared.start()
+        AgentWeb.shared.start()
         UpdateCheck.shared.start()
         AutoLock.shared.start()
         view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }

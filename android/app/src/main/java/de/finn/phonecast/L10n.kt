@@ -402,4 +402,8 @@ private val DE = mapOf(
     "Claude account {0}" to "Claude-Konto {0}",
     "used by {0}" to "genutzt von {0}",
     "+{0} more" to "+{0} weitere",
+    "logged in now" to "jetzt angemeldet",
+    "Share chat…" to "Chat teilen…",
+    "Share chat" to "Chat teilen",
+    "You" to "Du",
 )

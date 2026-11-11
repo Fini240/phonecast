@@ -222,7 +222,7 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
   in as keystrokes, with keys for arrows, Enter, Esc, Tab, Backspace and Ctrl-C.
 - **Files**: browse and read the project's files (⋯ → Files); type `@` in a message for file suggestions; attach any
   file (not just photos), it lands on the Mac and the agent gets its path.
-- **Fork** a chat (a copy that continues on its own), **rename** a Claude chat.
+- **Fork** a chat (a copy that continues on its own), **rename** a Claude chat, **share** a chat as Markdown.
 - **Recovery**: when a chat stops at a usage limit, PhoneCast can send "continue" a minute after the limit resets
   (all chats or per chat), and it tells you when an agent seems stuck (no progress for 10 minutes, adjustable).
 - **Offline**: messages written while the Mac is away wait on the phone and go out when it's back.
@@ -240,6 +240,15 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
 - While an agent works, the Mac doesn't go to sleep (the display still may).
 
 Chats started outside the integration (another terminal, an IDE) are shown read-only.
+
+### Agents in a browser (iPad, school laptop, any computer)
+
+No app needed: the Mac serves the same Agents screens on port 27190. Open `http://<the Mac's address>:27190`
+(shown at the top of the Mac's Agents page) on a device on the same Wi-Fi or on Tailscale and sign in once with
+the 6-digit code shown there (also in `~/.phonecast/agents/web-code`). Everything works there too: replies,
+questions, live terminal, changes and git, files, commands, usage and budgets, new chats, other machines. The Mac's
+own Agents page is the same view. Only home-network and Tailscale addresses are served; wrong codes lock sign-in
+for five minutes; "Sign out all browsers" on the Mac revokes every sign-in.
 
 ## Before you use it
 

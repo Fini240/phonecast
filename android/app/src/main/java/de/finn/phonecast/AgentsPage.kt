@@ -272,7 +272,8 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                 val chats = Agents.sessions.filter { !it.optBoolean("sub") && it.optString("nativeId") in ids }
                     .sortedByDescending { it.optLong("updatedAt") }.map { it.optString("title") }
                 val who = if (accs.length() > 1) chats.take(2).joinToString(", ").ifEmpty { null }?.let { t -> tr("used by {0}", t) + if (chats.size > 2) " " + tr("+{0} more", chats.size - 2) else "" } else null
-                groups += Triple(if (accs.length() > 1) tr("Claude account {0}", i + 1) else "Claude", who, acc.optJSONArray("limits") ?: org.json.JSONArray())
+                val name = if (accs.length() > 1) tr("Claude account {0}", i + 1) + (if (acc.optBoolean("current")) " · " + tr("logged in now") else "") else "Claude"
+                groups += Triple(name, who, acc.optJSONArray("limits") ?: org.json.JSONArray())
             }
         } else p.optJSONArray("claude")?.let { groups += Triple("Claude", null, it) }
         p.optJSONArray("codex")?.let { groups += Triple("Codex", null, it) }
@@ -801,6 +802,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         if (s.optString("nativeId").isNotEmpty() && !s.optBoolean("sub") && s.optString("agent") in setOf("claude", "codex")) m.menu.add(0, 11, 0, tr("Fork this chat"))
         if (s.optBoolean("managed") && s.optString("agent") == "claude") m.menu.add(0, 12, 0, tr("Rename…"))
         m.menu.add(0, 13, 0, tr("Open dev server…"))
+        m.menu.add(0, 15, 0, tr("Share chat…"))
         if (s.optBoolean("managed")) m.menu.add(0, 14, 0, tr("Continue after usage limits")).apply { isCheckable = true; isChecked = recoveryChat ?: false }
         s.optString("parent").ifEmpty { null }?.let { p -> m.menu.add(0, 6, 0, tr("Open parent chat")) }
         m.setOnMenuItemClickListener {
@@ -825,6 +827,13 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                         }.show()
                 }
                 13 -> devServers(s)
+                15 -> {
+                    // the chat as Markdown (without tool lines) for any app: notes, mail, a friend
+                    val md = "# " + s.optString("title") + "\n\n" + Agents.messages.filter { it.optString("r") != "tool" }.joinToString("\n\n") {
+                        when (it.optString("r")) { "user" -> "**" + tr("You") + ":** " + it.optString("t"); "system" -> "_" + it.optString("t") + "_"; else -> it.optString("t") }
+                    }
+                    a.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, s.optString("title")).putExtra(Intent.EXTRA_TEXT, md), tr("Share chat")))
+                }
                 14 -> { val on = !(recoveryChat ?: false); Agents.request("recovery", JSONObject().put("sid", s.optString("id")).put("chat", JSONObject().put("continue", on))) { d, e -> e?.let(::toast); recoveryChat = d?.optBoolean("continue") } }
             }
             true

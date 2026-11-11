@@ -150,6 +150,9 @@ final class AgentPreview {
     private var listeners: [UInt16: (NWListener, Date)] = [:]
     private let q = DispatchQueue(label: "phonecast.preview")
     var phoneHost: String?
+    private var allowed = Set<String>()
+    /// A signed-in browser may open previews too.
+    func allow(_ ip: String) { q.async { self.allowed.insert(ip) } }
 
     static let urlRe = Rx(#"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::(\d{2,5}))?(/[^\s)\]"'`>]*)?"#)
 
@@ -194,7 +197,7 @@ final class AgentPreview {
         if case .hostPort(let h, _) = c.endpoint {
             let ip = ("\(h)".split(separator: "%").first.map(String.init) ?? "").replacingOccurrences(of: "::ffff:", with: "")
             if let phone = phoneHost?.replacingOccurrences(of: "::ffff:", with: "") {
-                if ip != phone { c.cancel(); return }
+                if ip != phone && !allowed.contains(ip) { c.cancel(); return }
             } else if !(ip.hasPrefix("100.") || ip.hasPrefix("192.168.") || ip.hasPrefix("10.")) { c.cancel(); return }
         }
         listeners[port]?.1 = Date()

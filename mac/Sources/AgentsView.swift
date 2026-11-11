@@ -1,79 +1,45 @@
 import AppKit
 import SwiftUI
+import WebKit
 
-extension AgentSession: Identifiable {}
-
-/// The Mac's Agents page: the same chats the phone sees, plus the terminal integration switch.
+/// The Mac's Agents page: the same web UI an iPad or any browser gets (AgentWebUI), plus the terminal
+/// integration switch and how to open Agents on another device.
 struct AgentsView: View {
-    @ObservedObject var hub = AgentHub.shared
-    @State private var selection: String?
-    @State private var filter = "all"
-    @State private var query = ""
     @State private var installed = AgentShell.installed()
     @State private var legacy = AgentShell.legacyInstalled()
     @State private var error: String?
-    @State private var hostsText = (UserDefaults.standard.stringArray(forKey: "agentHosts") ?? []).joined(separator: ", ")
-    @State private var showHosts = false
-
-    private var tops: [AgentSession] {
-        hub.sessions.filter { s in
-            !s.isSubagent && (query.isEmpty || s.title.localizedCaseInsensitiveContains(query) || (s.cwd ?? "").localizedCaseInsensitiveContains(query))
-                && (filter == "all" || (filter == "you" && (s.status == "needs_input" || hub.asks[s.id] != nil)) || (filter == "running" && (s.live || s.status == "working")))
-        }
-    }
+    @State private var code = AgentWeb.shared.code
+    @State private var showWeb = false
 
     var body: some View {
         VStack(spacing: 0) {
             if !installed || legacy { integrationBanner }
-            HSplitView {
-                VStack(spacing: 0) {
-                    HStack {
-                        Picker("", selection: $filter) {
-                            Text(tr("All")).tag("all")
-                            Text(tr("Needs you")).tag("you")
-                            Text(tr("Running")).tag("running")
-                        }
-                        .pickerStyle(.segmented).labelsHidden()
-                    }
-                    .padding(10)
-                    HStack {
-                        TextField(tr("Search"), text: $query).textFieldStyle(.roundedBorder)
-                        Button { showHosts.toggle() } label: { Image(systemName: "server.rack") }.help(tr("Other machines"))
-                            .popover(isPresented: $showHosts) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(tr("Other machines")).font(.headline)
-                                    Text(tr("SSH targets (user@host) where PhoneCast runs agents in tmux. Needs key login from this Mac and tmux + the agent there.")).font(.caption).foregroundStyle(.secondary).frame(width: 300, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-                                    TextField("user@host, user@other", text: $hostsText).textFieldStyle(.roundedBorder).frame(width: 300)
-                                    Button(tr("Save")) {
-                                        UserDefaults.standard.set(hostsText.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init).filter { !$0.isEmpty }, forKey: "agentHosts")
-                                        showHosts = false; AgentHub.shared.kick()
-                                    }.buttonStyle(.borderedProminent)
-                                }.padding()
-                            }
-                    }.padding(.horizontal, 10).padding(.bottom, 6)
-                    List(selection: $selection) {
-                        ForEach(tops) { s in
-                            AgentRow(s: s, ask: hub.asks[s.id] != nil).tag(s.id)
-                            ForEach(hub.sessions.filter { $0.parentId == s.id && $0.status == "working" }) { c in
-                                AgentRow(s: c, ask: false).padding(.leading, 18).tag(c.id)
-                            }
-                        }
-                    }
-                    .listStyle(.inset)
-                }
-                .frame(minWidth: 280, idealWidth: 330, maxWidth: 440)
-                Group {
-                    if let sid = selection, let s = hub.sessions.first(where: { $0.id == sid }) {
-                        AgentChatView(s: s, ask: hub.asks[s.id]).id(sid)
-                    } else {
-                        Placeholder(symbol: "sparkles.rectangle.stack", title: "Agents",
-                                    text: "Claude Code and Codex chats on this Mac. The phone shows the same list in its Agents tab: reply, stop and answer questions from anywhere.")
-                    }
-                }
-                .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 10) {
+                Image(systemName: "globe").foregroundStyle(.secondary)
+                Text(tr("Open Agents in a browser (iPad, laptop): ")) + Text(AgentWeb.addresses().first.map { "http://\($0):\(AgentWeb.port)" } ?? "—").bold()
+                    + Text("  ·  " + tr("code ")) + Text(code).bold().monospacedDigit()
+                Spacer()
+                Button(tr("Details")) { showWeb.toggle() }
+                    .popover(isPresented: $showWeb) { webDetails }
             }
+            .font(.callout).padding(.horizontal, 14).padding(.vertical, 8)
+            Divider()
+            AgentsWebView()
         }
         .alert(error ?? "", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") {} }
+    }
+
+    private var webDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(tr("Agents in a browser")).font(.headline)
+            Text(tr("Any browser on the same Wi-Fi or on Tailscale can open Agents without installing anything. Sign in once with the code; it stays signed in.")).font(.caption).foregroundStyle(.secondary).frame(width: 320, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            ForEach(AgentWeb.addresses(), id: \.self) { a in Text("http://\(a):\(AgentWeb.port)").textSelection(.enabled).font(.system(.body, design: .monospaced)) }
+            HStack {
+                Button(tr("New code")) { AgentWeb.shared.newCode(); code = AgentWeb.shared.code }
+                Button(tr("Sign out all browsers")) { AgentWeb.shared.signOutAll() }
+            }
+            Text(tr("%@ browsers signed in", String(AgentWeb.shared.devices))).font(.caption).foregroundStyle(.secondary)
+        }.padding()
     }
 
     private var integrationBanner: some View {
@@ -97,216 +63,42 @@ struct AgentsView: View {
     }
 }
 
-struct AgentRow: View {
-    let s: AgentSession
-    let ask: Bool
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ZStack(alignment: .bottomTrailing) {
-                Text(s.agent == "codex" ? "›_" : "✻").font(.system(size: 13, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(s.agent == "codex" ? Color(white: 0.15) : Color.orange.opacity(0.2)))
-                    .foregroundStyle(s.agent == "codex" ? Color.white : Color.orange)
-                Circle().fill(dot).frame(width: 9, height: 9).overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(s.title).font(.body.weight(s.isSubagent ? .regular : .medium)).lineLimit(1)
-                    Spacer()
-                    Text(Date(timeIntervalSince1970: s.updatedAt), style: .relative).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
-                }
-                Text(subtitle).font(.caption).foregroundStyle(ask || s.status == "needs_input" ? Color.orange : Color.secondary).lineLimit(1)
-            }
+/// WKWebView with the local Agents UI, signed in through the one-time local token.
+struct AgentsWebView: NSViewRepresentable {
+    func makeNSView(context: Context) -> WKWebView {
+        let cfg = WKWebViewConfiguration()
+        cfg.websiteDataStore = .default()
+        let w = WKWebView(frame: .zero, configuration: cfg)
+        w.setValue(false, forKey: "drawsBackground")
+        w.uiDelegate = context.coordinator
+        w.navigationDelegate = context.coordinator
+        w.load(URLRequest(url: URL(string: "http://127.0.0.1:\(AgentWeb.port)/local?t=\(AgentWeb.shared.localToken)")!))
+        return w
+    }
+    func updateNSView(_ v: WKWebView, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, WKUIDelegate, WKNavigationDelegate {
+        // prompt()/confirm()/alert() and links that open elsewhere
+        func webView(_ w: WKWebView, runJavaScriptAlertPanelWithMessage m: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping () -> Void) {
+            let a = NSAlert(); a.messageText = m; a.runModal(); completionHandler()
         }
-        .padding(.vertical, 3)
-    }
-    private var dot: Color {
-        switch s.status {
-        case "working": .green
-        case "needs_input": .orange
-        case "error": .red
-        case "idle", "completed": .gray
-        default: .clear
+        func webView(_ w: WKWebView, runJavaScriptConfirmPanelWithMessage m: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+            let a = NSAlert(); a.messageText = m; a.addButton(withTitle: "OK"); a.addButton(withTitle: tr("Cancel")); completionHandler(a.runModal() == .alertFirstButtonReturn)
         }
-    }
-    private var subtitle: String {
-        let folder = ((s.cwd ?? "") as NSString).lastPathComponent
-        let what: String
-        switch s.status {
-        case "working": what = s.stage ?? tr("Working…")
-        case "needs_input": what = s.stage ?? tr("Waiting for you")
-        case "idle": what = s.managed ? tr("Ready") : tr("Open in a terminal")
-        case "offline": what = tr("Finished")
-        case "completed": what = tr("Done")
-        case "error": what = tr("Error")
-        default: what = s.stage ?? ""
+        func webView(_ w: WKWebView, runJavaScriptTextInputPanelWithPrompt p: String, defaultText d: String?, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+            let a = NSAlert(); a.messageText = p
+            let t = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24)); t.stringValue = d ?? ""; a.accessoryView = t
+            a.addButton(withTitle: "OK"); a.addButton(withTitle: tr("Cancel"))
+            completionHandler(a.runModal() == .alertFirstButtonReturn ? t.stringValue : nil)
         }
-        return [s.isSubagent ? s.agentRole : folder, what].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
-    }
-}
-
-struct AgentChatView: View {
-    let s: AgentSession
-    let ask: [String: Any]?
-    @State private var messages: [AgentMessage] = []
-    @State private var text = ""
-    @State private var busy = false
-    @State private var error: String?
-    @State private var stamp: Double = 0
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(s.title).font(.title3.weight(.semibold)).lineLimit(1)
-                    Text([s.agent == "codex" ? "Codex" : "Claude Code", s.model, s.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath }].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    if !usageLine.isEmpty || s.mode != nil {
-                        HStack(spacing: 8) {
-                            if let m = s.mode { Text(modeName(m)).font(.caption.weight(.medium)).padding(.horizontal, 8).padding(.vertical, 2).background(Capsule().fill(Color.accentColor.opacity(0.15))) }
-                            Text(usageLine).font(.caption).foregroundStyle(s.overBudget != nil ? Color.red : Color.secondary).lineLimit(1)
-                        }
-                    }
-                }
-                Spacer()
-                if s.managed && (s.status == "working" || s.status == "needs_input") {
-                    Button { call("stop") } label: { Label(tr("Stop"), systemImage: "stop.fill") }
-                }
-                if s.managed {
-                    Button { call("open") } label: { Label(tr("Open in Terminal"), systemImage: "terminal") }
-                } else if s.canResume {
-                    Button { call("resume") } label: { Label(tr("Reopen"), systemImage: "arrow.uturn.forward") }
-                }
-            }
-            .padding(14)
-            if s.status == "working" {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(s.stage ?? tr("Working…")).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer()
-                }
-                .padding(.horizontal, 14).padding(.bottom, 8)
-            }
-            Divider()
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(messages, id: \.id) { m in AgentMessageView(m: m).id(m.id) }
-                    }
-                    .padding(14)
-                }
-                .onChange(of: messages.count) { _ in if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) } }
-            }
-            if let ask { askCard(ask) }
-            Divider()
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(tr(placeholder), text: $text, axis: .vertical)
-                    .textFieldStyle(.roundedBorder).lineLimit(1...6)
-                    .disabled(!canSend)
-                    .onSubmit { send() }
-                Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                    .buttonStyle(.borderless).disabled(!canSend || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
-                    .keyboardShortcut(.return, modifiers: .command)
-            }
-            .padding(12)
+        func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            if let u = a.request.url { NSWorkspace.shared.open(u) }
+            return nil
         }
-        .onAppear { load() }
-        .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
-            if let t = s.transcript, let st = fileStamp(t), st.mtime != stamp { load() }
-        }
-        .alert(error ?? "", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") {} }
-    }
-
-    private var usageLine: String {
-        guard let u = s.usage else { return "" }
-        func tok(_ v: Any?) -> String { let n = (v as? Int) ?? 0; return n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1e6) : n >= 1000 ? "\(n / 1000)k" : "\(n)" }
-        var parts: [String] = []
-        if let c = u["ctxPct"] as? Double { parts.append("context \(Int(c))%") }
-        parts.append("\(tok(((u["in"] as? Int) ?? 0) + ((u["cached"] as? Int) ?? 0))) ↑ \(tok(u["out"])) ↓")
-        if let c = u["cost"] as? Double { parts.append(String(format: "$%.2f", c)) }
-        for l in (u["limits"] as? [[String: Any]]) ?? [] { parts.append("\(l["label"] ?? "") \(Int((l["pct"] as? Double) ?? 0))%") }
-        if let o = s.overBudget { parts.append("⚠ " + o) }
-        return parts.joined(separator: "  ·  ")
-    }
-    private func modeName(_ m: String) -> String {
-        switch m { case "default": tr("Ask before edits"); case "accept edits": tr("Auto-accept edits"); case "plan mode": tr("Plan mode"); case "bypass permissions": tr("Bypass permissions"); default: m }
-    }
-
-    private var canSend: Bool { !s.isSubagent && (s.managed || s.canResume) }
-    private var placeholder: String {
-        if s.isSubagent { return "Subagents can't be messaged" }
-        if !canSend { return "Open in another terminal — read only" }
-        if s.status == "working" { return "Message — interrupts the current turn" }
-        return s.managed ? "Message" : "Message — reopens this chat in a managed terminal"
-    }
-
-    private func load() {
-        let s = self.s
-        DispatchQueue.global(qos: .userInitiated).async {
-            let m = AgentHub.shared.messages(s, limit: 150)
-            let st = s.transcript.flatMap(fileStamp)?.mtime ?? 0
-            DispatchQueue.main.async { messages = m; stamp = st }
-        }
-    }
-
-    private func call(_ m: String, _ extra: [String: Any] = [:]) {
-        busy = true
-        AgentHub.shared.handle(["id": 0, "m": m, "p": extra.merging(["sid": s.id]) { a, _ in a }]) { r in
-            DispatchQueue.main.async {
-                busy = false
-                if r["ok"] as? Bool != true { error = r["message"] as? String }
-            }
-        }
-    }
-
-    private func send() {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, canSend, !busy else { return }
-        text = ""
-        call("send", ["text": t])
-    }
-
-    @ViewBuilder private func askCard(_ a: [String: Any]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(tr("Needs you")).font(.caption.weight(.semibold)).foregroundStyle(.orange)
-            Text(a["title"] as? String ?? "").font(.headline)
-            if let d = a["detail"] as? String, !d.isEmpty {
-                Text(d).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(8).textSelection(.enabled)
-            }
-            HStack {
-                ForEach(Array(((a["choices"] as? [[String: Any]]) ?? []).enumerated()), id: \.offset) { i, c in
-                    if i == 0 {
-                        Button(c["label"] as? String ?? "") { call("approve", ["ask": a["id"] ?? "", "choice": c["id"] ?? ""]) }.buttonStyle(.borderedProminent)
-                    } else {
-                        Button(c["label"] as? String ?? "") { call("approve", ["ask": a["id"] ?? "", "choice": c["id"] ?? ""]) }
-                    }
-                }
-            }
-            .disabled(busy)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 12).padding(.bottom, 8)
-    }
-}
-
-struct AgentMessageView: View {
-    let m: AgentMessage
-    @State private var expanded = false
-    var body: some View {
-        switch m.role {
-        case "user":
-            HStack { Spacer(minLength: 60); Text(m.text).textSelection(.enabled).padding(10).background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12)) }
-        case "tool":
-            Text((m.text.hasPrefix("Error") ? "✕  " : "⚙  ") + (expanded ? m.text : (m.text.split(separator: "\n").first.map(String.init) ?? "")))
-                .font(.system(.caption, design: .monospaced)).foregroundStyle(m.text.hasPrefix("Error") ? Color.red : Color.secondary)
-                .lineLimit(expanded ? 40 : 1).onTapGesture { expanded.toggle() }
-        case "system":
-            Text(m.text).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
-        default:
-            Text((try? AttributedString(markdown: m.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(m.text))
-                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        func webView(_ w: WKWebView, runOpenPanelWith p: WKOpenPanelParameters, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+            let o = NSOpenPanel(); o.allowsMultipleSelection = p.allowsMultipleSelection
+            completionHandler(o.runModal() == .OK ? o.urls : nil)
         }
     }
 }

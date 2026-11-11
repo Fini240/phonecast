@@ -41,6 +41,8 @@ final class AgentHub: ObservableObject {
     private var awake: IOPMAssertionID = 0
     private var lastAsks: [String: [String: Any]] = [:]
     private var budgetHit = Set<String>()
+    /// A browser asked for the list lately: keep polling fast like when the phone watches.
+    var webSeen = Date.distantPast
     private var lastChange: [String: (sig: String, at: Double)] = [:]
     private var stuckAlerted = Set<String>()
     private var limitPlanned: [String: Date] = [:]
@@ -100,7 +102,7 @@ final class AgentHub: ObservableObject {
         t.setEventHandler { [weak self] in
             guard let self, self.enabled else { return }
             tick += 1
-            let fast = self.watched != nil || self.tracks.values.contains { $0.confirmed == "working" || $0.confirmed == "needs_input" }
+            let fast = self.watched != nil || Date().timeIntervalSince(self.webSeen) < 10 || self.tracks.values.contains { $0.confirmed == "working" || $0.confirmed == "needs_input" }
             if fast || tick % 4 == 0 { self.poll() }
             self.drainNotifySpool()
         }
@@ -257,15 +259,7 @@ final class AgentHub: ObservableObject {
 
     private func pushToPhone(_ list: [AgentSession], _ asks: [String: [String: Any]]) {
         guard phoneConnected, let emit else { return }
-        // the phone gets top-level chats + children of live/recent ones; history beyond 80 stays on the Mac
-        var rows: [[String: Any]] = []
-        var keep = Set<String>()
-        for s in list where !s.isSubagent && (rows.count < 80 || s.live) {
-            var j = s.json
-            if let a = asks[s.id] { j["ask"] = a }
-            rows.append(j); keep.insert(s.id)
-        }
-        for s in list where s.isSubagent && keep.contains(s.parentId ?? "") { rows.append(s.json) }
+        let rows = listRows(list, asks)
         if let d = try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys]) {
             let planSig = (try? JSONSerialization.data(withJSONObject: AgentUsage.plan(), options: [.sortedKeys])) ?? Data()
             let digest = SHA256.hash(data: d + planSig).map { String(format: "%02x", $0) }.joined()
@@ -275,6 +269,19 @@ final class AgentHub: ObservableObject {
             }
         }
         if let w = watched { pushWatched(w, list) }
+    }
+
+    /// Top-level chats + children of the listed ones; history beyond 80 stays on the Mac.
+    func listRows(_ list: [AgentSession], _ asks: [String: [String: Any]]) -> [[String: Any]] {
+        var rows: [[String: Any]] = []
+        var keep = Set<String>()
+        for s in list where !s.isSubagent && (rows.count < 80 || s.live) {
+            var j = s.json
+            if let a = asks[s.id] { j["ask"] = a }
+            rows.append(j); keep.insert(s.id)
+        }
+        for s in list where s.isSubagent && keep.contains(s.parentId ?? "") { rows.append(s.json) }
+        return rows
     }
 
     private func pushWatched(_ sid: String, _ list: [AgentSession], reset: Bool = false) {
@@ -314,6 +321,20 @@ final class AgentHub: ObservableObject {
         case "hello":
             work.async { self.lastSentDigest = ""; self.poll() }
             ok(["installed": AgentShell.installed(), "enabled": enabled, "tap": AgentUsage.tapInstalled()])
+        case "list":
+            // browsers poll this (no push): the same rows the phone gets, plus the plan limits
+            work.async {
+                if !self.enabled { ok(["list": [], "plan": [:]]); return }
+                ok(["list": self.listRows(self.latest, self.lastAsks), "plan": AgentUsage.plan(), "installed": AgentShell.installed(), "tap": AgentUsage.tapInstalled()])
+            }
+            webSeen = Date()
+        case "messages":
+            work.async {
+                guard let s = self.latest.first(where: { $0.id == sid }) else { fail("Chat not found."); return }
+                let n = min(500, max(20, p["limit"] as? Int ?? 150))
+                let msgs = self.messages(s, limit: n)
+                ok(["add": msgs.map(\.json), "more": msgs.count >= n])
+            }
         case "watch":
             work.async {
                 self.watched = sid.isEmpty ? nil : sid

@@ -218,3 +218,11 @@
 "Other machines" = "Andere Rechner";
 "Save" = "Speichern";
 "SSH targets (user@host) where PhoneCast runs agents in tmux. Needs key login from this Mac and tmux + the agent there." = "SSH-Ziele (user@host), auf denen PhoneCast Agenten in tmux startet. Braucht Schlüssel-Login von diesem Mac sowie tmux und den Agenten dort.";
+"Open Agents in a browser (iPad, laptop): " = "Agenten im Browser öffnen (iPad, Laptop): ";
+"code " = "Code ";
+"Details" = "Details";
+"Agents in a browser" = "Agenten im Browser";
+"Any browser on the same Wi-Fi or on Tailscale can open Agents without installing anything. Sign in once with the code; it stays signed in." = "Jeder Browser im gleichen WLAN oder per Tailscale kann die Agenten ohne Installation öffnen. Einmal mit dem Code anmelden, dann bleibt er angemeldet.";
+"New code" = "Neuer Code";
+"Sign out all browsers" = "Alle Browser abmelden";
+"%@ browsers signed in" = "%@ Browser angemeldet";

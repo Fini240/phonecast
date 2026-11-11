@@ -264,7 +264,9 @@ enum AgentUsage {
                 guard !lim.isEmpty, let wk = weekly else { continue }
                 let k = String(Int(wk))
                 let sid = o["session_id"] as? String ?? u.deletingPathExtension().lastPathComponent
-                let started = rv.creationDate?.timeIntervalSince1970 ?? mod
+                // when the chat started: its transcript's first timestamp (the account it runs on was the login then)
+                var started = rv.creationDate?.timeIntervalSince1970 ?? mod
+                if let tp = o["transcript_path"] as? String, let t = JSONL.head(URL(fileURLWithPath: tp), 16 * 1024).lazy.compactMap({ ISO.parse($0["timestamp"]) }).first { started = t }
                 var a = accs[k] ?? Acc(key: k, limits: lim, at: mod, newestStart: started, sessions: [])
                 // newest report wins, but keep a 5-hour window an older report still has (weekly-only reports)
                 if mod >= a.at {
@@ -279,8 +281,11 @@ enum AgentUsage {
             let list = accs.values.sorted { $0.at > $1.at }
             if !list.isEmpty {
                 out["claude"] = list.first!.limits          // newest overall (widget, older phones)
+                // Which account is logged in right now can't be told reliably: a running chat switches account
+                // after /login, so start times don't say it. Accounts are labelled by their chats instead.
+                let current: String? = nil
                 out["claudeAccounts"] = list.prefix(4).map { a -> [String: Any] in
-                    ["limits": a.limits, "chats": a.sessions.count, "sessions": Array(a.sessions.prefix(50))]
+                    ["limits": a.limits, "chats": a.sessions.count, "sessions": Array(a.sessions.prefix(50)), "current": a.key == current]
                 }
             }
         }
