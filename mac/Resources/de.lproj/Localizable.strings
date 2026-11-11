@@ -226,3 +226,28 @@
 "New code" = "Neuer Code";
 "Sign out all browsers" = "Alle Browser abmelden";
 "%@ browsers signed in" = "%@ Browser angemeldet";
+
+/* v0.8: continuity, mirror view, key maps */
+"Show phone on a map" = "Handy auf der Karte zeigen";
+"Open this browser tab on phone" = "Diesen Browser-Tab auf dem Handy öffnen";
+"Show on map" = "Auf Karte zeigen";
+"Tab to phone" = "Tab aufs Handy";
+"Locating the phone…" = "Handy wird gesucht…";
+"This can take up to 20 seconds." = "Das kann bis zu 20 Sekunden dauern.";
+"Phone found" = "Handy gefunden";
+"Shown in Maps" = "In Karten gezeigt";
+"Position from %@" = "Position von %@";
+"Couldn't locate the phone" = "Handy konnte nicht gefunden werden";
+"On the phone: PhoneCast → Settings → Allow location (Allow all the time)." = "Auf dem Handy: PhoneCast → Einstellungen → Standort erlauben (Immer zulassen).";
+"No browser tab found" = "Kein Browser-Tab gefunden";
+"Open the page in Safari, Chrome, Arc, Brave or Edge. macOS may ask once to let PhoneCast read the tab." = "Öffne die Seite in Safari, Chrome, Arc, Brave oder Edge. macOS fragt einmal, ob PhoneCast den Tab lesen darf.";
+"Couldn't open the tab on the phone" = "Tab konnte auf dem Handy nicht geöffnet werden";
+"Shortcut failed" = "Kurzbefehl fehlgeschlagen";
+"Rotate left" = "Nach links drehen";
+"Rotate right" = "Nach rechts drehen";
+"Export key map…" = "Tastenbelegung exportieren…";
+"Import key map…" = "Tastenbelegung importieren…";
+"Save this key map to share it or keep a copy. The name of the game goes in the file name." = "Speichere diese Tastenbelegung zum Teilen oder als Kopie. Der Name des Spiels gehört in den Dateinamen.";
+"Pick a PhoneCast key map (.phonecast-keys.json). It replaces the map for this screen layout." = "Wähle eine PhoneCast-Tastenbelegung (.phonecast-keys.json). Sie ersetzt die Belegung für dieses Bildschirmformat.";
+"That file isn't a PhoneCast key map." = "Diese Datei ist keine PhoneCast-Tastenbelegung.";
+"Key map imported — check it with ⌘E and drag markers if the game's buttons sit elsewhere" = "Tastenbelegung importiert – prüfe sie mit ⌘E und verschiebe Markierungen, falls die Knöpfe des Spiels woanders liegen";

@@ -10,7 +10,12 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
   the Mac by itself), and links (a link shared from the phone opens in the Mac's browser).
 - **Monitor**: battery, heat and link latency of the phone and the Mac, plus your other machines.
 - **Now playing**: the phone's music or video with play/pause and skip, in the menu bar and on Overview.
-- **Find my phone**: rings the phone at full volume, even on silent.
+- **Find my phone**: rings the phone at full volume, even on silent, or shows where it is in Maps.
+- **Browser tab to the phone**: the page open in Safari, Chrome, Arc, Brave or Edge opens on the phone (menu bar,
+  Overview, or from the phone's Mac tab).
+- **Mac Shortcuts on the phone**: your Shortcuts from the Mac's Shortcuts app as buttons on the phone's Mac tab.
+- **Drop an app on the mirror**: an `.apk` dropped on the phone's picture opens Android's installer.
+- **Dim while shown**: the phone goes dark while the Mac shows it (battery, heat, privacy); the Mac's picture stays bright.
 - **Game controllers**: an Xbox, PlayStation or Switch Pro controller on the Mac plays phone games.
 - **New screenshots** on the phone land on the Mac (Downloads and clipboard) by themselves.
 - **Record the mirror** to a video (⇧⌘R or the record button under the mirror), saved in Movies/PhoneCast.
@@ -127,8 +132,9 @@ split screen, phone screenshot, screen shape and quality). Full screen hides the
 1. In the phone app, tap **Turn on mouse & keyboard** and enable PhoneCast in Accessibility settings.
 2. If Android says "Restricted setting": App info → ⋮ → **Allow restricted settings**, then try again.
 
-Normal controls: click or drag to touch, two-finger scroll to swipe, right-click or Esc for Back,
-middle-click for Home. Typing goes into the focused text field.
+Normal controls: click or drag to touch, two-finger scroll to swipe, pinch on the trackpad to zoom,
+right-click or Esc for Back, middle-click for Home. Typing goes into the focused text field.
+**⌘[ / ⌘]** turn the picture (an app stuck in portrait, a video on its side) without turning the phone.
 
 ### Games
 
@@ -136,6 +142,9 @@ middle-click for Home. Typing goes into the focused text field.
    - Movement: click the middle of the joystick, then press W (scroll to resize).
    - Mouse look: ⌃-click the area you drag to look around.
    - ⌫ over a marker deletes it. Esc finishes.
+   - **⌥T** over a marker makes it a **turbo** key: while held it taps 8 times a second, ⌥T again 15, then off.
+   - **Game → Export / Import key map** saves the map as a `.phonecast-keys.json` file to share or keep; an
+     imported map keeps your own mouse speed. Positions are fractions of the screen, so check them with ⌘E.
 2. **⌘G** starts mouse aiming, which captures the mouse. Esc leaves it. **⌘+ / ⌘−** change the speed.
 3. For aiming without mouse acceleration, allow PhoneCast under System Settings → Privacy & Security →
    **Input Monitoring**, then reopen the app. Without it, PhoneCast falls back to accelerated mouse movement.
@@ -222,6 +231,8 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
   in as keystrokes, with keys for arrows, Enter, Esc, Tab, Backspace and Ctrl-C.
 - **Files**: browse and read the project's files (⋯ → Files); type `@` in a message for file suggestions; attach any
   file (not just photos), it lands on the Mac and the agent gets its path.
+- **Own worktree**: a new chat can start in its own git worktree (a new `agent/…` branch in
+  `<repo>-worktrees/`), so several agents can work on one project without touching the same files.
 - **Fork** a chat (a copy that continues on its own), **rename** a Claude chat, **share** a chat as Markdown.
 - **Recovery**: when a chat stops at a usage limit, PhoneCast can send "continue" a minute after the limit resets
   (all chats or per chat), and it tells you when an agent seems stuck (no progress for 10 minutes, adjustable).

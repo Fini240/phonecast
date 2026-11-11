@@ -1,6 +1,7 @@
 import AppKit
 import Network
 import QuartzCore
+import UniformTypeIdentifiers
 
 /// A window that may go borderless and cover the whole display, including the row beside the notch.
 final class PhoneWindow: NSWindow {
@@ -212,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         toolbarBeforeCover = nil
         view.scale = scaleBeforeCover ?? .fit
         scaleBeforeCover = nil
-        aspect = view.videoSize
+        aspect = view.shownSize
         container.barHidden = false
         window.setFrame(frameBeforeCover, display: true)
         window.setFrameAutosaveName("PhoneCastWindow")
@@ -255,6 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             item("Mouse-look slower", #selector(sensDown(_:)), "-"),
             .separator(),
             item("Clear key map", #selector(clearMap(_:)), ""),
+            .separator(),
+            item("Export key map…", #selector(exportMap(_:)), ""),
+            item("Import key map…", #selector(importMap(_:)), ""),
         ])
         muteItem = item("Mute phone audio", #selector(toggleMute(_:)), "m")
         statsItem = item("Show stats overlay (FPS, delay, phone heat)", #selector(toggleStats(_:)), "o")
@@ -268,6 +272,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         sub("View", [
             item("Full screen", #selector(fullScreen(_:)), "f"),
             item("Fit window to phone", #selector(fitWindow(_:)), "0"),
+            .separator(),
+            item("Rotate left", #selector(rotateLeft(_:)), "["),
+            item("Rotate right", #selector(rotateRight(_:)), "]"),
             .separator(),
         ] + scaleItems + [.separator(), muteItem, statsItem, .separator(), recordItem])
         resItems = resolutions.enumerated().map { i, r in let it = item(r.0, #selector(setResolution(_:)), ""); it.tag = i; return it }
@@ -515,6 +522,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     @objc func sensUp(_ s: Any?) { view.map.sens = min(5, view.map.sens * 1.12); view.map.save(); updateTitle() }
     @objc func sensDown(_ s: Any?) { view.map.sens = max(0.1, view.map.sens / 1.12); view.map.save(); updateTitle() }
+    @objc func rotateLeft(_ s: Any?) { turnView(-1) }
+    @objc func rotateRight(_ s: Any?) { turnView(1) }
+    /// Shows the picture turned (a tablet app stuck in portrait, a video on its side) without turning the phone.
+    private func turnView(_ by: Int) {
+        if view.mode != .normal { view.setMode(.normal) }
+        view.rotation += by
+        aspect = view.shownSize
+        fitWindow(nil)
+        updateTitle()
+    }
+
+    @objc func exportMap(_ s: Any?) {
+        if view.mode == .game { view.setMode(.normal) }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Key map \(KeyMap.layout).phonecast-keys.json"
+        panel.message = tr("Save this key map to share it or keep a copy. The name of the game goes in the file name.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let game = url.deletingPathExtension().deletingPathExtension().lastPathComponent
+        try? view.map.exportData(game: game)?.write(to: url)
+    }
+
+    @objc func importMap(_ s: Any?) {
+        if view.mode == .game { view.setMode(.normal) }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.message = tr("Pick a PhoneCast key map (.phonecast-keys.json). It replaces the map for this screen layout.")
+        guard panel.runModal() == .OK, let url = panel.url, let d = try? Data(contentsOf: url) else { return }
+        guard var m = KeyMap.importData(d) else {
+            let a = NSAlert(); a.messageText = tr("That file isn't a PhoneCast key map."); a.runModal(); return
+        }
+        m.sens = view.map.sens  // keep your own mouse speed
+        view.map = m; m.save(); view.needsDisplay = true
+        view.setMessage("Key map imported — check it with ⌘E and drag markers if the game's buttons sit elsewhere")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.view.setMessage(nil) }
+    }
+
     @objc func clearMap(_ s: Any?) { view.map = KeyMap(); view.map.save(); view.needsDisplay = true; view.setMode(.normal) }
     @objc func fullScreen(_ s: Any?) { window.covering ? exitCover() : enterCover() }
 
@@ -525,7 +568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         a.informativeText = """
         ⌘F   Full screen on / off
         ⌘1   Fit (whole picture)      ⌘2   Fill (no bars)      ⌘3   Stretch
-        ⌘0   Window size = phone
+        ⌘0   Window size = phone   ⌘[ ⌘]   Rotate the picture
 
         ⌘B   Back          ⌘H   Home          ⌘R   Recent apps
         ⌘N   Notifications ⌘M   Mute sound    ⌘O   Stats overlay
@@ -538,7 +581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         ⌘K   Connect       ⇧⌘D  Disconnect     ⌘I   This list
 
-        Mouse: click = tap · drag = swipe · two-finger scroll = scroll
+        Mouse: click = tap · drag = swipe · two-finger scroll = scroll · pinch = zoom
         Right-click or Esc = Back · middle-click = Home
         """
         a.runModal()
@@ -547,7 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     @objc func fitWindow(_ s: Any?) {
         if window.covering { return }
         guard let screen = window.screen ?? NSScreen.main else { return }
-        let vs = view.videoSize
+        let vs = view.shownSize
         let maxH = screen.visibleFrame.height * 0.9, maxW = screen.visibleFrame.width * 0.9
         let scale = min(maxH / vs.height, maxW / vs.width)
         let size = NSSize(width: (vs.width * scale).rounded(), height: (vs.height * scale).rounded() + container.barSpace)
@@ -952,7 +995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                 let rotated = self.sizedOnce && old.height > 0 && abs(CGFloat(w) / CGFloat(h) - old.width / old.height) > 0.01
                 self.view.videoSize = CGSize(width: w, height: h)
                 self.switchKeyLayout(w, h)
-                self.aspect = NSSize(width: w, height: h)
+                self.aspect = self.view.shownSize
                 if !self.sizedOnce || rotated { self.fitWindow(nil); self.sizedOnce = true }
                 self.updateTitle()
             }

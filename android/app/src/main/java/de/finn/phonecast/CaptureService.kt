@@ -212,6 +212,7 @@ class CaptureService : Service(), StreamServer.Listener {
     override fun onClientChanged(address: String?) {
         clientAddress = address
         updateNotification()
+        Dimmer.update(this, address != null)
     }
 
     override fun onInput(type: Int, payload: ByteArray) {
@@ -290,6 +291,7 @@ class CaptureService : Service(), StreamServer.Listener {
 
     override fun onDestroy() {
         instance = null
+        Dimmer.update(this, false)
         HubService.instance?.castStopped()
         InputService.onControlChanged = null
         InputService.instance?.handle(Proto.TOUCH, byteArrayOf(Proto.TOUCH_CANCEL_ALL.toByte(), -1, 0, 0, 0, 0)) // -1: all viewers' fingers

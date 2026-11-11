@@ -387,7 +387,8 @@ final class AgentHub: ObservableObject {
         case "start":
             run {
                 let host = (p["host"] as? String)?.nilIfEmpty
-                let cwd = p["cwd"] as? String ?? "~"
+                var cwd = p["cwd"] as? String ?? "~"
+                if host == nil, p["worktree"] as? Bool == true { cwd = try AgentWorktree.prepare(cwd.expandingTilde) }
                 let t = try self.tmux.start(agent: p["agent"] as? String ?? "claude", cwd: host == nil ? cwd.expandingTilde : cwd,
                                             model: (p["model"] as? String)?.nilIfEmpty, prompt: p["prompt"] as? String, host: host)
                 return ["sid": t]

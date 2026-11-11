@@ -735,7 +735,9 @@ final class Hub: NSObject, NSMenuDelegate {
             if let ms = r.ms { d["ms"] = Int(ms.rounded()) }
             return d
         }
-        if !PcDashboard.shared.base.isEmpty { o["dashboard"] = PcDashboard.shared.base }   // the phone's PC tab uses it too
+        if !PcDashboard.shared.base.isEmpty { o["dashboard"] = PcDashboard.shared.base }
+        let sc = Continuity.shortcuts
+        if !sc.isEmpty { o["shortcuts"] = sc }   // the phone's PC tab uses it too
         if let t = store.transfers.first(where: { $0.state == .running }) { o["transfer"] = "\(t.outgoing ? "Sending" : "Receiving") \(t.name) \(Int(t.progress * 100)) %" }
         if let d = try? JSONSerialization.data(withJSONObject: o) { l.send(HT.status, d) }
     }
@@ -795,6 +797,8 @@ final class Hub: NSObject, NSMenuDelegate {
         act("Mute notifications", #selector(toggleMute(_:))).state = store.muteAll ? .on : .off
         if connected { act("Do Not Disturb on phone", #selector(togglePhoneDnd(_:))).state = store.phoneDnd ? .on : .off }
         _ = act(store.ringing ? "Stop ringing phone" : "Ring phone (find it)", #selector(ringPhone(_:)))
+        _ = act("Show phone on a map", #selector(locatePhone(_:)))
+        _ = act("Open this browser tab on phone", #selector(tabToPhone(_:)))
         m.addItem(.separator())
         for r in store.devices { info(r.name + "   " + (r.ms.map { "● \(Int($0.rounded())) ms" } ?? "○ offline")) }
         m.addItem(.separator())
@@ -816,6 +820,8 @@ final class Hub: NSObject, NSMenuDelegate {
         if a == "toggle", var np = store.nowPlaying { np.playing.toggle(); store.nowPlaying = np }   // feels instant; the phone confirms
     }
     @objc func ringPhone(_ s: Any?) { ring(!store.ringing) }
+    @objc func locatePhone(_ s: Any?) { Continuity.locatePhone() }
+    @objc func tabToPhone(_ s: Any?) { Continuity.sendTabToPhone() }
     @objc func togglePhoneDnd(_ s: Any?) {
         let on = !store.phoneDnd
         store.phoneStatus["dnd"] = on            // feels instant; the phone's status confirms

@@ -3,7 +3,11 @@ import AVFoundation
 import QuartzCore
 
 struct NPoint: Codable, Equatable { var x: Double; var y: Double }
-struct Bind: Codable { var x: Double; var y: Double; var label: String }
+struct Bind: Codable {
+    var x: Double; var y: Double; var label: String
+    /// Turbo: while the key is held, tap again and again (taps per second), instead of one long press.
+    var turbo: Double? = nil
+}
 
 /// Key map: which key/mouse button taps where, plus WASD joystick and mouse-look area.
 struct KeyMap: Codable {
@@ -49,6 +53,21 @@ struct KeyMap: Codable {
         for k in Self.wasdKeys { binds[k] = nil }
         return true
     }
+    /// A key map as a file other people can import ("Fortnite.phonecast-keys.json").
+    func exportData(game: String) -> Data? {
+        struct File: Codable { var phonecastKeyMap = 1; var game: String; var layout: String; var map: KeyMap }
+        let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? e.encode(File(game: game, layout: Self.layout, map: self))
+    }
+
+    /// Reads an exported key map (or a bare KeyMap JSON). Positions are fractions of the screen, so a
+    /// map made on another phone lands on the same spots when the game's HUD scales with the screen.
+    static func importData(_ d: Data) -> KeyMap? {
+        struct File: Codable { var map: KeyMap }
+        if let f = try? JSONDecoder().decode(File.self, from: d) { return f.map }
+        return try? JSONDecoder().decode(KeyMap.self, from: d)
+    }
+
     func save() {
         let d = UserDefaults.standard, data = try? JSONEncoder().encode(self)
         d.set(data, forKey: "keymap") // the last map used: starting point for a new layout
@@ -83,6 +102,17 @@ final class PhoneView: NSView {
             overlay.needsDisplay = true
         }
     }
+
+    /// Quarter turns clockwise the picture is shown at (View → Rotate), without turning the phone.
+    var rotation = UserDefaults.standard.integer(forKey: "viewRotation") % 4 {
+        didSet {
+            rotation = (rotation % 4 + 4) % 4
+            UserDefaults.standard.set(rotation, forKey: "viewRotation")
+            needsLayout = true; overlay.needsDisplay = true
+        }
+    }
+    /// The picture's size as it appears on the Mac (width and height swap at a quarter turn).
+    var shownSize: CGSize { rotation % 2 == 1 ? CGSize(width: videoSize.height, height: videoSize.width) : videoSize }
 
     private let overlay = Overlay()
     private let message = NSTextField(labelWithString: "")
@@ -155,7 +185,11 @@ final class PhoneView: NSView {
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        video.layer.frame = bounds
+        // turned views: lay the video out in the unturned box, then rotate it about the centre
+        video.layer.setAffineTransform(.identity)
+        video.layer.bounds = CGRect(origin: .zero, size: rotation % 2 == 1 ? CGSize(width: bounds.height, height: bounds.width) : bounds.size)
+        video.layer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        video.layer.setAffineTransform(CGAffineTransform(rotationAngle: -CGFloat(rotation) * .pi / 2))
         CATransaction.commit()
         overlay.frame = bounds
         message.frame = NSRect(x: 20, y: bounds.midY - 40, width: bounds.width - 40, height: 80)
@@ -191,12 +225,13 @@ final class PhoneView: NSView {
 
     /// Where the phone picture actually sits in the view (may extend past the edges in Fill mode).
     var videoRect: CGRect {
+        let vs = shownSize
         switch scale {
-        case .fit: return AVMakeRect(aspectRatio: videoSize, insideRect: bounds)
+        case .fit: return AVMakeRect(aspectRatio: vs, insideRect: bounds)
         case .stretch: return bounds
         case .fill:
-            let k = max(bounds.width / videoSize.width, bounds.height / videoSize.height)
-            let w = videoSize.width * k, h = videoSize.height * k
+            let k = max(bounds.width / vs.width, bounds.height / vs.height)
+            let w = vs.width * k, h = vs.height * k
             return CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2, width: w, height: h)
         }
     }
@@ -204,12 +239,39 @@ final class PhoneView: NSView {
     func norm(_ e: NSEvent) -> NPoint {
         let p = convert(e.locationInWindow, from: nil)
         let r = videoRect
-        return NPoint(x: max(0, min(1, (p.x - r.minX) / r.width)), y: max(0, min(1, 1 - (p.y - r.minY) / r.height)))
+        return fromShown(NPoint(x: max(0, min(1, (p.x - r.minX) / r.width)), y: max(0, min(1, 1 - (p.y - r.minY) / r.height))))
     }
 
     func viewPoint(_ n: NPoint) -> CGPoint {
-        let r = videoRect
-        return CGPoint(x: r.minX + n.x * r.width, y: r.maxY - n.y * r.height)
+        let r = videoRect, s = toShown(n)
+        return CGPoint(x: r.minX + s.x * r.width, y: r.maxY - s.y * r.height)
+    }
+
+    /// Phone point (0…1, y down) → where it appears in the turned picture, and back.
+    func toShown(_ n: NPoint) -> NPoint {
+        switch rotation {
+        case 1: return NPoint(x: 1 - n.y, y: n.x)
+        case 2: return NPoint(x: 1 - n.x, y: 1 - n.y)
+        case 3: return NPoint(x: n.y, y: 1 - n.x)
+        default: return n
+        }
+    }
+    func fromShown(_ s: NPoint) -> NPoint {
+        switch rotation {
+        case 1: return NPoint(x: s.y, y: 1 - s.x)
+        case 2: return NPoint(x: 1 - s.x, y: 1 - s.y)
+        case 3: return NPoint(x: 1 - s.y, y: s.x)
+        default: return s
+        }
+    }
+    /// A movement seen on the Mac (pixels or stick, y down) → the same movement on the phone.
+    func unturn(_ dx: Double, _ dy: Double) -> (Double, Double) {
+        switch rotation {
+        case 1: return (dy, -dx)
+        case 2: return (-dx, -dy)
+        case 3: return (-dy, dx)
+        default: return (dx, dy)
+        }
     }
 
     /// Converts a distance in "short side" units into normalized x/y offsets.
@@ -245,6 +307,8 @@ final class PhoneView: NSView {
 
     func releaseAll() {
         link?.touch(Touch.cancelAll, 0, 0, 0)
+        turbos.values.forEach { $0.invalidate() }; turbos.removeAll()
+        pinching = false
         held.removeAll(); freeIds = [2, 3, 4, 5, 6, 7, 8]
         joyKeys.removeAll(); joyDown = false; stickDown = false
         lookDown = false; lookIdle?.invalidate(); lookFlush?.invalidate(); lookFlush = nil
@@ -313,7 +377,8 @@ final class PhoneView: NSView {
         // Trackpad: a real finger drag that follows the two-finger scroll; the phone does its own fling.
         let r = videoRect
         let k = e.hasPreciseScrollingDeltas ? 1.0 : 12.0
-        let dx = Double(e.scrollingDeltaX) * k / r.width, dy = Double(e.scrollingDeltaY) * k / r.height
+        let sx = Double(e.scrollingDeltaX) * k / r.width, sy = Double(e.scrollingDeltaY) * k / r.height
+        let (dx, dy) = unturn(sx, sy)
         if e.momentumPhase != [] { return }
         if !scrolling {
             scrolling = true
@@ -332,6 +397,43 @@ final class PhoneView: NSView {
             } else {
                 send(Touch.up, scrollId, scrollPos); scrolling = false
             }
+        }
+    }
+
+    // MARK: pinch (trackpad)
+
+    private var pinching = false
+    private var pinchCentre = NPoint(x: 0.5, y: 0.5)
+    private var pinchSpread = 0.0
+    private let pinchIds: (UInt8, UInt8) = (11, 12)
+
+    /// Trackpad pinch = two fingers spreading on the phone (zoom maps, photos, pages).
+    override func magnify(with e: NSEvent) {
+        guard mode == .normal else { return }
+        let (a, b) = pinchIds
+        func fingers() -> (NPoint, NPoint) {
+            // spread along the phone's horizontal, in short-side units so it looks round on any shape
+            let (ox, _) = offset(pinchSpread, 0)
+            return (NPoint(x: max(0, min(1, pinchCentre.x - ox)), y: pinchCentre.y),
+                    NPoint(x: max(0, min(1, pinchCentre.x + ox)), y: pinchCentre.y))
+        }
+        if e.phase.contains(.began) || !pinching {
+            if pinching { let (p, q) = fingers(); send(Touch.up, a, p); send(Touch.up, b, q) }
+            pinching = true
+            pinchCentre = norm(e)
+            pinchSpread = 0.08
+            let (p, q) = fingers()
+            send(Touch.down, a, p); send(Touch.down, b, q)
+        }
+        if e.phase.contains(.changed) || e.phase == [] {
+            pinchSpread = max(0.02, min(0.45, pinchSpread * (1 + Double(e.magnification))))
+            let (p, q) = fingers()
+            send(Touch.move, a, p); send(Touch.move, b, q)
+        }
+        if e.phase.contains(.ended) || e.phase.contains(.cancelled) {
+            let (p, q) = fingers()
+            send(Touch.up, a, p); send(Touch.up, b, q)
+            pinching = false
         }
     }
 
@@ -425,8 +527,24 @@ final class PhoneView: NSView {
     private var pressedAt: [String: CFTimeInterval] = [:]
     private static let minPress: CFTimeInterval = 0.06  // games running at 30 fps miss shorter taps
 
+    private var turbos: [String: Timer] = [:]
+
     private func press(_ name: String) {
         guard let b = map.binds[name], held[name] == nil, !freeIds.isEmpty else { return }
+        if let rate = b.turbo, rate > 0, turbos[name] == nil {
+            // turbo: short taps for as long as the key is held
+            let p = NPoint(x: b.x, y: b.y), id = freeIds.removeFirst()
+            func tap() {
+                send(Touch.down, id, p)
+                DispatchQueue.main.asyncAfter(deadline: .now() + min(Self.minPress, 0.4 / rate)) { [weak self] in
+                    self?.send(Touch.up, id, p)
+                }
+            }
+            tap()
+            turbos[name] = Timer.scheduledTimer(withTimeInterval: 1 / min(rate, 15), repeats: true) { _ in tap() }
+            held[name] = id
+            return
+        }
         let id = freeIds.removeFirst()
         held[name] = id
         pressedAt[name] = CACurrentMediaTime()
@@ -434,6 +552,16 @@ final class PhoneView: NSView {
     }
 
     private func release(_ name: String) {
+        if let t = turbos.removeValue(forKey: name) {
+            t.invalidate()
+            if let id = held.removeValue(forKey: name) {
+                // the last tap's lift is still on its way: free the id after it
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    if let self, !self.freeIds.contains(id) { self.freeIds.append(id) }
+                }
+            }
+            return
+        }
         guard let id = held[name], let b = map.binds[name] else { return }
         let elapsed = CACurrentMediaTime() - (pressedAt[name] ?? 0)
         if elapsed < Self.minPress {
@@ -468,7 +596,8 @@ final class PhoneView: NSView {
             if joyDown { send(Touch.up, joyId, c); joyDown = false }
             return
         }
-        let (ox, oy) = offset(dx / len * map.joyR, dy / len * map.joyR)
+        let (ux, uy) = unturn(dx / len, dy / len)
+        let (ox, oy) = offset(ux * map.joyR, uy * map.joyR)
         let target = NPoint(x: c.x + ox, y: c.y + oy)
         if !joyDown {
             // put the thumb down, let the game register it, then slide
@@ -500,7 +629,8 @@ final class PhoneView: NSView {
             lookDown = true
             lookHoldUntil = CFAbsoluteTimeGetCurrent() + 0.025
         }
-        let (ox, oy) = offset(dx * map.sens * 0.0004, dy * map.sens * 0.0004)
+        let (tx, ty) = unturn(dx, dy)
+        let (ox, oy) = offset(tx * map.sens * 0.0004, ty * map.sens * 0.0004)
         lookPos.x += ox; lookPos.y += oy
         let s = min(videoSize.width, videoSize.height)
         let dist = hypot((lookPos.x - a.x) * videoSize.width / s, (lookPos.y - a.y) * videoSize.height / s)
@@ -565,7 +695,8 @@ final class PhoneView: NSView {
                 if stickDown { send(Touch.up, joyId, c); stickDown = false; joyDown = false }
             } else {
                 let k = min(1, (lm - Self.deadZone) / (1 - Self.deadZone)) / lm
-                let (ox, oy) = offset(left.x * k * map.joyR, -left.y * k * map.joyR)
+                let (lx, ly) = unturn(left.x * k, -left.y * k)
+                let (ox, oy) = offset(lx * map.joyR, ly * map.joyR)
                 let target = NPoint(x: c.x + ox, y: c.y + oy)
                 if !stickDown {
                     send(Touch.down, joyId, c); stickDown = true; joyDown = true; joyTarget = target
@@ -611,6 +742,12 @@ final class PhoneView: NSView {
         case 51, 117:
             deleteNearest(pending ?? overlay.hover)
             pending = nil
+        case 17 where pending == nil && e.modifierFlags.contains(.option):
+            // ⌥T over a marker: turbo off → 8 → 15 taps a second → off
+            if let p = overlay.hover, let k = nearestMarker(p), var b = map.binds[k] {
+                b.turbo = b.turbo == nil ? 8 : (b.turbo! < 15 ? 15 : nil)
+                map.binds[k] = b; map.save()
+            }
         default:
             guard let p = pending, !e.isARepeat else { break }
             if Self.wasd[e.keyCode] != nil {
@@ -697,7 +834,10 @@ final class PhoneView: NSView {
                 s.draw(at: CGPoint(x: c.x - sz.width / 2, y: c.y - sz.height / 2))
             }
 
-            for (k, b) in o.map.binds { marker(NPoint(x: b.x, y: b.y), b.label, k.hasPrefix("g") ? .systemPurple : .systemBlue) }
+            for (k, b) in o.map.binds {
+                marker(NPoint(x: b.x, y: b.y), b.turbo.map { "\(b.label)⚡\(Int($0))" } ?? b.label,
+                       b.turbo != nil ? .systemRed : (k.hasPrefix("g") ? .systemPurple : .systemBlue))
+            }
             if let j = o.map.joy {
                 let c = o.viewPoint(j)
                 let rad = CGFloat(o.map.joyR) * min(r.width, r.height)
@@ -724,7 +864,7 @@ final class PhoneView: NSView {
 
             if editing {
                 let help = o.pending == nil
-                    ? "KEY MAP — click a button on the phone screen, then press the key, mouse button or controller button for it.\nMovement: click the middle of the joystick, then press W or push the left stick (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌫ over a marker: delete  ·  Esc: done"
+                    ? "KEY MAP — click a button on the phone screen, then press the key, mouse button or controller button for it.\nMovement: click the middle of the joystick, then press W or push the left stick (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌥T over a marker: turbo  ·  ⌫ over a marker: delete  ·  Esc: done"
                     : "Now press a key, a mouse button or a controller button to bind this spot (left stick = joystick, right stick = look area).  Esc: cancel"
                 let para = NSMutableParagraphStyle(); para.alignment = .center
                 let s = NSAttributedString(string: help, attributes: [

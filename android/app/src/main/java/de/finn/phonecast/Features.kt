@@ -78,6 +78,8 @@ class Features(private val ctx: Context, private val hub: HubService) {
         "app.open" -> openApp(p.getString("pkg"))
         "media.cmd" -> hub.extras.mediaCmd(p.getString("a"))
         "phone.ring" -> hub.extras.ring(p.optBoolean("on", true))
+        "phone.locate" -> locate()
+        "url.open" -> openUrl(p.getString("url"))
         "dnd.set" -> {
             // the notification listener may switch Do Not Disturb without any extra permission
             val nl = NotifListener.instance ?: throw SecurityException("notification access")
@@ -86,6 +88,44 @@ class Features(private val ctx: Context, private val hub: HubService) {
             Thread.sleep(300); hub.refreshStatus(); true
         }
         else -> throw IllegalArgumentException("unknown request $m")
+    }
+
+    // ---- find my phone: where is it ----
+
+    /** A fresh position (up to 20 s), else the newest one any provider has. Needs location "all the time",
+     *  because the request arrives while PhoneCast is in the background. */
+    private fun locate(): JSONObject {
+        if (!has(Manifest.permission.ACCESS_FINE_LOCATION) && !has(Manifest.permission.ACCESS_COARSE_LOCATION))
+            throw SecurityException("location")
+        val lm = ctx.getSystemService(android.location.LocationManager::class.java)
+        val providers = lm.getProviders(true)
+        var best: android.location.Location? = null
+        if (Build.VERSION.SDK_INT >= 30) {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            val prov = listOf("fused", android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
+                .firstOrNull { it in providers }
+            if (prov != null) {
+                val cancel = android.os.CancellationSignal()
+                lm.getCurrentLocation(prov, cancel, ctx.mainExecutor) { l -> if (l != null) best = l; latch.countDown() }
+                if (!latch.await(20, java.util.concurrent.TimeUnit.SECONDS)) cancel.cancel()
+            }
+        }
+        if (best == null) best = providers.mapNotNull { try { lm.getLastKnownLocation(it) } catch (_: SecurityException) { null } }
+            .maxByOrNull { it.time }
+        val l = best ?: throw IllegalStateException("The phone doesn't know where it is yet (location off?)")
+        return JSONObject().put("lat", l.latitude).put("lon", l.longitude).put("acc", l.accuracy.toDouble())
+            .put("time", l.time).put("provider", l.provider ?: "")
+    }
+
+    /** A link from the Mac (its open browser tab): opens on the phone right away. */
+    private fun openUrl(url: String): Boolean {
+        val u = Uri.parse(url)
+        require(u.scheme == "http" || u.scheme == "https") { "only web links" }
+        val i = Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val svc = InputService.instance
+        if (svc != null) { svc.startActivity(i); return true }
+        hub.notifyLink(url)
+        return true
     }
 
     // ---- which features are allowed (for the Mac's setup list) ----
@@ -99,6 +139,8 @@ class Features(private val ctx: Context, private val hub: HubService) {
         .put("files", Environment.isExternalStorageManager())
         .put("notifications", NotifListener.instance != null)
         .put("control", InputService.instance != null)
+        .put("location", has(Manifest.permission.ACCESS_FINE_LOCATION) &&
+            (Build.VERSION.SDK_INT < 29 || has(Manifest.permission.ACCESS_BACKGROUND_LOCATION)))
 
     // ---- messages ----
 

@@ -29,6 +29,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
+import android.widget.CheckBox
 import android.widget.AutoCompleteTextView
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -937,6 +938,11 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             setOnFocusChangeListener { v, f -> if (f) (v as AutoCompleteTextView).showDropDown() }
         }
         box.addView(folderBox)
+        val ownTree = CheckBox(c).apply {
+            text = tr("Own git worktree (new branch, so parallel chats don't edit the same files)")
+            isChecked = prefs.getBoolean("lastWorktree", false); setTextColor(u.text)
+        }
+        box.addView(ownTree)
         box.addView(u.hint("First message (optional)"))
         val prompt = EditText(c).apply { textSize = 15f; minLines = 2; maxLines = 6; setTextColor(u.text); setHintTextColor(u.text2); hint = tr("What should it do?") }
         box.addView(prompt)
@@ -964,8 +970,10 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                 b.isEnabled = false
                 @Suppress("UNCHECKED_CAST") val model = (modelSpin.tag as? List<String>)?.getOrNull(modelSpin.selectedItemPosition) ?: ""
                 val cwd = folderBox.text.toString().trim().ifEmpty { "~" }
-                prefs.edit().putString("lastAgent", chosen).putString("lastFolder", cwd).putString("lastModel.$chosen", model).putString("lastHost", machine).apply()
-                Agents.request("start", JSONObject().put("agent", chosen).put("cwd", cwd).put("model", model).put("prompt", prompt.text.toString()).put("host", machine), 40_000) { d, err ->
+                prefs.edit().putString("lastAgent", chosen).putString("lastFolder", cwd).putString("lastModel.$chosen", model).putString("lastHost", machine)
+                    .putBoolean("lastWorktree", ownTree.isChecked).apply()
+                Agents.request("start", JSONObject().put("agent", chosen).put("cwd", cwd).put("model", model).put("prompt", prompt.text.toString()).put("host", machine)
+                    .put("worktree", ownTree.isChecked && machine.isEmpty()), 60_000) { d, err ->
                     if (err != null) { toast(err); b.isEnabled = true; return@request }
                     dlg.dismiss()
                     d?.optString("sid")?.let { sid -> view.postDelayed({ openChat(sid) }, 600) }

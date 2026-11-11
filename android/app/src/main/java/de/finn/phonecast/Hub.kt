@@ -172,6 +172,18 @@ class HubService : Service() {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Connection to the Mac", NotificationManager.IMPORTANCE_MIN))
         nm.createNotificationChannel(NotificationChannel(CHANNEL_FILES, "Files from the Mac", NotificationManager.IMPORTANCE_DEFAULT))
         nm.createNotificationChannel(NotificationChannel(CHANNEL_CAST, "Cast requests from the Mac", NotificationManager.IMPORTANCE_HIGH))
+        Dimmer.restoreLeftover(this)
+    }
+
+    /** A link from the Mac when no activity may be started from here: a heads-up to tap. */
+    fun notifyLink(url: String) {
+        val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(this, url.hashCode(), i, PendingIntent.FLAG_IMMUTABLE)
+        getSystemService(NotificationManager::class.java).notify(url.hashCode(), Notification.Builder(this, CHANNEL_CAST)
+            .setSmallIcon(android.R.drawable.ic_menu_view)
+            .setContentTitle(tr("Tab from the Mac"))
+            .setContentText(url)
+            .setContentIntent(pi).setAutoCancel(true).build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -538,9 +550,16 @@ class HubService : Service() {
                 toast("Picture copied from the Mac")
                 return
             }
-            val mime = contentResolver.getType(u) ?: "*/*"
+            val apk = name.endsWith(".apk", ignoreCase = true)
+            val mime = if (apk) "application/vnd.android.package-archive" else contentResolver.getType(u) ?: "*/*"
             val view = Intent(Intent.ACTION_VIEW).setDataAndType(u, mime)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (apk) {
+                // an app dropped on the mirror: open Android's installer right away (the user still confirms)
+                val svc = InputService.instance
+                val opened = try { (svc ?: this@HubService).startActivity(view); svc != null } catch (_: Exception) { false }
+                if (opened) { transfer = null; updateNotification(); return }
+            }
             val pi = PendingIntent.getActivity(this@HubService, u.hashCode(), view, PendingIntent.FLAG_IMMUTABLE)
             getSystemService(NotificationManager::class.java).notify(u.hashCode(), Notification.Builder(this@HubService, CHANNEL_FILES)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)

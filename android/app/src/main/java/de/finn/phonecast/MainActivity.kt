@@ -304,9 +304,18 @@ class MainActivity : Activity() {
     private fun macPage(): View {
         val status = u.Status()
         val stats = u.Rows()
+        val shortcutsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        var shownShortcuts: String? = null
         updaters += {
             val hub = HubService.instance
             val st = hub?.macStatus
+            val names = st?.optJSONArray("shortcuts")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+            if (names.joinToString("\n") != shownShortcuts) {      // rebuild only when the list changed
+                shownShortcuts = names.joinToString("\n")
+                shortcutsBox.removeAllViews()
+                if (names.isEmpty()) shortcutsBox.addView(u.hint("None yet. Make one in the Shortcuts app on the Mac."))
+                else shortcutsBox.addView(u.grid(2, *names.map { n -> n to { macAction("shortcut:$n") } }.toTypedArray()))
+            }
             if (hub?.connected == true) status.set(u.green, hub.macName ?: "Mac",
                 st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: "Connected")
             else status.set(u.grey, "Mac not connected", "Open PhoneCast on the Mac.")
@@ -334,7 +343,9 @@ class MainActivity : Activity() {
             u.card(u.title("Send to the Mac"), u.grid(2,
                 "Files" to { pickFiles() },
                 "Clipboard" to { sendClipboard() },
-            )),
+            ), u.tonal("Open the Mac's browser tab here") { macAction("tab") }),
+            u.card(u.title("Mac Shortcuts"), shortcutsBox,
+                u.hint("Your Shortcuts from the Mac's Shortcuts app. Tap one to run it on the Mac.")),
         )
     }
 
@@ -594,6 +605,17 @@ class MainActivity : Activity() {
             u.gone(shapeMacBtn, !(allowed && changed == null && last != null))
             if (last != null) shapeMacBtn.text = tr("Fit the Mac again ({0}:{1})", last.first, last.second)
         }
+        val dim = u.SwitchRow("Dim the phone while a computer shows it", { Dimmer.enabled(this) }) { on ->
+            Dimmer.setEnabled(this, on)
+            if (on && !Dimmer.canWrite(this)) openWriteSettings()
+            CaptureService.instance?.let { Dimmer.update(this, it.clientAddress != null) }
+            tick()
+        }
+        val dimBtn = u.tonal("Allow changing brightness") { openWriteSettings() }
+        updaters += {
+            dim.refresh(if (Dimmer.enabled(this) && !Dimmer.canWrite(this)) "Needs \"Modify system settings\" for PhoneCast" else "Off by default")
+            u.gone(dimBtn, !Dimmer.enabled(this) || Dimmer.canWrite(this))
+        }
         return u.page("Cast",
             u.card(status.view, startBtn),
             u.card(u.title("Mouse & keyboard"), control.view, controlBtn,
@@ -603,6 +625,8 @@ class MainActivity : Activity() {
             u.card(u.title("Quality"), res.view, rate.view, audio.view,
                 u.hint("A connected Mac or PC sets resolution and bitrate from its own Quality menu.")),
             u.card(u.title("Screen shape"), shapeView, grantHelp, shapeNormalBtn, shapeMacBtn),
+            u.card(u.title("Dim while shown"), dim.view, dimBtn,
+                u.hint("Turns the phone's brightness all the way down while a computer shows it (saves battery and heat, and nobody next to you sees the screen). The computer's picture stays bright. With the adb grant from Screen shape it uses Extra dim too. Brightness comes back when sharing stops.")),
         )
     }
 
@@ -624,6 +648,7 @@ class MainActivity : Activity() {
             try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
             catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
         }
+        val locBtn = u.tonal("Allow location (show phone on the Mac's map)") { requestLocation() }
         updaters += {
             pinView.text = Prefs.pin(this)
             addrRows.set(addressRows(), "No network. Connect to Wi-Fi.")
@@ -635,10 +660,12 @@ class MainActivity : Activity() {
             val p = HubService.instance?.let { try { it.features.perms() } catch (_: Exception) { null } }
             if (p != null) {
                 val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer & dial", "contacts" to "Contacts",
-                    "photos" to "Photos", "files" to "Files", "notifications" to "Notifications", "control" to "Mouse & keyboard")
+                    "photos" to "Photos", "files" to "Files", "notifications" to "Notifications", "control" to "Mouse & keyboard",
+                    "location" to "Location (find phone)")
                 featRows.set(names.map { (k, v) -> val ok = p.optBoolean(k); Ui.Row(v, if (ok) "allowed" else "off", if (ok) u.green else u.grey) })
                 u.gone(featBtn, listOf("sms", "calls", "callControl", "contacts", "photos").all { p.optBoolean(it) })
                 u.gone(filesBtn, p.optBoolean("files"))
+                u.gone(locBtn, p.optBoolean("location"))
             } else featRows.set(emptyList(), "Starting…")
         }
         keyView.text = Auth.fingerprint()
@@ -687,7 +714,7 @@ class MainActivity : Activity() {
                             .setNegativeButton(tr("Cancel"), null).show()
                     })),
             u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view, shots.view),
-            u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn,
+            u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn, locBtn,
                 u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
             u.card(u.title("PC dashboard (optional)"), dashView,
                 u.tonal("Set the dashboard address…") { askDashboard() }),
@@ -760,6 +787,24 @@ class MainActivity : Activity() {
         want += if (android.os.Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
             else listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         requestPermissions(want.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), REQ_FEATURES)
+    }
+
+    /** Location for "Show phone on a map": first while in use, then Android's settings page for "Allow all
+     *  the time" (the Mac asks while PhoneCast is in the background). */
+    private fun requestLocation() {
+        val fine = Manifest.permission.ACCESS_FINE_LOCATION
+        if (checkSelfPermission(fine) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(fine, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_FEATURES); return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 29 && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            toast("Pick \"Allow all the time\"")
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQ_FEATURES)
+        }
+    }
+
+    private fun openWriteSettings() {
+        try { startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))) }
+        catch (_: Exception) { toast("Allow \"Modify system settings\" for PhoneCast in Android's settings") }
     }
 
     private fun pickFiles() {

@@ -230,6 +230,8 @@ struct OverviewView: View {
                     Button { Hub.shared.ring(!store.ringing) } label: {
                         Label(store.ringing ? "Stop ringing" : "Find phone", systemImage: store.ringing ? "bell.slash" : "bell.and.waves.left.and.right")
                     }
+                    Button { Continuity.locatePhone() } label: { Label("Show on map", systemImage: "map") }
+                    Button { Continuity.sendTabToPhone() } label: { Label("Tab to phone", systemImage: "safari") }
                 }
                 .controlSize(.large)
                 .disabled(!store.connected)
