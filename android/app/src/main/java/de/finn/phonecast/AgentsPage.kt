@@ -113,6 +113,8 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     // ================================================================= list
 
     private val banner = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+    private val planBox = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+    private var planSig = ""
     private val chips = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
     private val rows = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(24)) }
     private val rowCache = HashMap<String, Pair<String, View>>()
@@ -148,7 +150,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         listPane.addView(ScrollView(a).apply {
             addView(LinearLayout(a).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(banner); addView(rows)
+                addView(planBox); addView(banner); addView(rows)
             })
         }, LinearLayout.LayoutParams(-1, 0, 1f))
     }
@@ -179,6 +181,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     private fun refreshList() {
         val all = Agents.sessions
         refreshChips(all)
+        renderPlan()
         banner.removeAllViews()
         when {
             !Agents.connected -> banner.addView(note(tr("Agents live on your Mac"),
@@ -242,6 +245,54 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             rows.removeAllViews()
             views.forEach { (it.parent as? ViewGroup)?.removeView(it); rows.addView(it) }
         }
+    }
+
+    /** "Usage left" card: each agent's plan windows as bars (used) with what's left and when it resets. */
+    private fun renderPlan() {
+        val p = Agents.plan
+        val sig = p.toString() + (System.currentTimeMillis() / 60000)
+        if (sig == planSig) return
+        planSig = sig
+        planBox.removeAllViews()
+        if (!Agents.connected || p.length() == 0) return
+        val card = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(10)); background = pill(u.surface, 20)
+        }
+        card.addView(u.label(tr("Usage left"), 13f, bold = true, secondary = true).apply { setPadding(0, 0, 0, dp(4)) })
+        val now = System.currentTimeMillis() / 1000.0
+        val tf = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+        for ((key, name) in listOf("claude" to "Claude", "codex" to "Codex")) {
+            val arr = p.optJSONArray(key) ?: continue
+            for (i in 0 until arr.length()) {
+                val w = arr.optJSONObject(i) ?: continue
+                val used = w.optDouble("pct").coerceIn(0.0, 100.0)
+                val resets = w.optDouble("resets")
+                val passed = resets > 0 && resets < now
+                val left = (100 - used).toInt()
+                val whenTxt = when {
+                    resets <= 0 -> ""
+                    passed -> tr("reset at {0}", tf.format(java.util.Date((resets * 1000).toLong())))
+                    resets - now < 86400 -> tr("resets {0}", tf.format(java.util.Date((resets * 1000).toLong())))
+                    else -> tr("resets {0}", java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.getDefault()).format(java.util.Date((resets * 1000).toLong())))
+                }
+                val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
+                row.addView(u.label(if (i == 0) name else "", 13.5f, bold = true), LinearLayout.LayoutParams(dp(58), -2))
+                row.addView(u.label(w.optString("label"), 12.5f, secondary = true), LinearLayout.LayoutParams(dp(52), -2))
+                row.addView(ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100; progress = if (passed) 0 else used.toInt()
+                    progressTintList = ColorStateList.valueOf(when { passed -> u.grey; used >= 90 -> u.red; used >= 70 -> u.orange; else -> u.green })
+                    progressBackgroundTintList = ColorStateList.valueOf(u.divider)
+                }, LinearLayout.LayoutParams(0, dp(6), 1f).apply { marginEnd = dp(10) })
+                row.addView(u.label(if (passed) tr("fresh") else tr("{0}% left", left), 13f, bold = true).apply {
+                    setTextColor(if (passed) u.text2 else if (used >= 90) u.red else u.text)
+                }, LinearLayout.LayoutParams(dp(78), -2))
+                card.addView(row)
+                if (whenTxt.isNotEmpty()) card.addView(u.label(whenTxt, 11.5f, secondary = true).apply { setPadding(dp(110), 0, 0, dp(2)) })
+            }
+        }
+        if (p.optJSONArray("claude") == null && !Agents.tap)
+            card.addView(u.label(tr("Claude's limits appear after turning on “Cost & plan limits” (⋯ above)."), 12f, secondary = true).apply { setPadding(0, dp(4), 0, 0) })
+        planBox.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(16), dp(6), dp(16), dp(4)) })
     }
 
     private fun rowSig(s: JSONObject) = listOf("title", "status", "stage", "last", "updatedAt", "managed", "attached", "model").joinToString("|") { s.optString(it) } + s.has("ask")

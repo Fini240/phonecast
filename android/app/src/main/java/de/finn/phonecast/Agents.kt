@@ -41,6 +41,8 @@ object Agents {
     fun setTap(on: Boolean) { tap = on; fire("host") }
 
     var sessions: List<JSONObject> = emptyList(); private set
+    /** Plan limits of the accounts on the Mac: {claude: [{label, pct, resets, at}], codex: [...]}. */
+    var plan: JSONObject = JSONObject(); private set
     val byId = HashMap<String, JSONObject>()
 
     /** The chat the UI shows and its messages (oldest first). */
@@ -86,7 +88,9 @@ object Agents {
                 if (host == null) { host = client; hostName = name }
                 val arr = o.optJSONArray("list") ?: JSONArray()
                 val list = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                val pl = o.optJSONObject("plan")
                 main.post {
+                    if (pl != null) plan = pl
                     sessions = list
                     byId.clear(); list.forEach { byId[it.optString("id")] = it }
                     fire("sessions")

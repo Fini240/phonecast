@@ -230,6 +230,49 @@ enum AgentUsage {
         }
     }
 
+    // MARK: account-wide plan limits (what's left)
+
+    private static var planCache: (at: Double, value: [String: Any])?
+
+    /// The newest plan-limit report of each agent: Claude from the statusline tap (any chat; limits are per
+    /// account), Codex from its newest rollout. Each window: {label, pct used, resets (epoch s), at (report time)}.
+    static func plan() -> [String: Any] {
+        let now = Date().timeIntervalSince1970
+        if let c = planCache, now - c.at < 10 { return c.value }
+        var out: [String: Any] = [:]
+        let fm = FileManager.default
+        // Claude: newest status file
+        if let files = try? fm.contentsOfDirectory(at: statusDir, includingPropertiesForKeys: [.contentModificationDateKey]) {
+            let newest = files.filter { $0.pathExtension == "json" }.compactMap { u -> (Date, URL)? in
+                (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate).map { ($0, u) }
+            }.max { $0.0 < $1.0 }
+            if let (d, u) = newest, let data = try? Data(contentsOf: u), let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let r = o["rate_limits"] as? [String: Any] {
+                var lim: [[String: Any]] = []
+                for (k, label) in [("five_hour", "5 h"), ("seven_day", "7 days")] {
+                    if let x = r[k] as? [String: Any], let pct = (x["used_percentage"] as? NSNumber)?.doubleValue {
+                        lim.append(["label": label, "pct": pct, "resets": (x["resets_at"] as? NSNumber)?.doubleValue ?? 0, "at": d.timeIntervalSince1970])
+                    }
+                }
+                if !lim.isEmpty { out["claude"] = lim }
+            }
+        }
+        // Codex: newest rollout that reported limits (sessions/YYYY/MM/DD/*.jsonl)
+        let root = CodexSource.home.appendingPathComponent("sessions")
+        var newestRollout: (Date, URL)?
+        if let e = fm.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) {
+            for case let u as URL in e where u.pathExtension == "jsonl" {
+                if let d = try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, d > (newestRollout?.0 ?? .distantPast) { newestRollout = (d, u) }
+            }
+        }
+        if let (d, u) = newestRollout, var lim = codex(path: u.path)?["limits"] as? [[String: Any]] {
+            for i in lim.indices { lim[i]["at"] = d.timeIntervalSince1970; if let r = lim[i]["resets"] as? NSNumber { lim[i]["resets"] = r.doubleValue } }
+            out["codex"] = lim
+        }
+        planCache = (now, out)
+        return out
+    }
+
     // MARK: statusline tap (Claude hands its statusline a JSON with cost, context and plan limits)
 
     static var tapScript: URL { AgentTmux.home.appendingPathComponent("statusline.sh") }

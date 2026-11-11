@@ -230,10 +230,12 @@ class AgentsWidget : AppWidgetProvider() {
             val s = AgentsLive.summary()
             val v = RemoteViews(ctx.packageName, R.layout.widget_agents)
             v.setTextViewText(R.id.w_title, tr("Agents"))
+            val five = Agents.plan.optJSONArray("claude")?.optJSONObject(0)
+            val left = five?.takeIf { it.optDouble("resets") * 1000 > System.currentTimeMillis() }?.let { " · " + tr("Claude {0}% left ({1})", (100 - it.optDouble("pct")).toInt(), it.optString("label")) } ?: ""
             v.setTextViewText(R.id.w_sub, when {
                 !Agents.connected -> tr("Mac not connected")
-                s.any -> s.short()
-                else -> tr("All quiet")
+                s.any -> s.short() + left
+                else -> tr("All quiet") + left
             })
             val list = s.waiting + s.working + Agents.sessions.filter { !it.optBoolean("sub") && it !in s.waiting && it !in s.working }.take(4)
             rows.forEachIndexed { i, id ->

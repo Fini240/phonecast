@@ -267,10 +267,11 @@ final class AgentHub: ObservableObject {
         }
         for s in list where s.isSubagent && keep.contains(s.parentId ?? "") { rows.append(s.json) }
         if let d = try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys]) {
-            let digest = SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
+            let planSig = (try? JSONSerialization.data(withJSONObject: AgentUsage.plan(), options: [.sortedKeys])) ?? Data()
+            let digest = SHA256.hash(data: d + planSig).map { String(format: "%02x", $0) }.joined()
             if digest != lastSentDigest {
                 lastSentDigest = digest
-                emit(["e": "sessions", "list": rows])
+                emit(["e": "sessions", "list": rows, "plan": AgentUsage.plan()])
             }
         }
         if let w = watched { pushWatched(w, list) }
