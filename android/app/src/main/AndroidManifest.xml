@@ -82,6 +82,7 @@
 
         <!-- In-app update: PackageInstaller reports back here (Updates.kt) -->
         <receiver android:name=".UpdateReceiver" android:exported="false" />
+        <receiver android:name=".Agents$AgentReceiver" android:exported="false" />
 
         <!-- Opened by Android when the Mac connects over the cable (USB accessory mode). No UI. -->
         <activity

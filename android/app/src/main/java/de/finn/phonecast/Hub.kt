@@ -90,6 +90,10 @@ object HubProto {
     const val RESP = 71          // phone->mac json {id, ok, data | error, message}
     const val EVENT = 72         // phone->mac json {e: "call", state, number, name}
 
+    const val AGENT_REQ = 80     // phone->mac json {id, m, p}: AI agents on the Mac (Agents.kt / AgentHub.swift)
+    const val AGENT_RESP = 81    // mac->phone json {id, ok, data | message}
+    const val AGENT_EVENT = 82   // mac->phone json {e: hello|sessions|msgs|alert, ...}
+
     const val INPUT = 60         // phone->mac, first byte = INPUT_*
     const val MAC_ACTION = 61    // phone->mac utf8: volup voldown mute play next prev lock displaysleep screenshot
     const val IN_MOVE = 0        // u16 x, u16 y (0..65535 of the Mac screen)
@@ -217,6 +221,8 @@ class HubService : Service() {
 
     fun send(type: Int, payload: ByteArray = ByteArray(0)) { clients.forEach { it.control(type, payload) } }
     fun sendJson(type: Int, o: JSONObject) = send(type, o.toString().toByteArray())
+    /** An agents request to the computer that hosts them ([Agents.host]). */
+    fun sendAgent(to: Any, p: ByteArray) { (to as? Client)?.takeIf { it in clients }?.control(HubProto.AGENT_REQ, p) }
     /** To the computer [to] (an [origin]); to every computer when [to] is null. */
     fun sendJsonTo(to: Any?, type: Int, o: JSONObject) {
         val c = to as? Client
@@ -415,6 +421,7 @@ class HubService : Service() {
             if (c != null && clients.remove(c)) {
                 Log.i(TAG, "${c.os} '${c.name}' left (${clients.size} connected)")
                 if (clients.none { it.os != "windows" }) macStatus = null
+                Agents.lost(c)
                 if (screenClient === c) { screenClient = null; screenSink?.invoke(-1, ByteArray(0)) }
                 updateNotification()
             }
@@ -436,6 +443,7 @@ class HubService : Service() {
             HubProto.NOTIF_ACTION -> NotifListener.instance?.action(JSONObject(String(p)))
             HubProto.CAST_REQUEST -> requestCast()
             HubProto.REQ -> features.handle(JSONObject(String(p)), c)
+            HubProto.AGENT_RESP, HubProto.AGENT_EVENT -> Agents.packet(this, c, type, p, c.name)
             HubProto.FILE_BEGIN -> {
                 val o = JSONObject(String(p))
                 files[o.getInt("id")] = Incoming(o.optString("name", "file"), o.optLong("size", -1), o.optString("dir").takeIf { it.isNotEmpty() },

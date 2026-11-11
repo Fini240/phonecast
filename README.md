@@ -18,6 +18,10 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Do Not Disturb**: when the phone is on Do Not Disturb, the Mac stays quiet too; switch it from the menu bar.
 - **Lock the Mac when the phone leaves** (optional, only when nobody is using the Mac).
 - **Updates in the app**: "Install update" on the Mac and the phone, Help → Check for updates on Windows.
+- **AI agents**: your Claude Code and Codex chats on the Mac in an Agents tab on the phone (and an
+  Agents page on the Mac): reply (it interrupts a running turn, like typing in the terminal), send photos,
+  stop, answer permission questions, start new chats with the models your CLIs offer, and get notified when
+  an agent is done, fails or needs you, with reply and approve right in the notification.
 - **Windows too**: the Windows app mirrors and links (notifications, clipboard, files, now playing, ring);
   the phone can be linked to a Mac and a PC at the same time.
 - **English and German**: the apps follow the device's language.
@@ -181,6 +185,30 @@ When `homeNetworkPrefix` is set and the Mac isn't on that network, the menu stre
 15 Mbit/s: over a phone hotspot that measured ~45 ms and no lost frames, while full quality
 (~34 Mbit/s) gave 200 ms and lost over half the frames. On the phone's Moonlight, set about
 15–20 Mbit/s when you're on mobile data.
+
+## Agents (Claude Code and Codex)
+
+The Mac app watches the Claude Code and Codex chats on the Mac (read-only: their transcripts in
+`~/.claude` and `~/.codex`, and Codex's local status socket) and shows them on the phone's **Agents** tab,
+with subagents grouped under their chat. Everything goes over the PhoneCast link, so it works wherever the
+link works (Wi-Fi, Tailscale); there is no server and no cloud push.
+
+To answer a chat from the phone, it has to run in a terminal PhoneCast can type into. Turn on
+**Agents → Terminal integration** on the Mac: it adds a small block to `~/.zshrc`, and from then on
+`claude` and `codex` in a new terminal open inside a private tmux session
+(`~/.phonecast/agents/tmux.sock`, needs `brew install tmux`). The terminal looks and works as before;
+the phone sees the same session. Other commands (`claude -p`, `codex exec`, `--version`…) are untouched.
+Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
+
+- **Reply**: waits until the prompt is ready; if the agent is working, it presses Esc once to stop the
+  current turn first (never Ctrl-C), then pastes your text and confirms it was sent.
+- **Finished chats** are reopened on the Mac (`claude --resume` / `codex resume`) when you reply.
+- **Questions** (permissions, trust folder…) show as buttons in the chat and in the notification.
+- **`pa`** in a terminal lists the running sessions and attaches to one; `pa notify "title" "text"` from
+  inside a session sends a phone notification.
+- While an agent works, the Mac doesn't go to sleep (the display still may).
+
+Chats started outside the integration (another terminal, an IDE) are shown read-only.
 
 ## Before you use it
 

@@ -1,0 +1,40 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.302[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mOpus 5.5 · Claude Pro[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/private/tmp/claude-501/-Users-me/2c57d0fe-413b-4fdc-ad2d-e6c899b94d97/scratchpad/t[39m
+
+
+[38;5;246m[48;5;237m❯ [38;5;231mRun the bash command: sleep 40 ; then just say ok[39m
+[49m
+  [38;5;246mRan [1m1[0m[38;5;246m shell command [39m
+
+[38;5;231m⏺[39m I started the 40-second sleep in the background. I'll say ok once it finishes.
+
+[38;5;246m✻[39m [38;5;246mWorked for 8s · done 12:01 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mis it done yet?[39m
+
+[38;5;231m[49m⏺[39m Not yet. I haven't been notified that it finished, so the sleep is still running. I'll say ok as soon as it's done.
+
+[38;5;246m✻[39m [38;5;246mBrewed for 2s · done 12:01 AM[39m
+
+[38;5;114m⏺[39m Background command "Wait 40 seconds" completed (exit code 0)
+
+[38;5;231m⏺[39m ok
+
+[38;5;246m✻[39m [38;5;246mSautéed for 2s · done 12:01 AM[39m
+
+
+
+
+
+
+
+
+
+                                                                                                                                  [38;5;246mCtrl+Y to paste deleted text[39m
+[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m❯ [2mis it done now?[0m
+[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;246mOpus 5.5 | ctx: 93% remaining | 5h: 12% used  7d: 29% used[39m
+  [38;5;211m⏵⏵ bypass permissions on[38;5;246m (shift+tab to cycle)[39m

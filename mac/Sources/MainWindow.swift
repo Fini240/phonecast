@@ -4,7 +4,7 @@ import Quartz
 import UniformTypeIdentifiers
 
 enum Pane: String, CaseIterable, Identifiable {
-    case overview = "Overview", mirror = "Mirror", pc = "PC", notifications = "Notifications", messages = "Messages", calls = "Calls"
+    case overview = "Overview", mirror = "Mirror", pc = "PC", agents = "Agents", notifications = "Notifications", messages = "Messages", calls = "Calls"
     case contacts = "Contacts", photos = "Photos", files = "Files", apps = "Apps", transfers = "Transfers", settings = "Settings"
     var id: String { rawValue }
     var symbol: String {
@@ -12,6 +12,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .overview: "gauge.with.dots.needle.33percent"
         case .mirror: "rectangle.on.rectangle"
         case .pc: "desktopcomputer"
+        case .agents: "sparkles.rectangle.stack"
         case .notifications: "bell"
         case .messages: "message"
         case .calls: "phone"
@@ -77,6 +78,7 @@ struct MainView: View {
                 case .overview: OverviewView()
                 case .mirror: MirrorView()
                 case .pc: PcView()
+                case .agents: AgentsView()
                 case .notifications: NotificationsView()
                 case .messages: MessagesView()
                 case .calls: CallsView()
@@ -97,6 +99,7 @@ struct MainView: View {
         case .notifications: store.notifications.count
         case .messages: store.threads.reduce(0) { $0 + $1.unread }
         case .transfers: store.transfers.filter { $0.state == .running }.count
+        case .agents: AgentHub.shared.sessions.filter { !$0.isSubagent && $0.status == "needs_input" }.count
         default: 0
         }
     }

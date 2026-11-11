@@ -1,0 +1,357 @@
+import Foundation
+import IOKit.pwr_mgt
+import CryptoKit
+
+/// The agents brain on the Mac: merges managed tmux panes with discovered Claude Code / Codex chats,
+/// tracks status changes (completed / error / needs you), keeps the Mac awake while agents work,
+/// and answers the phone (AGENT_REQ) / pushes updates to it (AGENT_EVENT) over the PhoneCast link.
+/// Polling is adaptive: 1 s while something is working or the phone watches a chat, 4 s otherwise;
+/// transcripts are only re-read when their mtime/size changes, panes only re-captured when tmux
+/// reports activity (or while they're busy).
+final class AgentHub: ObservableObject {
+    static let shared = AgentHub()
+
+    @Published private(set) var sessions: [AgentSession] = []
+    @Published private(set) var asks: [String: [String: Any]] = [:]   // session id -> open question (managed panes)
+    @Published private(set) var integrationInstalled = false
+    @Published var enabled: Bool = UserDefaults.standard.object(forKey: "agentsEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(enabled, forKey: "agentsEnabled"); if enabled { kick() } else { releaseAwake() } }
+    }
+
+    /// Where events for the phone go (set by Hub when the link is up).
+    var emit: ((_ json: [String: Any]) -> Void)?
+    var phoneConnected = false { didSet { let on = phoneConnected; work.async { if on { self.lastSentDigest = ""; self.poll() } else { self.watched = nil } } } }
+
+    let tmux = AgentTmux()
+    private let work = DispatchQueue(label: "phonecast.agents", qos: .utility)
+    private let actions = DispatchQueue(label: "phonecast.agents.actions", qos: .userInitiated, attributes: .concurrent)
+    private var locks: [String: NSLock] = [:]
+    private let locksLock = NSLock()
+    private var timer: DispatchSourceTimer?
+
+    // state on `work`
+    private var screens: [String: (activity: Double, at: Double, state: AgentScreen.State)] = [:]
+    private var tracks: [String: Track] = [:]
+    private var baselineDone = false
+    private var lastSentDigest = ""
+    private var watched: String?
+    private var sentIds: [String] = []
+    private var watchStamp: FileStamp?
+    private var lastAlert: [String: Double] = [:]
+    private var awake: IOPMAssertionID = 0
+    private var lastAsks: [String: [String: Any]] = [:]
+    private let snapLock = NSLock()
+    private var _latest: [AgentSession] = []
+    /// Latest list, safe from any thread.
+    var latest: [AgentSession] { snapLock.lock(); defer { snapLock.unlock() }; return _latest }
+
+    struct Track { var confirmed: String; var lastDefinite: String?; var pending: String?; var pendingSince = 0.0 }
+
+    func start() {
+        integrationInstalled = AgentShell.installed()
+        let t = DispatchSource.makeTimerSource(queue: work)
+        t.schedule(deadline: .now() + 1, repeating: 1)
+        var tick = 0
+        t.setEventHandler { [weak self] in
+            guard let self, self.enabled else { return }
+            tick += 1
+            let fast = self.watched != nil || self.tracks.values.contains { $0.confirmed == "working" || $0.confirmed == "needs_input" }
+            if fast || tick % 4 == 0 { self.poll() }
+            self.drainNotifySpool()
+        }
+        t.resume()
+        timer = t
+    }
+
+    func kick() { work.async { [weak self] in self?.poll() } }
+
+    private func lock(_ sid: String) -> NSLock {
+        locksLock.lock(); defer { locksLock.unlock() }
+        if let l = locks[sid] { return l }
+        let l = NSLock(); locks[sid] = l; return l
+    }
+
+    // MARK: polling
+
+    private func poll() {
+        let now = Date().timeIntervalSince1970
+        let panes = tmux.panes().filter { !$0.dead }
+        let live = ClaudeSource.liveRegistry()
+        var discovered = ClaudeSource.discover(live: live) + CodexSource.discover()
+        let tops = discovered
+        discovered += ClaudeSource.children(tops, now: now) + CodexSource.children(tops, now: now)
+
+        // managed panes: re-capture only when tmux saw output, while busy, or every 8 s
+        var managed: [AgentSession] = []
+        var newAsks: [String: [String: Any]] = [:]
+        for p in panes {
+            let prev = screens[p.id]
+            let busy = prev.map { $0.state.working || $0.state.dialog != nil } ?? true
+            var st: AgentScreen.State
+            if let prev, prev.activity == p.activity, !busy, now - prev.at < 8 { st = prev.state }
+            else if lock(p.id).try() { st = tmux.observe(p); lock(p.id).unlock(); screens[p.id] = (p.activity, now, st) }
+            else { st = prev?.state ?? AgentScreen.State() }
+            let native = tmux.nativeId(p)
+            let meta: (title: String, model: String?, last: String?, path: String?)? = native.flatMap { n in
+                if p.agent == "claude" { return ClaudeSource.lookup(n).map { ($0.title, $0.model, $0.last, $0.path) } }
+                return CodexSource.lookup(n).map { ($0.title, $0.model, $0.last, $0.path) }
+            }
+            var s = AgentSession(id: p.id, agent: p.agent, nativeId: native, title: meta?.title ?? ((p.cwd as NSString).lastPathComponent.nilIfEmpty ?? p.agent),
+                                 cwd: p.cwd, model: meta?.model, status: st.status,
+                                 stage: st.working ? st.activity : st.dialog?.title, updatedAt: max(p.activity, p.created),
+                                 managed: true, lastMessage: meta?.last, live: true, canResume: false, attached: p.attached, transcript: meta?.path)
+            if let d = st.dialog {
+                newAsks[p.id] = ["id": d.approvalId, "title": AgentText.clip(AgentText.redact(d.title), 300),
+                                 "detail": AgentText.clip(AgentText.redact(d.detail), 4000),
+                                 "choices": d.options.map { ["id": d.choiceId($0), "label": AgentText.clip(AgentText.redact($0.label), 300)] }]
+                s.stage = d.title
+            }
+            managed.append(s)
+        }
+        screens = screens.filter { k, _ in panes.contains { $0.id == k } }
+
+        // managed entries win; their discovered twin folds in (keeps transcript time/last message)
+        var byNative: [String: Int] = [:]
+        for (i, m) in managed.enumerated() { if let n = m.nativeId { byNative[m.agent + n] = i } }
+        var out = managed
+        var alias: [String: String] = [:]
+        for d in discovered {
+            if !d.isSubagent, let n = d.nativeId, let i = byNative[d.agent + n] {
+                if out[i].status == "unknown" && ["working", "idle", "needs_input"].contains(d.status) { out[i].status = d.status }
+                out[i].updatedAt = max(out[i].updatedAt, d.updatedAt)
+                if out[i].lastMessage == nil { out[i].lastMessage = d.lastMessage }
+                if out[i].transcript == nil { out[i].transcript = d.transcript }
+                alias[d.id] = out[i].id
+            } else { out.append(d) }
+        }
+        for i in out.indices { if let p = out[i].parentId, let a = alias[p] { out[i].parentId = a } }
+        out.sort { $0.updatedAt > $1.updatedAt }
+
+        // transitions -> alerts (first sight is a baseline; quiet idle after work is debounced 6 s)
+        for s in out where !s.isSubagent {
+            if let kind = observe(s.id, s.status, now), baselineDone { alert(kind, s, newAsks[s.id]) }
+        }
+        for (sid, a) in newAsks where lastAsks[sid]?["id"] as? String != a["id"] as? String && baselineDone {
+            if let s = out.first(where: { $0.id == sid }) { alert("input", s, a) }
+        }
+        tracks = tracks.filter { k, _ in out.contains { $0.id == k } }
+        baselineDone = true
+        lastAsks = newAsks
+        snapLock.lock(); _latest = out; snapLock.unlock()
+
+        let working = out.contains { !$0.isSubagent && $0.status == "working" }
+        DispatchQueue.main.async {
+            self.sessions = out
+            self.asks = newAsks
+            self.setAwake(working)
+        }
+        pushToPhone(out, newAsks)
+    }
+
+    private func observe(_ sid: String, _ status: String, _ now: Double) -> String? {
+        let definite: Set<String> = ["working", "idle", "needs_input", "completed", "error"]
+        guard var t = tracks[sid] else {
+            tracks[sid] = Track(confirmed: status, lastDefinite: definite.contains(status) ? status : nil); return nil
+        }
+        defer { tracks[sid] = t }
+        if status == t.confirmed { t.pending = nil; return nil }
+        if (status == "idle" || status == "completed") && t.lastDefinite == "working" {
+            if t.pending != status { t.pending = status; t.pendingSince = now; return nil }
+            if now - t.pendingSince < 6 { return nil }
+        }
+        let prev = t.lastDefinite
+        t.confirmed = status; t.pending = nil
+        guard definite.contains(status) else { return nil }
+        t.lastDefinite = status
+        if status == prev { return nil }
+        if (status == "idle" || status == "completed") && prev == "working" { return "completed" }
+        if status == "error" { return "error" }
+        if status == "needs_input" { return "input" }
+        return nil
+    }
+
+    private func alert(_ kind: String, _ s: AgentSession, _ ask: [String: Any]?) {
+        let key = "\(s.id)|\(kind)|\(ask?["id"] as? String ?? "")"
+        let now = Date().timeIntervalSince1970
+        if now - (lastAlert[key] ?? 0) < (kind == "input" ? 30 : 10) { return }
+        lastAlert[key] = now
+        if lastAlert.count > 300 { lastAlert = lastAlert.filter { now - $0.value < 3600 } }
+        let body: String
+        switch kind {
+        case "completed": body = s.lastMessage ?? "Finished"
+        case "error": body = s.lastMessage ?? "The agent reported an error"
+        default: body = (ask?["title"] as? String) ?? s.stage ?? "Waiting for you"
+        }
+        var o: [String: Any] = ["e": "alert", "kind": kind, "sid": s.id, "title": s.title, "body": AgentText.clip(body, 600), "agent": s.agent, "managed": s.managed]
+        if let ask { o["ask"] = ask }
+        emit?(o)
+    }
+
+    // MARK: phone
+
+    private func pushToPhone(_ list: [AgentSession], _ asks: [String: [String: Any]]) {
+        guard phoneConnected, let emit else { return }
+        // the phone gets top-level chats + children of live/recent ones; history beyond 80 stays on the Mac
+        var rows: [[String: Any]] = []
+        var keep = Set<String>()
+        for s in list where !s.isSubagent && (rows.count < 80 || s.live) {
+            var j = s.json
+            if let a = asks[s.id] { j["ask"] = a }
+            rows.append(j); keep.insert(s.id)
+        }
+        for s in list where s.isSubagent && keep.contains(s.parentId ?? "") { rows.append(s.json) }
+        if let d = try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys]) {
+            let digest = SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
+            if digest != lastSentDigest {
+                lastSentDigest = digest
+                emit(["e": "sessions", "list": rows])
+            }
+        }
+        if let w = watched { pushWatched(w, list) }
+    }
+
+    private func pushWatched(_ sid: String, _ list: [AgentSession], reset: Bool = false) {
+        guard let s = list.first(where: { $0.id == sid }) else { return }
+        let st = s.transcript.flatMap(fileStamp)
+        if !reset && st == watchStamp { return }
+        watchStamp = st
+        let msgs = messages(s, limit: reset ? 120 : 60)
+        let fresh = reset ? msgs : msgs.filter { !sentIds.contains($0.id) }
+        if reset { sentIds = [] }
+        if fresh.isEmpty && !reset { return }
+        sentIds += fresh.map(\.id)
+        if sentIds.count > 2000 { sentIds.removeFirst(sentIds.count - 2000) }
+        emit?(["e": "msgs", "sid": sid, "reset": reset, "add": fresh.map(\.json), "more": reset && msgs.count >= 120])
+    }
+
+    func messages(_ s: AgentSession, limit: Int) -> [AgentMessage] {
+        if s.agent == "claude" { return ClaudeSource.messages(path: s.transcript, native: s.nativeId, limit: limit, sidechain: s.isSubagent) }
+        return CodexSource.messages(path: s.transcript, native: s.nativeId, limit: limit)
+    }
+
+    /// One AGENT_REQ from the phone: {id, m, p}. `reply` gets {id, ok, data | message}.
+    func handle(_ req: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+        let id = req["id"] ?? 0
+        let m = req["m"] as? String ?? ""
+        let p = req["p"] as? [String: Any] ?? [:]
+        let ok: (Any) -> Void = { reply(["id": id, "ok": true, "data": $0]) }
+        let fail: (String) -> Void = { reply(["id": id, "ok": false, "message": $0]) }
+        let sid = p["sid"] as? String ?? ""
+        let run: (@escaping () throws -> Any) -> Void = { body in
+            self.actions.async {
+                do { ok(try body()) } catch { fail("\(error)") }
+                self.kick()
+            }
+        }
+        switch m {
+        case "hello":
+            work.async { self.lastSentDigest = ""; self.poll() }
+            ok(["installed": AgentShell.installed(), "enabled": enabled])
+        case "watch":
+            work.async {
+                self.watched = sid.isEmpty ? nil : sid
+                self.watchStamp = nil
+                if !sid.isEmpty { self.pushWatched(sid, self.latest, reset: true) }
+            }
+            ok(true)
+        case "older":
+            work.async {
+                guard let s = self.latest.first(where: { $0.id == sid }) else { fail("Chat not found."); return }
+                let n = min(500, (p["have"] as? Int ?? 120) + 150)
+                ok(["add": self.messages(s, limit: n).map(\.json), "more": n < 500])
+            }
+        case "terminal": run { try self.tmux.preview(sid) }
+        case "send":
+            run {
+                var target = sid
+                if !target.hasPrefix("t:") { target = try self.resume(sid) }
+                let l = self.lock(target); l.lock(); defer { l.unlock() }
+                var text = p["text"] as? String ?? ""
+                let paths = try self.saveImages(p["images"] as? [String] ?? [])
+                if !paths.isEmpty { text += (text.isEmpty ? "" : "\n\n") + paths.map { "Attached image: \($0)" }.joined(separator: "\n") }
+                try self.tmux.send(target, text)
+                return ["sid": target]
+            }
+        case "stop": run { let l = self.lock(sid); l.lock(); defer { l.unlock() }; try self.tmux.stop(sid); return true }
+        case "open": run { try self.tmux.openInTerminal(sid); return true }
+        case "key": run { try self.tmux.key(sid, p["key"] as? String ?? ""); return true }
+        case "approve":
+            run {
+                let l = self.lock(sid); l.lock(); defer { l.unlock() }
+                try self.tmux.approve(sid, approval: p["ask"] as? String ?? "", choice: p["choice"] as? String ?? "")
+                return true
+            }
+        case "resume": run { ["sid": try self.resume(sid)] }
+        case "start":
+            run {
+                let t = try self.tmux.start(agent: p["agent"] as? String ?? "claude", cwd: (p["cwd"] as? String ?? "~").expandingTilde,
+                                            model: (p["model"] as? String)?.nilIfEmpty, prompt: p["prompt"] as? String)
+                return ["sid": t]
+            }
+        case "models": run { AgentModels.list(refresh: p["refresh"] as? Bool ?? false) }
+        case "folders":
+            work.async {
+                var seen = Set<String>(), out: [String] = []
+                for s in self.latest where !s.isSubagent { if let c = s.cwd, seen.insert(c).inserted { out.append(c) } }
+                ok(["folders": Array(out.prefix(25)), "home": FileManager.default.homeDirectoryForCurrentUser.path])
+            }
+        default: fail("Unknown request.")
+        }
+    }
+
+    /// Reopen a discovered chat once inside a managed pane (refuses chats still open in another terminal).
+    func resume(_ sid: String) throws -> String {
+        guard let s = latest.first(where: { $0.id == sid }) else { throw AgentTmux.Fail("Chat not found.") }
+        if s.managed { return s.id }
+        guard !s.isSubagent, let native = s.nativeId, let cwd = s.cwd else { throw AgentTmux.Fail("This chat can't be continued from here.") }
+        if s.live { throw AgentTmux.Fail("This chat is open in a terminal PhoneCast doesn't manage. Close it there (or start it with the PhoneCast shell integration) to reply from here.") }
+        return try tmux.start(agent: s.agent, cwd: cwd, model: nil, prompt: nil, resume: native)
+    }
+
+    private func saveImages(_ b64: [String]) throws -> [String] {
+        guard !b64.isEmpty else { return [] }
+        let dir = AgentTmux.home.appendingPathComponent("uploads")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // prune week-old uploads
+        for f in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            if let d = try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, d.timeIntervalSinceNow < -7 * 86400 { try? FileManager.default.removeItem(at: f) }
+        }
+        return try b64.prefix(6).map { s in
+            guard let d = Data(base64Encoded: s), d.count < 12 << 20 else { throw AgentTmux.Fail("A picture couldn't be read.") }
+            let ext: String
+            if d.starts(with: [0x89, 0x50, 0x4e, 0x47]) { ext = "png" } else if d.starts(with: [0xff, 0xd8, 0xff]) { ext = "jpg" }
+            else if d.count > 12, d[8..<12] == Data("WEBP".utf8) { ext = "webp" } else { throw AgentTmux.Fail("Only PNG, JPEG or WebP pictures.") }
+            let u = dir.appendingPathComponent("img_\(UUID().uuidString.prefix(12).lowercased()).\(ext)")
+            FileManager.default.createFile(atPath: u.path, contents: d, attributes: [.posixPermissions: 0o600])
+            return u.path
+        }
+    }
+
+    // MARK: agent-sent notifications (`pa notify "title" "body"` from inside a session)
+
+    private func drainNotifySpool() {
+        let dir = AgentTmux.home.appendingPathComponent("notify")
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path), !names.isEmpty else { return }
+        for n in names.sorted() {
+            let u = dir.appendingPathComponent(n)
+            defer { try? FileManager.default.removeItem(at: u) }
+            guard let d = try? Data(contentsOf: u), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { continue }
+            let tag = o["id"] as? String ?? ""
+            let s = latest.first { $0.id == "t:" + tag }
+            emit?(["e": "alert", "kind": "note", "sid": s?.id ?? "", "title": AgentText.clip(o["title"] as? String ?? s?.title ?? "Agent", 200),
+                   "body": AgentText.clip(AgentText.redact(o["body"] as? String ?? ""), 600), "agent": s?.agent ?? "", "managed": s?.managed ?? false])
+        }
+    }
+
+    // MARK: keep awake while agents work (display may sleep)
+
+    private func setAwake(_ on: Bool) {
+        if on && awake == 0 {
+            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                        "PhoneCast: AI agent working" as CFString, &awake)
+        } else if !on { releaseAwake() }
+    }
+    private func releaseAwake() { if awake != 0 { IOPMAssertionRelease(awake); awake = 0 } }
+}
+
+extension String { var expandingTilde: String { (self as NSString).expandingTildeInPath } }

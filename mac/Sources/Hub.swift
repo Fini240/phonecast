@@ -17,6 +17,7 @@ enum HT {
     static let screenFrame: UInt8 = 54, screenKey: UInt8 = 55, screenDenied: UInt8 = 56
     static let input: UInt8 = 60, macAction: UInt8 = 61
     static let req: UInt8 = 70, resp: UInt8 = 71, event: UInt8 = 72
+    static let agentReq: UInt8 = 80, agentResp: UInt8 = 81, agentEvent: UInt8 = 82   // Agents (AgentHub.swift)
 }
 
 /// One TCP connection to the phone's hub (port 27185).
@@ -305,6 +306,12 @@ final class Hub: NSObject, NSMenuDelegate {
                 self.candidateIndex = 0; self.lastPong = CACurrentMediaTime()
                 self.sendStatus()
                 self.store.refreshAll()
+                AgentHub.shared.emit = { [weak l] o in
+                    guard let l, let d = try? JSONSerialization.data(withJSONObject: o) else { return }
+                    l.send(HT.agentEvent, d)
+                }
+                AgentHub.shared.emit?(["e": "hello", "installed": AgentShell.installed(), "enabled": AgentHub.shared.enabled])
+                AgentHub.shared.phoneConnected = true
                 if let t = ProcessInfo.processInfo.environment["PHONECAST_TEST_SEND"] { self.sendFiles([URL(fileURLWithPath: t)]) }
             }
         }
@@ -324,6 +331,8 @@ final class Hub: NSObject, NSMenuDelegate {
                 NSLog("hub: \(label) closed (\(why))")
                 let wasConnected = self.store.connected
                 self.link = nil
+                AgentHub.shared.phoneConnected = false
+                AgentHub.shared.emit = nil
                 self.store.connected = false; self.store.phoneCasting = false
                 self.store.nowPlaying = nil; self.store.ringing = false   // nothing to control while disconnected
                 let keyChanged = why.contains("certificate") || why.contains("-98") || why.contains("handshake")
@@ -447,6 +456,12 @@ final class Hub: NSObject, NSMenuDelegate {
         case HT.input: screen.input(p)       // straight from the network queue: lowest delay
         case HT.macAction: let a = String(decoding: p, as: UTF8.self); DispatchQueue.main.async { MacActions.run(a) }
         case HT.screenKey: screen.forceKeyframe()
+        case HT.agentReq:
+            guard let o = (try? JSONSerialization.jsonObject(with: p)) as? [String: Any] else { return }
+            AgentHub.shared.handle(o) { [weak l] r in
+                guard let l, let d = try? JSONSerialization.data(withJSONObject: r) else { return }
+                l.send(HT.agentResp, d)
+            }
         case HT.fileData:
             guard p.count >= 4 else { return }
             let id = Int(p.prefix(4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian })

@@ -1,0 +1,221 @@
+{
+ "claude_done_idle.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "claude_idle_fresh.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "claude_mcp.txt": {
+  "status": "needs_input",
+  "activity": null,
+  "draft": null,
+  "input": false,
+  "dialog": {
+   "title": "documentation.",
+   "detail": "New MCP server found in this project: davinci-resolve\nMCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP",
+   "options": [
+    [
+     "Use this MCP server",
+     null
+    ],
+    [
+     "Use this and all future MCP servers in this project",
+     null
+    ],
+    [
+     "Continue without using this MCP server",
+     null
+    ]
+   ],
+   "cursor": 2,
+   "fp": "9a4d878200aafa214e0021def7e6b8f0e74d65ea4daefa2b24c232927f152b94"
+  }
+ },
+ "claude_multiline_draft.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "line one\nline two\nline three",
+  "input": true,
+  "dialog": null
+ },
+ "claude_permission.txt": {
+  "status": "needs_input",
+  "activity": null,
+  "draft": null,
+  "input": false,
+  "dialog": {
+   "title": "Do you want to create a.txt?",
+   "detail": "⏺ Write(/tmp/adprobe/smoke/a.txt)\nCreate file\n../../tmp/adprobe/smoke/a.txt\n1 hi",
+   "options": [
+    [
+     "Yes",
+     1
+    ],
+    [
+     "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and always allow access to /tmp/adprobe/smoke, /private/tmp/adprobe/smoke for this session (shift+tab)",
+     2
+    ],
+    [
+     "No",
+     3
+    ]
+   ],
+   "cursor": 0,
+   "fp": "b13fe9d1e33dd4c43383f7159a7be6eb8ea328acbb06a0c153e8a8cb43dc43ee"
+  }
+ },
+ "claude_restored_draft.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "Count slowly from 1 to 200, one number per line, explaining each.",
+  "input": true,
+  "dialog": null
+ },
+ "claude_streaming_queued.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "claude_suggestion.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "is it done now?",
+  "input": true,
+  "dialog": null
+ },
+ "claude_suggestion_styled.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "claude_trust.txt": {
+  "status": "needs_input",
+  "activity": null,
+  "draft": null,
+  "input": false,
+  "dialog": {
+   "title": "Quick safety check: Is this a project you created or one you trust?",
+   "detail": "Accessing workspace:\n/private/tmp/adprobe/trustdir\n(Like your own code, a well-known open source\nproject, or work from your team). If not, take a moment to review what's in this folder first.\nClaude Code'll be able to read, edit, and execute files here.\nSecurity guide",
+   "options": [
+    [
+     "No, exit",
+     null
+    ],
+    [
+     "Yes, I trust this folder",
+     null
+    ]
+   ],
+   "cursor": 0,
+   "fp": "90e68e9819d9bdf95bfec702403fbfe1fb4d5a0d3332c5fddf9ce9c18b7f5125"
+  }
+ },
+ "claude_typed_draft.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "abc",
+  "input": true,
+  "dialog": null
+ },
+ "claude_typed_draft_styled.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "abc",
+  "input": true,
+  "dialog": null
+ },
+ "claude_working.txt": {
+  "status": "working",
+  "activity": "Ideating… (4s · thinking)",
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "codex_approval_from_binary_strings.txt": {
+  "status": "needs_input",
+  "activity": null,
+  "draft": null,
+  "input": false,
+  "dialog": {
+   "title": "Would you like to run the following command?",
+   "detail": "Reason: remove generated files outside the workspace\n$ rm -rf /tmp/agentdeck-test-output",
+   "options": [
+    [
+     "Yes, proceed (y)",
+     1
+    ],
+    [
+     "Yes, and don't ask again for this command (p)",
+     2
+    ],
+    [
+     "No, and tell Codex what to do differently (esc)",
+     3
+    ]
+   ],
+   "cursor": 0,
+   "fp": "d502b61650564cd5d4df14a02b36b2dea1d0897be6f94cf53c31c96ae22f5224"
+  }
+ },
+ "codex_draft_prompt_styled.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "hello draft",
+  "input": true,
+  "dialog": null
+ },
+ "codex_idle.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "codex_idle_prompt_styled.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "codex_live_idle.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "codex_live_idle_styled.txt": {
+  "status": "idle",
+  "activity": null,
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "codex_live_working.txt": {
+  "status": "working",
+  "activity": "• Messages to be submitted after next tool call (press esc to interrupt and send immediately)",
+  "draft": "",
+  "input": true,
+  "dialog": null
+ },
+ "codex_working_from_binary_strings.txt": {
+  "status": "working",
+  "activity": "• Working (12s • esc to interrupt)",
+  "draft": "",
+  "input": true,
+  "dialog": null
+ }
+}

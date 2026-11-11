@@ -58,6 +58,16 @@ class MainActivity : Activity() {
         buildUi()
         HubService.start(this)
         resumeIfAsked(intent)
+        openAgentIfAsked(intent)
+    }
+
+    /** A tapped agent notification: the Agents tab with that chat open. */
+    private fun openAgentIfAsked(i: Intent?) {
+        if (i?.getBooleanExtra("agentsDemo", false) == true) { i.removeExtra("agentsDemo"); Agents.demo(this) }
+        val sid = i?.getStringExtra(Agents.EXTRA_SID) ?: return
+        i.removeExtra(Agents.EXTRA_SID)
+        show("agents")
+        if (sid.isNotEmpty()) agents?.openChat(sid)
     }
 
     override fun onSaveInstanceState(out: Bundle) { super.onSaveInstanceState(out); out.putString("tab", current) }
@@ -65,6 +75,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         resumeIfAsked(intent)
+        openAgentIfAsked(intent)
     }
 
     /** Opened to share the screen right away (Quick Settings tile, the Mac's "Mirror phone", after unlock). */
@@ -75,7 +86,11 @@ class MainActivity : Activity() {
     }
 
     override fun onResume() { super.onResume(); LauncherIcon.appVisible = true; Updates.check(this); tick() }
-    override fun onPause() { super.onPause(); LauncherIcon.appVisible = false; ui.removeCallbacksAndMessages(null) }
+    override fun onPause() { super.onPause(); LauncherIcon.appVisible = false; ui.removeCallbacksAndMessages(null); agents?.visible(false) }
+    override fun onDestroy() { agents?.destroy(); super.onDestroy() }
+
+    /** The Agents tab (AgentsPage.kt); rebuilt with the rest of the UI. */
+    private var agents: AgentsPage? = null
 
     private lateinit var u: Ui
     /** The dashboard's Chat/Builder/Studio pages inside the PC tab; outlives UI rebuilds. */
@@ -93,7 +108,7 @@ class MainActivity : Activity() {
         // folding/unfolding or dark mode: rebuild so the columns and colours match
         val nowWide = newConfig.screenWidthDp >= 600
         val nowDark = (newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        if (nowWide != u.wide || nowDark != u.dark) { updaters.clear(); pages.clear(); tabViews.clear(); pcHolder = null; buildUi() }
+        if (nowWide != u.wide || nowDark != u.dark) { updaters.clear(); pages.clear(); tabViews.clear(); pcHolder = null; agents?.destroy(); buildUi() }
     }
 
     private fun buildUi() {
@@ -105,6 +120,8 @@ class MainActivity : Activity() {
         pages["home"] = homePage()
         pages["mac"] = macPage()
         pages["pc"] = pcContainer()
+        agents = AgentsPage(this, u)
+        pages["agents"] = agents!!.view
         pages["cast"] = castPage()
         pages["settings"] = settingsPage()
         pages.values.forEach { content.addView(it, FrameLayout.LayoutParams(-1, -1)) }
@@ -116,7 +133,8 @@ class MainActivity : Activity() {
         }
         for ((id, icon, name) in listOf(
             Triple("home", R.drawable.ic_tab_home, "Home"), Triple("mac", R.drawable.ic_tab_mac, "Mac"),
-            Triple("pc", R.drawable.ic_tab_pc, "PC"), Triple("cast", R.drawable.ic_tab_cast, "Cast"),
+            Triple("pc", R.drawable.ic_tab_pc, "PC"), Triple("agents", R.drawable.ic_tab_agents, "Agents"),
+            Triple("cast", R.drawable.ic_tab_cast, "Cast"),
             Triple("settings", R.drawable.ic_tab_settings, "Settings"),
         )) {
             val tab = LinearLayout(this).apply {
@@ -160,6 +178,7 @@ class MainActivity : Activity() {
         current = id
         getSharedPreferences("ui", MODE_PRIVATE).edit().putString("tab", id).apply()
         pages.forEach { (k, v) -> v.visibility = if (k == id) View.VISIBLE else View.GONE }
+        agents?.visible(id == "agents")
         tabViews.forEach { (k, t) ->
             val on = k == id
             val pill = t.getChildAt(0) as FrameLayout
@@ -359,6 +378,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         // inside a dashboard view: back in the page first, then back to the controls
         if (current == "pc" && pcSub != "control") { if (!dashWeb.back(pcSub)) showPc("control"); return }
+        if (current == "agents" && agents?.back() == true) return
         @Suppress("DEPRECATION") super.onBackPressed()
     }
 
@@ -688,6 +708,7 @@ class MainActivity : Activity() {
         tabViews["pc"]?.visibility = if (hasPc) View.VISIBLE else View.GONE
         if (!hasPc && current == "pc") show("home")
         updaters.forEach { it() }
+        if (current == "agents") agents?.tick()
         ui.removeCallbacksAndMessages(null)
         ui.postDelayed({ tick() }, 1000)
     }
@@ -794,6 +815,7 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (dashWeb.onResult(requestCode, resultCode, data)) return
+        if (agents?.onResult(requestCode, resultCode, data) == true) return
         if (requestCode == REQ_FILES) {
             if (resultCode != RESULT_OK || data == null) return
             val uris = ArrayList<Uri>()

@@ -104,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         Hub.shared.onOpenWindow = { [weak self] in self?.showWindow() }
         Hub.shared.onOpenMain = { MainWindowController.shared.show() }
         Hub.shared.start()
+        try? AgentShell.writeScript()
+        AgentHub.shared.start()
         UpdateCheck.shared.start()
         AutoLock.shared.start()
         view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
