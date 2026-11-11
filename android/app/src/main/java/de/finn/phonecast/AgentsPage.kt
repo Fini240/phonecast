@@ -376,7 +376,20 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         }
         val folder = (s.optString("cwd").substringAfterLast('/').ifEmpty { null })?.let { f -> s.optString("host").ifEmpty { null }?.let { "$f @ ${it.substringAfter('@')}" } ?: f }
         val role = s.optString("role").ifEmpty { null }
-        return listOfNotNull(if (s.optBoolean("sub")) role else folder, what).joinToString(" · ")
+        return listOfNotNull(if (s.optBoolean("sub")) role else folder, modelName(s.optString("model")), what).joinToString(" · ")
+    }
+
+    /** "claude-opus-5-5" → "Opus 5.5", "claude-sonnet-4-5-20250929[1m]" → "Sonnet 4.5 (1M)", "gpt-6-luna" → "GPT-6 Luna". */
+    fun modelName(id: String): String? {
+        if (id.isEmpty() || id == "default") return null
+        val long = if (id.contains("[1m]", true)) " (1M)" else ""
+        val base = id.replace(Regex("\\[.*?]"), "")
+        Regex("^claude-([a-z]+)-(\\d+)(?:-(\\d{1,2}))?(?:-\\d{6,})?$").find(base)?.let { m ->
+            val v = m.groupValues[2] + (m.groupValues[3].takeIf { it.isNotEmpty() }?.let { ".$it" } ?: "")
+            return m.groupValues[1].replaceFirstChar { it.uppercase() } + " " + v + long
+        }
+        return base.split('-').joinToString(" ") { p -> if (p.equals("gpt", true)) "GPT" else p.replaceFirstChar { it.uppercase() } }
+            .replace(Regex("^GPT (\\d)"), "GPT-$1") + long
     }
 
     private fun agentBadge(agent: String, status: String, size: Int): View {
@@ -566,7 +579,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         chatTitle.text = s.optString("title")
         chatSub.text = listOfNotNull(
             if (s.optString("agent") == "codex") "Codex" else "Claude Code",
-            s.optString("model").ifEmpty { null }?.removePrefix("claude-"),
+            modelName(s.optString("model")),
             s.optString("cwd").replace(Regex("^/Users/[^/]+"), "~").ifEmpty { null },
         ).joinToString(" · ")
         val st = s.optString("status")

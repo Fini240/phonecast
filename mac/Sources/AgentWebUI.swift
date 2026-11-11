@@ -161,9 +161,11 @@ const needs=s=>s.status==="needs_input"||!!s.ask, active=s=>s.live||s.status==="
 const canSend=s=>!s.sub&&(s.managed||s.canResume);
 function fmtTok(n){n=+n||0;return n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?Math.floor(n/1e3)+"k":String(n)}
 function usageLine(u){if(!u)return"";const p=[];if(u.ctxPct!=null)p.push("context "+Math.round(u.ctxPct)+"%");const i=(u.in||0)+(u.cached||0);if(i+(u.out||0))p.push(fmtTok(i)+" ↑ "+fmtTok(u.out)+" ↓");if(u.cost!=null)p.push("$"+u.cost.toFixed(2));(u.limits||[]).forEach(l=>p.push(l.label+" "+Math.round(l.pct)+"%"));return p.join("  ·  ")}
+function modelName(id){if(!id||id==="default")return"";const long=/\[1m\]/i.test(id)?" (1M)":"";const b=id.replace(/\[.*?\]/g,"");const m=b.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{6,})?$/);
+  if(m)return m[1][0].toUpperCase()+m[1].slice(1)+" "+m[2]+(m[3]?"."+m[3]:"")+long;return b.split("-").map(p=>/^gpt$/i.test(p)?"GPT":p[0].toUpperCase()+p.slice(1)).join(" ").replace(/^GPT (\d)/,"GPT-$1")+long}
 function modeName(m){return{"":"Ask before edits",default:"Ask before edits","accept edits":"Auto-accept edits","plan mode":"Plan mode","bypass permissions":"Bypass permissions"}[m??""]??m}
 function subtitle(s){let what;if(s.ask)what="Asks: "+(s.ask.title||"");else what={working:s.stage||"Working…",needs_input:s.stage||"Waiting for you",error:s.stage||"Error",completed:"Done",idle:s.managed?"Ready":"Open in a terminal",offline:"Finished"}[s.status]||s.stage||"Running";
-  let f=(s.cwd||"").split("/").pop();if(s.host)f+=" @ "+s.host.split("@").pop();return[s.sub?s.role:f,what].filter(Boolean).join(" · ")}
+  let f=(s.cwd||"").split("/").pop();if(s.host)f+=" @ "+s.host.split("@").pop();return[s.sub?s.role:f,modelName(s.model),what].filter(Boolean).join(" · ")}
 function badge(s){const b=el("div","badge "+(s.agent==="claude"?"claude":s.agent==="codex"?"codex":"other"),s.agent==="claude"?"✻":s.agent==="codex"?"›_":(s.agent||"?")[0].toUpperCase());
   const c={working:"var(--green)",needs_input:"var(--orange)",error:"var(--red)",idle:"var(--text2)",completed:"var(--text2)"}[s.ask?"needs_input":s.status];if(c){const d=el("i","dot");d.style.background=c;b.append(d)}return b}
 function menu(anchor,items){document.querySelectorAll(".menu").forEach(m=>m.remove());const m=el("div","menu");items.forEach(([t,f])=>{const b=el("button",null,t);b.onclick=()=>{m.remove();f()};m.append(b)});
@@ -230,7 +232,7 @@ function buildChat(){const M=$("#main");M.innerHTML="";const s=cur();if(!s){M.ap
   M.ondragover=e=>e.preventDefault();M.ondrop=e=>{e.preventDefault();attach(e.dataTransfer.files)};ta.onpaste=e=>{if(e.clipboardData.files.length){e.preventDefault();attach(e.clipboardData.files)}};
   refreshChat(true)}
 function refreshChat(force){const s=cur();if(!s){if(S.open)buildChat();return}if(!$("#ct"))return buildChat();
-  $("#ct").innerHTML="<b>"+esc(s.title)+"</b><span>"+esc([({claude:"Claude Code",codex:"Codex"})[s.agent]||s.agent,(s.model||"").replace("claude-",""),s.host?"on "+s.host:null,(s.cwd||"").replace(/^\/Users\/[^/]+/,"~")].filter(Boolean).join(" · "))+"</span>";
+  $("#ct").innerHTML="<b>"+esc(s.title)+"</b><span>"+esc([({claude:"Claude Code",codex:"Codex"})[s.agent]||s.agent,modelName(s.model),s.host?"on "+s.host:null,(s.cwd||"").replace(/^\/Users\/[^/]+/,"~")].filter(Boolean).join(" · "))+"</span>";
   const w=s.status==="working";$("#bstop").hidden=!(s.managed&&(w||s.status==="needs_input"));$("#bterm").hidden=!s.managed;$("#bchg").hidden=s.sub||!s.cwd;
   $("#bterm").classList.toggle("on",S.view==="term");$("#bchg").classList.toggle("on",S.view==="changes");
   const ul=$("#ul");ul.innerHTML="";if(s.managed&&s.agent==="claude"){const m=el("button","mode",modeName(s.mode));m.title="Next permission mode";m.onclick=()=>api("mode",{sid:S.open}).catch(e=>toast(e.message));ul.append(m)}
