@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Builds every PhoneCast icon from the line drawing in art/lineart.py (hand holding a phone,
-black on white): on = cast waves on the screen (connected), off = empty screen, lighter lines.
-Small monochrome glyphs (menu bar, status bar) are drawn here."""
+"""Builds every PhoneCast icon from art/src_on.png (screen lit = connected) and
+art/src_off.png (screen dark = not connected). Both come from one GPT Image 2 picture via Higgsfield
+(art/src_higgsfield.png); make_dark_states.py makes the dark-screen copy so they line up exactly.
+Small monochrome glyphs (menu bar, status bar, tiles) are drawn here to match the object."""
 import os
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'out'); os.makedirs(OUT, exist_ok=True)
 
-import sys; sys.path.insert(0, HERE)
-from lineart import draw
 def load(st):
-    return draw(st, zoom=0.92).convert('RGB')
+    im = Image.open(os.path.join(HERE, f'src_{st}.png')).convert('RGB')
+    return im
 SRC = {st: load(st) for st in ('on', 'off')}
 
 def rounded_mask(size, inset, radius):
@@ -29,9 +29,22 @@ def tile(st, size, inset_frac, radius_frac, shadow=False):
     art.putalpha(mask); img.alpha_composite(art)
     return img
 
-def bleed(st, n, scale=0.78):
-    """Full-bleed white square for Android adaptive icons, drawing scaled into the 66dp safe zone."""
-    return draw(st, size=n, zoom=scale).convert('RGB')
+def bleed(st, n, scale=0.62):
+    """Full-bleed square for Android adaptive icons: the tile's own charcoal gradient, with the drawing
+    scaled into the 66dp safe zone and its edges feathered into it."""
+    src = SRC[st]
+    # tile gradient, sampled beside the drawing; the rounded-corner rows are replaced by their neighbours
+    c = src.crop((150, 0, 151, src.height)); top, bot = c.getpixel((0, 140)), c.getpixel((0, 880))
+    for y in range(src.height):
+        if y < 140: c.putpixel((0, y), top)
+        elif y > 880: c.putpixel((0, y), bot)
+    col = c.resize((1, n), Image.LANCZOS).resize((n, n))
+    base = col.copy()
+    k = int(n * scale); art = src.resize((k, k), Image.LANCZOS)
+    feather = Image.new('L', (k, k), 0); e = int(k * 0.09)
+    ImageDraw.Draw(feather).rounded_rectangle([e, e, k - e, k - e], radius=k * 0.2, fill=255)
+    base.paste(art, ((n - k) // 2, (n - k) // 2), feather.filter(ImageFilter.GaussianBlur(e * 0.5)))
+    return base
 
 def glyph(size, lit, pad=0.10):
     """Monochrome phone-on-a-stand: lit = filled screen, not lit = empty screen. White on transparent."""
@@ -76,10 +89,10 @@ dens = {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}
 for d, k in dens.items():
     n = int(108 * k)
     for st in SRC:
-        save(bleed(st, n, 0.64), 'android', f'mipmap-{d}', f'ic_launcher_{st}_bg.png')
+        save(bleed(st, n, 0.62), 'android', f'mipmap-{d}', f'ic_launcher_{st}_bg.png')
         save(tile(st, int(48 * k), 0.04, 0.22), 'android', f'mipmap-{d}', f'ic_launcher_{st}.png')
     save(Image.new('RGBA', (n, n), (0, 0, 0, 0)), 'android', f'mipmap-{d}', 'ic_launcher_fg.png')
-    lines = Image.alpha_composite(Image.new('RGBA', (n, n), 'white'), draw('on', size=n, bg=False, zoom=0.64)).convert('L').point(lambda v: 0 if v > 200 else 255 - v)   # themed icon = the same drawing
+    lines = bleed('off', n, 0.62).convert('L').point(lambda v: max(0, min(255, (v - 70) * 255 // 150)))   # themed icon = the white outlines
     mono = Image.new('RGBA', (n, n), (255, 255, 255, 255)); mono.putalpha(lines)
     save(mono, 'android', f'mipmap-{d}', 'ic_launcher_mono.png')
     save(glyph(int(24 * k), True), 'android', f'drawable-{d}', 'ic_stat_phonecast.png')

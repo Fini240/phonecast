@@ -13,3 +13,4 @@ dist/
 tools/unstick/cls/
 art/out/
 art/__pycache__/
+art/options/
