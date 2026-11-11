@@ -11,3 +11,5 @@ android/app/build/
 mac/build/
 dist/
 tools/unstick/cls/
+art/out/
+art/__pycache__/

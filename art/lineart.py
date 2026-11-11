@@ -28,11 +28,12 @@ def rrect(x0, y0, x1, y1, r, n=12):
             a = math.radians(a0 + 90 * i / n); pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
     return pts
 
-def draw(state, size=1024, paper=PAPER, ink=None, transparent=False):
+def draw(state, size=1024, paper=PAPER, ink=None, transparent=False, tall=1.0):
+    """tall > 1 makes the canvas taller and lets the wrist run on down to its bottom edge."""
     ink = ink or (INK_ON if state == 'on' else INK_OFF)
     N = W * S
     bg = (0, 0, 0, 0) if transparent else paper + (255,)
-    im = Image.new('RGBA', (N, N), bg); d = ImageDraw.Draw(im)
+    H = int(N * tall); im = Image.new('RGBA', (N, H), bg); d = ImageDraw.Draw(im)
     fillc = paper + (255,)
     k = lambda pts: [(x * S, y * S) for x, y in pts]
     lw = LW * S
@@ -41,8 +42,8 @@ def draw(state, size=1024, paper=PAPER, ink=None, transparent=False):
         """outline in ink, inside filled with paper so later shapes hide what's behind them"""
         P = k(pts)
         if closed: P = P + [P[0]]
-        d.line(P, fill=ink, width=lw, joint='curve')
-        for x, y in (P[0], P[-1]): d.ellipse([x - lw / 2, y - lw / 2, x + lw / 2, y + lw / 2], fill=ink)
+        d.line(P, fill=ink, width=lw)
+        for x, y in P: d.ellipse([x - lw / 2, y - lw / 2, x + lw / 2, y + lw / 2], fill=ink)
         if closed: d.polygon(P, fill=fillc if not transparent else (0, 0, 0, 0))
 
     def capsule(a, b, r):
@@ -65,12 +66,13 @@ def draw(state, size=1024, paper=PAPER, ink=None, transparent=False):
     # speaker slot
     d.line(k([(440, 215), (530, 215)]), fill=ink, width=lw)
     for x in (440, 530): d.ellipse([x * S - lw / 2, 215 * S - lw / 2, x * S + lw / 2, 215 * S + lw / 2], fill=ink)
+    e = W * tall - 1080 + 60   # how far the wrist runs on past the design grid
     # palm + thumb in front, wrapping the right edge, wrist leaving the bottom
     shape(path((640, 330),
                ('C', (640, 285), (700, 275), (712, 318)),
                ('C', (735, 430), (835, 540), (835, 690)),
-               ('C', (835, 760), (812, 810), (790, 850)),
-               ('L', (930, 1080)), ('L', (690, 1080)),
+               ('C', (835, 770), (805, 820), (800, 860)),
+               ('C', (810, 920), (880, 1000), (920, 1080)), ('L', (920 + e / 2, 1080 + e)), ('L', (690 + e / 2, 1080 + e)), ('L', (690, 1080)),
                ('C', (650, 1000), (600, 930), (560, 895)),
                ('C', (660, 800), (690, 640), (660, 500)),
                ('C', (648, 430), (640, 380), (640, 330))))
@@ -78,12 +80,13 @@ def draw(state, size=1024, paper=PAPER, ink=None, transparent=False):
         cx, cy = 470, 560
         r0 = 26; d.ellipse([(cx - r0) * S, (cy - r0) * S, (cx + r0) * S, (cy + r0) * S], fill=ink)
         for r in (95, 165):
-            d.arc([(cx - r) * S, (cy - r) * S, (cx + r) * S, (cy + r) * S], 225, 315, fill=ink, width=lw)
+            R = r + LW / 2   # PIL draws the arc width inward from the box
+            d.arc([(cx - R) * S, (cy - R) * S, (cx + R) * S, (cy + R) * S], 225, 315, fill=ink, width=lw)
             import math
             for a in (225, 315):
                 x = cx + r * math.cos(math.radians(a)); y = cy + r * math.sin(math.radians(a))
                 d.ellipse([(x * S) - lw / 2, (y * S) - lw / 2, (x * S) + lw / 2, (y * S) + lw / 2], fill=ink)
-    return im.resize((size, size), Image.LANCZOS)
+    return im.resize((size, int(size * tall)), Image.LANCZOS)
 
 if __name__ == '__main__':
     import sys
