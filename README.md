@@ -215,7 +215,9 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
   showing the same thing, and `~/.claude/settings.json` is backed up first. Codex reports its limits by itself.
   Tap the line for details and a **budget** per chat (dollars or tokens), with a notification or an automatic stop.
 - **Usage left**: the top of the Agents tab shows how much of each plan window is left (Claude's 5 hours and
-  7 days, Codex's limit) and when it resets; the widget shows Claude's 5-hour figure too.
+  7 days, Codex's limit) and when it resets; the widget shows Claude's 5-hour figure too. With several Claude
+  accounts, each gets its own block, labelled with the chats that use it (chats of one account share its weekly
+  reset time). Each chat's own usage line always shows the limits of the account that chat runs on.
 - **Live terminal**: the terminal button shows the agent's screen with its colours, live; what you type there goes
   in as keystrokes, with keys for arrows, Enter, Esc, Tab, Backspace and Ctrl-C.
 - **Files**: browse and read the project's files (⋯ → Files); type `@` in a message for file suggestions; attach any

@@ -261,8 +261,24 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         card.addView(u.label(tr("Usage left"), 13f, bold = true, secondary = true).apply { setPadding(0, 0, 0, dp(4)) })
         val now = System.currentTimeMillis() / 1000.0
         val tf = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
-        for ((key, name) in listOf("claude" to "Claude", "codex" to "Codex")) {
-            val arr = p.optJSONArray(key) ?: continue
+        // Claude: one block per account (the Mac groups chats by their account's weekly reset), labelled with
+        // the chats that use it; Codex: its own limits
+        val groups = ArrayList<Triple<String, String?, org.json.JSONArray>>()
+        val accs = p.optJSONArray("claudeAccounts")
+        if (accs != null && accs.length() > 0) {
+            for (i in 0 until accs.length()) {
+                val acc = accs.optJSONObject(i) ?: continue
+                val ids = acc.optJSONArray("sessions")?.let { a2 -> (0 until a2.length()).map { a2.optString(it) }.toSet() } ?: emptySet()
+                val chats = Agents.sessions.filter { !it.optBoolean("sub") && it.optString("nativeId") in ids }
+                    .sortedByDescending { it.optLong("updatedAt") }.map { it.optString("title") }
+                val who = if (accs.length() > 1) chats.take(2).joinToString(", ").ifEmpty { null }?.let { t -> tr("used by {0}", t) + if (chats.size > 2) " " + tr("+{0} more", chats.size - 2) else "" } else null
+                groups += Triple(if (accs.length() > 1) tr("Claude account {0}", i + 1) else "Claude", who, acc.optJSONArray("limits") ?: org.json.JSONArray())
+            }
+        } else p.optJSONArray("claude")?.let { groups += Triple("Claude", null, it) }
+        p.optJSONArray("codex")?.let { groups += Triple("Codex", null, it) }
+        for ((name, who, arr) in groups) {
+            if (who != null) card.addView(u.label(name, 13.5f, bold = true).apply { setPadding(0, dp(6), 0, 0) })
+            if (who != null) card.addView(u.label(who, 11.5f, secondary = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
             for (i in 0 until arr.length()) {
                 val w = arr.optJSONObject(i) ?: continue
                 val used = w.optDouble("pct").coerceIn(0.0, 100.0)
@@ -276,7 +292,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                     else -> tr("resets {0}", java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.getDefault()).format(java.util.Date((resets * 1000).toLong())))
                 }
                 val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
-                row.addView(u.label(if (i == 0) name else "", 13.5f, bold = true), LinearLayout.LayoutParams(dp(58), -2))
+                row.addView(u.label(if (i == 0 && who == null) name else "", 13.5f, bold = true), LinearLayout.LayoutParams(dp(58), -2))
                 row.addView(u.label(w.optString("label"), 12.5f, secondary = true), LinearLayout.LayoutParams(dp(52), -2))
                 row.addView(ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal).apply {
                     max = 100; progress = if (passed) 0 else used.toInt()

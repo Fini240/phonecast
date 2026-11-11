@@ -399,4 +399,7 @@ private val DE = mapOf(
     "Claude's limits appear after turning on “Cost & plan limits” (⋯ above)." to "Claudes Limits erscheinen, wenn „Kosten & Plan-Limits“ an ist (⋯ oben).",
     "Claude {0}% left ({1})" to "Claude {0} % übrig ({1})",
     "resets {0}" to "neu ab {0}",
+    "Claude account {0}" to "Claude-Konto {0}",
+    "used by {0}" to "genutzt von {0}",
+    "+{0} more" to "+{0} weitere",
 )

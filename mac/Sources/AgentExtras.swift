@@ -241,20 +241,47 @@ enum AgentUsage {
         if let c = planCache, now - c.at < 10 { return c.value }
         var out: [String: Any] = [:]
         let fm = FileManager.default
-        // Claude: newest status file
-        if let files = try? fm.contentsOfDirectory(at: statusDir, includingPropertiesForKeys: [.contentModificationDateKey]) {
-            let newest = files.filter { $0.pathExtension == "json" }.compactMap { u -> (Date, URL)? in
-                (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate).map { ($0, u) }
-            }.max { $0.0 < $1.0 }
-            if let (d, u) = newest, let data = try? Data(contentsOf: u), let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-               let r = o["rate_limits"] as? [String: Any] {
+        // Claude: plan limits belong to an account, and Claude doesn't say which account a chat uses.
+        // Chats of one account share its weekly reset time, so reports are grouped by it (one group per
+        // account; the 5-hour reset moves every window), newest report per group wins.
+        if let files = try? fm.contentsOfDirectory(at: statusDir, includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey]) {
+            struct Acc { var key: String; var limits: [[String: Any]]; var at: Double; var newestStart: Double; var sessions: [String] }
+            var accs: [String: Acc] = [:]
+            for u in files where u.pathExtension == "json" {
+                guard let rv = try? u.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey]),
+                      let mod = rv.contentModificationDate?.timeIntervalSince1970, now - mod < 7 * 86400,
+                      let data = try? Data(contentsOf: u), let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let r = o["rate_limits"] as? [String: Any] else { continue }
                 var lim: [[String: Any]] = []
+                var weekly: Double?
                 for (k, label) in [("five_hour", "5 h"), ("seven_day", "7 days")] {
                     if let x = r[k] as? [String: Any], let pct = (x["used_percentage"] as? NSNumber)?.doubleValue {
-                        lim.append(["label": label, "pct": pct, "resets": (x["resets_at"] as? NSNumber)?.doubleValue ?? 0, "at": d.timeIntervalSince1970])
+                        let resets = (x["resets_at"] as? NSNumber)?.doubleValue ?? 0
+                        lim.append(["label": label, "pct": pct, "resets": resets, "at": mod])
+                        if k == "seven_day" { weekly = resets }
                     }
                 }
-                if !lim.isEmpty { out["claude"] = lim }
+                guard !lim.isEmpty, let wk = weekly else { continue }
+                let k = String(Int(wk))
+                let sid = o["session_id"] as? String ?? u.deletingPathExtension().lastPathComponent
+                let started = rv.creationDate?.timeIntervalSince1970 ?? mod
+                var a = accs[k] ?? Acc(key: k, limits: lim, at: mod, newestStart: started, sessions: [])
+                // newest report wins, but keep a 5-hour window an older report still has (weekly-only reports)
+                if mod >= a.at {
+                    if lim.count == 1, let five = a.limits.first(where: { $0["label"] as? String == "5 h" }) { lim.insert(five, at: 0) }
+                    a.limits = lim; a.at = mod
+                }
+                a.newestStart = max(a.newestStart, started)
+                a.sessions.append(sid)
+                accs[k] = a
+            }
+            // windows that already reset are kept only if nothing newer exists for that account
+            let list = accs.values.sorted { $0.at > $1.at }
+            if !list.isEmpty {
+                out["claude"] = list.first!.limits          // newest overall (widget, older phones)
+                out["claudeAccounts"] = list.prefix(4).map { a -> [String: Any] in
+                    ["limits": a.limits, "chats": a.sessions.count, "sessions": Array(a.sessions.prefix(50))]
+                }
             }
         }
         // Codex: newest rollout that reported limits (sessions/YYYY/MM/DD/*.jsonl)
@@ -271,6 +298,14 @@ enum AgentUsage {
         }
         planCache = (now, out)
         return out
+    }
+
+    /// E-mail of the Claude account that's logged in now (new chats use it).
+    static func currentLogin() -> String? {
+        let u = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        guard let s = fileStamp(u.path), s.size < 50 << 20, let d = try? Data(contentsOf: u),
+              let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
+        return (o["oauthAccount"] as? [String: Any])?["emailAddress"] as? String
     }
 
     // MARK: statusline tap (Claude hands its statusline a JSON with cost, context and plan limits)
