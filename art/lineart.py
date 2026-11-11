@@ -1,92 +1,64 @@
-"""PhoneCast icon art, drawn in code: black line drawing of a hand holding a phone, on white.
-on  = connected: cast waves on the screen
-off = not connected: empty screen, lines a shade lighter."""
-from PIL import Image, ImageDraw
+"""PhoneCast icon art: vector line drawing of a hand holding a phone (SVG, rendered by headless Chrome).
+on  = connected: lit screen with cast waves
+off = not connected: dark, sleeping screen
+draw(state, size, tall, bg) -> RGBA PIL image (size x size*tall). tall > 1 lets the wrist run on down."""
+import os, subprocess, tempfile, math
+from PIL import Image
 
-W = 1024          # design grid
-S = 4             # supersample
-INK_ON, INK_OFF, PAPER = (17, 17, 17), (95, 95, 95), (255, 255, 255)
-LW = 34           # line width on the design grid
+CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+INK = '#1d1d1f'
+SCREEN_OFF = '#2c2c2e'
+W = 1024
+SW = 30   # stroke width on the 1024 grid
 
-def bez(p0, p1, p2, p3, n=40):
-    return [tuple(((1-t)**3*a + 3*(1-t)**2*t*b + 3*(1-t)*t**2*c + t**3*d) for a, b, c, d in zip(p0, p1, p2, p3))
-            for t in (i / n for i in range(n + 1))]
+def capsule(a, b, r):
+    (ax, ay), (bx, by) = a, b
+    ang = math.atan2(by - ay, bx - ax); nx, ny = -math.sin(ang) * r, math.cos(ang) * r
+    return (f'M{ax+nx:.1f},{ay+ny:.1f} L{bx+nx:.1f},{by+ny:.1f} A{r},{r} 0 0 0 {bx-nx:.1f},{by-ny:.1f} '
+            f'L{ax-nx:.1f},{ay-ny:.1f} Z')
 
-def path(start, *segs):
-    """segs: ('L', p) or ('C', c1, c2, p)"""
-    pts = [start]; cur = start
-    for s in segs:
-        if s[0] == 'L': pts.append(s[1]); cur = s[1]
-        else: pts += bez(cur, s[1], s[2], s[3])[1:]; cur = s[3]
-    return pts
+def svg(state, tall=1.0, bg=True, zoom=1.0):
+    H = W * tall; e = (H - 512) / zoom + 512 - 1080 + 80   # wrist runs on past the canvas bottom
+    fingers = [((430, 425), (238, 335), 40), ((430, 510), (226, 474), 43),
+               ((430, 598), (233, 578), 41), ((430, 682), (252, 670), 37)]
+    finger_paths = ''.join(f'<path d="{capsule(*f)}"/>' for f in fingers)
+    palm = (f'M650,332 C650,284 716,272 730,320 C754,422 852,532 854,692 C855,767 830,817 817,862 '
+            f'C832,932 902,1012 942,1080 L{942 + e * 0.5:.0f},{1080 + e:.0f} L{702 + e * 0.5:.0f},{1080 + e:.0f} L702,1080 '
+            f'C662,1002 612,937 574,902 C674,807 707,642 678,502 C666,432 650,382 650,332 Z')
+    if state == 'on':
+        screen = f'<rect x="371" y="189" width="272" height="602" rx="40" fill="#f3f4f7" stroke="none"/>'
+        cx, cy = 494, 545
+        waves = (f'<circle cx="{cx}" cy="{cy}" r="21" fill="{INK}" stroke="none"/>'
+                 + ''.join(f'<path d="M{cx - r*0.7071:.1f},{cy - r*0.7071:.1f} A{r},{r} 0 0 1 {cx + r*0.7071:.1f},{cy - r*0.7071:.1f}" '
+                           f'fill="none" stroke="{INK}" stroke-width="{SW}" stroke-linecap="round"/>' for r in (72, 128)))
+        island = INK
+    else:
+        screen = f'<rect x="371" y="189" width="272" height="602" rx="40" fill="{SCREEN_OFF}" stroke="none"/>'
+        waves = ''; island = '#0a0a0b'
+    back = ('<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+            '<stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e6e7eb"/></linearGradient>'
+            '<filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.10"/></filter></defs>'
+            f'<rect width="{W}" height="{H}" fill="url(#g)"/>') if bg else ''
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H:.0f}" viewBox="0 0 {W} {H:.0f}">{back}
+<g transform="translate(512 {H/2:.0f}) scale({zoom}) translate(-526 -{H/2:.0f})"{' filter="url(#s)"' if bg else ''} stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round" stroke-linecap="round" fill="#fff">
+{finger_paths}
+<rect x="340" y="158" width="334" height="664" rx="68"/>
+{screen}
+<rect x="462" y="206" width="90" height="26" rx="13" fill="{island}" stroke="none"/>
+{waves}
+<path d="{palm}"/>
+</g></svg>'''
 
-def rrect(x0, y0, x1, y1, r, n=12):
-    import math
-    pts = []
-    for cx, cy, a0 in ((x1 - r, y0 + r, -90), (x1 - r, y1 - r, 0), (x0 + r, y1 - r, 90), (x0 + r, y0 + r, 180)):
-        for i in range(n + 1):
-            a = math.radians(a0 + 90 * i / n); pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-    return pts
-
-def draw(state, size=1024, paper=PAPER, ink=None, transparent=False, tall=1.0):
-    """tall > 1 makes the canvas taller and lets the wrist run on down to its bottom edge."""
-    ink = ink or (INK_ON if state == 'on' else INK_OFF)
-    N = W * S
-    bg = (0, 0, 0, 0) if transparent else paper + (255,)
-    H = int(N * tall); im = Image.new('RGBA', (N, H), bg); d = ImageDraw.Draw(im)
-    fillc = paper + (255,)
-    k = lambda pts: [(x * S, y * S) for x, y in pts]
-    lw = LW * S
-
-    def shape(pts, closed=True):
-        """outline in ink, inside filled with paper so later shapes hide what's behind them"""
-        P = k(pts)
-        if closed: P = P + [P[0]]
-        d.line(P, fill=ink, width=lw)
-        for x, y in P: d.ellipse([x - lw / 2, y - lw / 2, x + lw / 2, y + lw / 2], fill=ink)
-        if closed: d.polygon(P, fill=fillc if not transparent else (0, 0, 0, 0))
-
-    def capsule(a, b, r):
-        import math
-        (ax, ay), (bx, by) = a, b
-        ang = math.atan2(by - ay, bx - ax); nx, ny = -math.sin(ang), math.cos(ang)
-        pts = []
-        for cx, cy, a0 in ((bx, by, ang - math.pi / 2), (ax, ay, ang + math.pi / 2)):
-            for i in range(17):
-                t = a0 + math.pi * i / 16; pts.append((cx + r * math.cos(t), cy + r * math.sin(t)))
-        shape(pts)
-
-    # fingers behind the phone (left edge), index finger longest and steepest
-    capsule((300, 420), (205, 345), 40)
-    capsule((330, 505), (225, 475), 42)
-    capsule((330, 600), (232, 580), 41)
-    capsule((330, 690), (248, 675), 38)
-    # phone
-    shape(rrect(305, 150, 665, 845, 62))
-    # speaker slot
-    d.line(k([(440, 215), (530, 215)]), fill=ink, width=lw)
-    for x in (440, 530): d.ellipse([x * S - lw / 2, 215 * S - lw / 2, x * S + lw / 2, 215 * S + lw / 2], fill=ink)
-    e = W * tall - 1080 + 60   # how far the wrist runs on past the design grid
-    # palm + thumb in front, wrapping the right edge, wrist leaving the bottom
-    shape(path((640, 330),
-               ('C', (640, 285), (700, 275), (712, 318)),
-               ('C', (735, 430), (835, 540), (835, 690)),
-               ('C', (835, 770), (805, 820), (800, 860)),
-               ('C', (810, 920), (880, 1000), (920, 1080)), ('L', (920 + e / 2, 1080 + e)), ('L', (690 + e / 2, 1080 + e)), ('L', (690, 1080)),
-               ('C', (650, 1000), (600, 930), (560, 895)),
-               ('C', (660, 800), (690, 640), (660, 500)),
-               ('C', (648, 430), (640, 380), (640, 330))))
-    if state == 'on':   # cast waves: dot + two arcs, centred on the screen
-        cx, cy = 470, 560
-        r0 = 26; d.ellipse([(cx - r0) * S, (cy - r0) * S, (cx + r0) * S, (cy + r0) * S], fill=ink)
-        for r in (95, 165):
-            R = r + LW / 2   # PIL draws the arc width inward from the box
-            d.arc([(cx - R) * S, (cy - R) * S, (cx + R) * S, (cy + R) * S], 225, 315, fill=ink, width=lw)
-            import math
-            for a in (225, 315):
-                x = cx + r * math.cos(math.radians(a)); y = cy + r * math.sin(math.radians(a))
-                d.ellipse([(x * S) - lw / 2, (y * S) - lw / 2, (x * S) + lw / 2, (y * S) + lw / 2], fill=ink)
-    return im.resize((size, int(size * tall)), Image.LANCZOS)
+def draw(state, size=1024, tall=1.0, bg=True, zoom=1.0):
+    h = int(size * tall)
+    with tempfile.TemporaryDirectory() as t:
+        src = os.path.join(t, 'icon.html'); png = os.path.join(t, 'icon.png')
+        body = svg(state, tall, bg, zoom).replace(f'width="{W}" height="{W * tall:.0f}"', f'width="{size}" height="{h}"')
+        open(src, 'w').write(f'<html><body style="margin:0;background:transparent">{body}</body></html>')
+        subprocess.run([CHROME, '--headless', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
+                        f'--window-size={size},{h}', '--default-background-color=00000000',
+                        f'--screenshot={png}', 'file://' + src], check=True, capture_output=True)
+        return Image.open(png).convert('RGBA').copy()
 
 if __name__ == '__main__':
     import sys

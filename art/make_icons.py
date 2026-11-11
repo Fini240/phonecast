@@ -9,12 +9,8 @@ OUT = os.path.join(HERE, 'out'); os.makedirs(OUT, exist_ok=True)
 
 import sys; sys.path.insert(0, HERE)
 from lineart import draw
-# the art sits a little inside the tile so the hand doesn't touch the rounded corners
-def load(st, pad=0.06):
-    n = 1024; k = int(n * (1 - 2 * pad)); im = Image.new('RGB', (n, n), 'white')
-    art = draw(st).convert('RGB').resize((k, k), Image.LANCZOS)
-    im.paste(art, ((n - k) // 2, n - k))   # flush with the bottom: the wrist leaves the tile
-    return im
+def load(st):
+    return draw(st, zoom=0.92).convert('RGB')
 SRC = {st: load(st) for st in ('on', 'off')}
 
 def rounded_mask(size, inset, radius):
@@ -35,10 +31,7 @@ def tile(st, size, inset_frac, radius_frac, shadow=False):
 
 def bleed(st, n, scale=0.78):
     """Full-bleed white square for Android adaptive icons, drawing scaled into the 66dp safe zone."""
-    base = Image.new('RGB', (n, n), 'white')
-    k = int(n * scale); art = draw(st, tall=2.0).convert('RGB').resize((k, 2 * k), Image.LANCZOS)
-    base.paste(art, ((n - k) // 2, (n - k) // 2))   # wrist runs on past the bottom edge
-    return base
+    return draw(st, size=n, zoom=scale).convert('RGB')
 
 def glyph(size, lit, pad=0.10):
     """Monochrome phone-on-a-stand: lit = filled screen, not lit = empty screen. White on transparent."""
@@ -86,7 +79,7 @@ for d, k in dens.items():
         save(bleed(st, n, 0.64), 'android', f'mipmap-{d}', f'ic_launcher_{st}_bg.png')
         save(tile(st, int(48 * k), 0.04, 0.22), 'android', f'mipmap-{d}', f'ic_launcher_{st}.png')
     save(Image.new('RGBA', (n, n), (0, 0, 0, 0)), 'android', f'mipmap-{d}', 'ic_launcher_fg.png')
-    lines = bleed('on', n, 0.64).convert('L').point(lambda v: 255 - v)   # themed icon = the same drawing
+    lines = Image.alpha_composite(Image.new('RGBA', (n, n), 'white'), draw('on', size=n, bg=False, zoom=0.64)).convert('L').point(lambda v: 0 if v > 200 else 255 - v)   # themed icon = the same drawing
     mono = Image.new('RGBA', (n, n), (255, 255, 255, 255)); mono.putalpha(lines)
     save(mono, 'android', f'mipmap-{d}', 'ic_launcher_mono.png')
     save(glyph(int(24 * k), True), 'android', f'drawable-{d}', 'ic_stat_phonecast.png')
