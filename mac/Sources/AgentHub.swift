@@ -41,6 +41,8 @@ final class AgentHub: ObservableObject {
     private var awake: IOPMAssertionID = 0
     private var lastAsks: [String: [String: Any]] = [:]
     private var budgetHit = Set<String>()
+    /// Sleep inhibitors held on other machines while their agents work (Linux: systemd-inhibit).
+    private var inhibitors: [String: Process] = [:]
     /// A browser asked for the list lately: keep polling fast like when the phone watches.
     var webSeen = Date.distantPast
     private var lastChange: [String: (sig: String, at: Double)] = [:]
@@ -201,6 +203,12 @@ final class AgentHub: ObservableObject {
             if let s = out.first(where: { $0.id == sid }) { alert("input", s, a) }
         }
         recovery(out, now: now)
+        // other machines: keep them awake while their agents work (released when they're idle)
+        let busyHosts = Set(out.filter { $0.status == "working" || $0.status == "needs_input" }.compactMap(\.host))
+        for h in busyHosts where inhibitors[h]?.isRunning != true {
+            inhibitors[h] = AgentTmux.sshBackground(h, "command -v systemd-inhibit >/dev/null && exec systemd-inhibit --what=sleep:idle --mode=block --who=PhoneCast --why='AI agent working' sleep 900")
+        }
+        for (h, p) in inhibitors where !busyHosts.contains(h) { if p.isRunning { p.terminate() }; inhibitors.removeValue(forKey: h) }
         tracks = tracks.filter { k, _ in out.contains { $0.id == k } }
         baselineDone = true
         lastAsks = newAsks
@@ -442,7 +450,7 @@ final class AgentHub: ObservableObject {
             }
             run {
                 ["hosts": AgentTmux.hosts.map { h -> [String: Any] in
-                    let (st, out) = AgentTmux.ssh(h, "command -v tmux claude codex gemini opencode 2>/dev/null | xargs -n1 basename", timeout: 8)
+                    let (st, out) = AgentTmux.ssh(h, "\"${SHELL:-/bin/sh}\" -lic 'for t in tmux claude codex gemini opencode; do command -v $t >/dev/null && echo $t; done' 2>/dev/null", timeout: 10)
                     return ["host": h, "up": st != 255, "tools": String(decoding: out, as: UTF8.self).split(separator: "\n").map(String.init)]
                 }]
             }

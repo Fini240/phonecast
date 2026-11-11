@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>PhoneCast</RootNamespace>
     <AssemblyName>PhoneCast</AssemblyName>
-    <Version>0.7.4</Version>
+    <Version>0.7.5</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>phonecast_off.ico</ApplicationIcon>

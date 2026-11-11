@@ -99,6 +99,17 @@ final class AgentTmux {
         return r
     }
 
+    /// A long-running remote command (not waited for); ending the process ends the remote command.
+    static func sshBackground(_ host: String, _ command: String) -> Process? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["PHONECAST_SSH_BIN"] ?? "/usr/bin/ssh")
+        p.arguments = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4", "-o", "ServerAliveInterval=10", "-o", "ControlMaster=auto",
+                       "-o", "ControlPath=\(home.appendingPathComponent("ssh-%C").path)", "-o", "ControlPersist=120", host, "--", command]
+        p.standardInput = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        return p
+    }
+
     static let remoteTmux = #"tmux -S "$HOME/.phonecast/agents/tmux.sock" -f "$HOME/.phonecast/agents/tmux.conf""#
 
     @discardableResult
@@ -405,7 +416,7 @@ final class AgentTmux {
 
     /// A chat on another machine: the agent runs in that machine's own login shell (its PATH and logins).
     private func startRemote(host: String, agent: String, cwd: String, model: String?, prompt: String?, resume: String?) throws -> String {
-        let (st0, _) = Self.ssh(host, "mkdir -p \"$HOME/.phonecast/agents\" && chmod 700 \"$HOME/.phonecast/agents\" && cat > \"$HOME/.phonecast/agents/tmux.conf\" && command -v tmux >/dev/null && command -v \(Self.q(agent)) >/dev/null || { echo missing; exit 3; }",
+        let (st0, _) = Self.ssh(host, "mkdir -p \"$HOME/.phonecast/agents\" && chmod 700 \"$HOME/.phonecast/agents\" && cat > \"$HOME/.phonecast/agents/tmux.conf\" && \"${SHELL:-/bin/sh}\" -lic \(Self.q("command -v tmux && command -v " + agent)) >/dev/null 2>&1 || { echo missing; exit 3; }",
                                input: Data(Self.tmuxConf.utf8))
         if st0 == 255 { throw Fail("\(host) isn't reachable.") }
         if st0 == 3 { throw Fail("\(host) needs tmux and \(agent) installed (and in the login shell's PATH).") }

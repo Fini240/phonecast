@@ -233,6 +233,8 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
 - **Other machines**: add SSH targets (`user@host`, key login from the Mac, tmux and the agent installed there) in
   ⋯ → Other machines on the phone or the server button on the Mac. New chats can then start there; they show in
   the same list and open in the live terminal.
+  While an agent there works, PhoneCast keeps that machine from going to sleep (Linux: `systemd-inhibit`; your
+  user may need a polkit rule allowing `org.freedesktop.login1.inhibit-block-sleep` over SSH).
 - **Live status**: an ongoing notification while agents work (Android 16 shows it as a live update), an **Agents**
   Quick Settings tile and a home-screen **widget**.
 - **`pa`** in a terminal lists the running sessions and attaches to one; `pa notify "title" "text"` from
