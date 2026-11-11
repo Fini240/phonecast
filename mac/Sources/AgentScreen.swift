@@ -53,6 +53,7 @@ enum AgentScreen {
     static let claudeSpinner = Rx(#"^\s*\S\s+(?<verb>[A-Z][A-Za-z'\-]{2,30})…(?:\s*\((?<info>[^)]*)\))?"#)
     static let codexWorking = Rx(#"^\s*\S?\s*(?<verb>Working|Thinking|Running|Compacting[a-z ]*)\b.*?\((?<info>[^)]*)\)"#)
     static let escInterrupt = Rx(#"(?i)\besc to interrupt\b"#)
+    static let escCancel = Rx(#"(?i)\b(esc to cancel|press esc to (stop|cancel)|ctrl\+c to (stop|cancel))\b"#)
     static let claudePrompt = Rx(#"^❯[\x{00a0} ](?<text>.*)$|^❯$"#)
     static let codexPrompt = Rx(#"^›[\x{00a0} ](?<text>.*)$|^›$"#)
     static let claudePlaceholder = Rx(#"^(Try ".*"|Press up to edit queued messages)$"#)
@@ -104,6 +105,16 @@ enum AgentScreen {
         while let l = lines.last, blank(l) { lines.removeLast() }
         var st = State()
         st.dialog = findDialog(agent, lines)
+        if agent != "claude" && agent != "codex" {
+            // other agents (Gemini CLI, OpenCode, Kimi…): only "working" and dialogs are read from the screen
+            let tail = lines.suffix(15)
+            if let ln = tail.last(where: { escInterrupt.test($0) || escCancel.test($0) }), st.dialog == nil {
+                st.working = true; st.activity = String(strip(ln).prefix(120))
+            }
+            st.inputVisible = st.dialog == nil && !st.working
+            st.draft = nil
+            return st
+        }
         var (visible, draft, top) = agent == "claude" ? claudeInput(lines, styledLines) : codexInput(lines, styledLines)
         if st.dialog != nil { visible = false; draft = nil }
         st.inputVisible = visible; st.draft = draft

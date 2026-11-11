@@ -41,6 +41,44 @@ final class AgentHub: ObservableObject {
     private var awake: IOPMAssertionID = 0
     private var lastAsks: [String: [String: Any]] = [:]
     private var budgetHit = Set<String>()
+    private var lastChange: [String: (sig: String, at: Double)] = [:]
+    private var stuckAlerted = Set<String>()
+    private var limitPlanned: [String: Date] = [:]
+
+    /// Stuck alerts (working but nothing changes) and continue-after-usage-limit.
+    private func recovery(_ list: [AgentSession], now: Double) {
+        for s in list where s.managed && !s.isSubagent {
+            let sig = "\(s.updatedAt)|\(s.stage ?? "")|\(s.transcript.flatMap(fileStamp)?.size ?? 0)"
+            let changed = lastChange[s.id]?.sig != sig
+            if changed { lastChange[s.id] = (sig, now); stuckAlerted.remove(s.id) }
+            let quiet = now - (lastChange[s.id]?.at ?? now)
+            if s.status == "working", quiet > Double(AgentRecovery.stuckMinutes * 60), stuckAlerted.insert(s.id).inserted {
+                var x = s; x.lastMessage = "No progress for \(Int(quiet / 60)) min (\(s.stage ?? "working"))"
+                alert("stuck", x, nil)
+            }
+            // usage limits show up in the transcript's last message or on screen
+            guard s.status != "working", changed else { continue }
+            let text = [s.lastMessage ?? "", screens[s.id].map { _ in (try? tmux.preview(s.id).suffix(1500)).map(String.init) ?? "" } ?? ""].joined(separator: "\n")
+            guard text.range(of: "limit", options: .caseInsensitive) != nil, let at = AgentLimits.resetTime(in: text) else { continue }
+            if limitPlanned[s.id] == at { continue }
+            limitPlanned[s.id] = at
+            let auto = AgentRecovery.autoContinue(s.id)
+            var x = s
+            let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = .none
+            x.lastMessage = auto ? "Usage limit reached. Continues by itself at \(f.string(from: at))." : "Usage limit reached; resets at \(f.string(from: at))."
+            alert("limit", x, nil)
+            if auto {
+                let sid = s.id
+                work.asyncAfter(deadline: .now() + max(30, at.timeIntervalSinceNow + 60)) { [weak self] in
+                    guard let self, self.limitPlanned[sid] == at else { return }
+                    self.actions.async {
+                        let l = self.lock(sid); l.lock(); defer { l.unlock() }
+                        do { try self.tmux.send(sid, "continue") } catch { self.emit?(["e": "alert", "kind": "error", "sid": sid, "title": s.title, "body": "Couldn't continue after the limit: \(error)"]) }
+                    }
+                }
+            }
+        }
+    }
 
     func usage(_ s: AgentSession) -> [String: Any]? {
         var u = s.agent == "claude" ? AgentUsage.claude(native: s.nativeId, path: s.transcript) : AgentUsage.codex(path: s.transcript)
@@ -108,6 +146,8 @@ final class AgentHub: ObservableObject {
                                  stage: st.working ? st.activity : st.dialog?.title, updatedAt: max(p.activity, p.created),
                                  managed: true, lastMessage: meta?.last, live: true, canResume: false, attached: p.attached, transcript: meta?.path)
             s.mode = st.mode
+            s.host = p.host
+            if let h = p.host { s.title = "\(((p.cwd as NSString).lastPathComponent.nilIfEmpty ?? p.agent)) · \(h.split(separator: "@").last ?? Substring(h))" }
             if let d = st.dialog {
                 newAsks[p.id] = ["id": d.approvalId, "title": AgentText.clip(AgentText.redact(d.title), 300),
                                  "detail": AgentText.clip(AgentText.redact(d.detail), 4000),
@@ -158,6 +198,7 @@ final class AgentHub: ObservableObject {
         for (sid, a) in newAsks where lastAsks[sid]?["id"] as? String != a["id"] as? String && baselineDone {
             if let s = out.first(where: { $0.id == sid }) { alert("input", s, a) }
         }
+        recovery(out, now: now)
         tracks = tracks.filter { k, _ in out.contains { $0.id == k } }
         baselineDone = true
         lastAsks = newAsks
@@ -294,6 +335,12 @@ final class AgentHub: ObservableObject {
                 var text = p["text"] as? String ?? ""
                 let paths = try self.saveImages(p["images"] as? [String] ?? [])
                 if !paths.isEmpty { text += (text.isEmpty ? "" : "\n\n") + paths.map { "Attached image: \($0)" }.joined(separator: "\n") }
+                var files: [String] = []
+                for f in (p["files"] as? [[String: Any]]) ?? [] {
+                    guard let b = f["b64"] as? String, let d = Data(base64Encoded: b), d.count < 25 << 20 else { throw AgentTmux.Fail("A file couldn't be read.") }
+                    files.append(try AgentFiles.saveUpload(name: f["name"] as? String ?? "file", data: d))
+                }
+                if !files.isEmpty { text += (text.isEmpty ? "" : "\n\n") + files.map { "Attached file: \($0)" }.joined(separator: "\n") }
                 try self.tmux.send(target, text)
                 return ["sid": target]
             }
@@ -309,8 +356,10 @@ final class AgentHub: ObservableObject {
         case "resume": run { ["sid": try self.resume(sid)] }
         case "start":
             run {
-                let t = try self.tmux.start(agent: p["agent"] as? String ?? "claude", cwd: (p["cwd"] as? String ?? "~").expandingTilde,
-                                            model: (p["model"] as? String)?.nilIfEmpty, prompt: p["prompt"] as? String)
+                let host = (p["host"] as? String)?.nilIfEmpty
+                let cwd = p["cwd"] as? String ?? "~"
+                let t = try self.tmux.start(agent: p["agent"] as? String ?? "claude", cwd: host == nil ? cwd.expandingTilde : cwd,
+                                            model: (p["model"] as? String)?.nilIfEmpty, prompt: p["prompt"] as? String, host: host)
                 return ["sid": t]
             }
         case "changes":
@@ -337,6 +386,46 @@ final class AgentHub: ObservableObject {
                 try self.tmux.send(sid, cmd)
                 return true
             }
+        case "live": run { try self.tmux.live(sid, lines: p["lines"] as? Int ?? 120) }
+        case "type": run { try self.tmux.type(sid, p["text"] as? String ?? "", enter: p["enter"] as? Bool ?? false); return true }
+        case "files", "file", "find":
+            run {
+                guard let s = self.latest.first(where: { $0.id == sid }), let cwd = s.cwd else { throw AgentTmux.Fail("Chat not found.") }
+                switch m {
+                case "files": return try AgentFiles.list(cwd, p["path"] as? String ?? "")
+                case "file": return try AgentFiles.read(cwd, p["path"] as? String ?? "")
+                default: return ["files": AgentFiles.find(cwd, p["q"] as? String ?? "")]
+                }
+            }
+        case "previews":
+            run {
+                guard let s = self.latest.first(where: { $0.id == sid }) else { throw AgentTmux.Fail("Chat not found.") }
+                var text = self.messages(s, limit: 40).map(\.text).joined(separator: "\n")
+                if s.managed, let t = try? self.tmux.preview(sid) { text += "\n" + t.suffix(6000) }
+                return ["ports": AgentPreview.ports(in: text)]
+            }
+        case "preview": run { ["port": Int(try AgentPreview.shared.open(UInt16(p["port"] as? Int ?? 0)))] }
+        case "fork":
+            run {
+                guard let s = self.latest.first(where: { $0.id == sid }), let n = s.nativeId, let cwd = s.cwd, !s.isSubagent else { throw AgentTmux.Fail("This chat can't be forked.") }
+                return ["sid": try self.tmux.start(agent: s.agent, cwd: cwd, model: nil, prompt: nil, resume: n, fork: true)]
+            }
+        case "recovery":
+            if let g = p["global"] as? [String: Any] { AgentRecovery.set(global: g, chat: nil, nil) }
+            if let c = p["chat"] as? [String: Any] { AgentRecovery.set(global: nil, chat: sid, c) }
+            ok(["global": AgentRecovery.global, "continue": AgentRecovery.autoContinue(sid), "stuckMin": AgentRecovery.stuckMinutes])
+        case "hosts":
+            if let set = p["set"] as? [String] {
+                UserDefaults.standard.set(set.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !$0.contains(" ") }, forKey: "agentHosts")
+            }
+            run {
+                ["hosts": AgentTmux.hosts.map { h -> [String: Any] in
+                    let (st, out) = AgentTmux.ssh(h, "command -v tmux claude codex gemini opencode 2>/dev/null | xargs -n1 basename", timeout: 8)
+                    return ["host": h, "up": st != 255, "tools": String(decoding: out, as: UTF8.self).split(separator: "\n").map(String.init)]
+                }]
+            }
+        case "agents":
+            run { ["agents": (["claude", "codex"] + AgentTmux.otherAgents).filter { AgentTmux.binary($0) != nil }] }
         case "mode": run { try self.tmux.key(sid, "btab"); return true }
         case "usage":
             work.async {

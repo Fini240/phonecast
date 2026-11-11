@@ -39,5 +39,5 @@ let msgs = ClaudeSource.messages(path: nil, native: native, limit: 10)
 print("  transcript:", msgs.map { "\($0.role): \($0.text.prefix(40))" })
 try! tm.stop(id)  // idle: must be a no-op
 print("  ✓ stop on idle was a no-op:", state(id).status)
-_ = try? tm.tmux(AgentTmux.socket, ["kill-session", "-t", p.session])
+if ProcessInfo.processInfo.environment["KEEP"] == nil { _ = try? tm.tmux(AgentTmux.socket, ["kill-session", "-t", p.session]) }
 print("PASS")

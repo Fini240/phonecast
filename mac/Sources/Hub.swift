@@ -31,6 +31,12 @@ final class HubLink {
     private(set) var videoInFlight = 0
     private let lock = NSLock()
 
+    /// The phone's address as this connection reaches it (for dev-server previews).
+    var remoteHost: String? {
+        if case .hostPort(let h, _) = conn.currentPath?.remoteEndpoint { return "\(h)".split(separator: "%").first.map(String.init) }
+        return nil
+    }
+
     /// SHA-256 of the phone's TLS certificate seen on this connection.
     private(set) var certFingerprint: String?
     /// The phone accepted the PIN (HELLO_OK). Nothing but pings is acted on before that.
@@ -312,6 +318,7 @@ final class Hub: NSObject, NSMenuDelegate {
                 }
                 AgentHub.shared.emit?(["e": "hello", "installed": AgentShell.installed(), "enabled": AgentHub.shared.enabled, "tap": AgentUsage.tapInstalled()])
                 AgentHub.shared.phoneConnected = true
+                AgentPreview.shared.phoneHost = l.remoteHost
                 if let t = ProcessInfo.processInfo.environment["PHONECAST_TEST_SEND"] { self.sendFiles([URL(fileURLWithPath: t)]) }
             }
         }

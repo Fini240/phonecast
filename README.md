@@ -214,6 +214,21 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
   the chat's cost and your 5-hour / 7-day plan limits. PhoneCast wraps your Claude statusline for this; it keeps
   showing the same thing, and `~/.claude/settings.json` is backed up first. Codex reports its limits by itself.
   Tap the line for details and a **budget** per chat (dollars or tokens), with a notification or an automatic stop.
+- **Live terminal**: the terminal button shows the agent's screen with its colours, live; what you type there goes
+  in as keystrokes, with keys for arrows, Enter, Esc, Tab, Backspace and Ctrl-C.
+- **Files**: browse and read the project's files (⋯ → Files); type `@` in a message for file suggestions; attach any
+  file (not just photos), it lands on the Mac and the agent gets its path.
+- **Fork** a chat (a copy that continues on its own), **rename** a Claude chat.
+- **Recovery**: when a chat stops at a usage limit, PhoneCast can send "continue" a minute after the limit resets
+  (all chats or per chat), and it tells you when an agent seems stuck (no progress for 10 minutes, adjustable).
+- **Offline**: messages written while the Mac is away wait on the phone and go out when it's back.
+- **More agents**: Gemini CLI, OpenCode and Kimi run the same way (started from the phone or a terminal: `gemini`,
+  `opencode`); their chat is the live terminal.
+- **Dev servers**: ⋯ → Open dev server opens a server the agent started on the Mac (localhost) in the phone's browser.
+  PhoneCast forwards just that port, only to your phone, for an hour.
+- **Other machines**: add SSH targets (`user@host`, key login from the Mac, tmux and the agent installed there) in
+  ⋯ → Other machines on the phone or the server button on the Mac. New chats can then start there; they show in
+  the same list and open in the live terminal.
 - **Live status**: an ongoing notification while agents work (Android 16 shows it as a live update), an **Agents**
   Quick Settings tile and a home-screen **widget**.
 - **`pa`** in a terminal lists the running sessions and attaches to one; `pa notify "title" "text"` from

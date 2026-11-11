@@ -90,6 +90,11 @@ enum AgentShell {
         [[ -n $first && $first == $1 && $first == (agents|attach|auth|auto-mode|doctor|gateway|import|install|logs|mcp|plugin|plugins|purge|respawn|rm|setup-token|stop|kill|ultrareview|update|upgrade|config|migrate-installer) ]] && return 1
         return 0
       fi
+      if [[ $agent == (gemini|opencode) ]]; then
+        # only the plain interactive TUI (no subcommand, no one-shot prompt)
+        for a in "$@"; do [[ $a == (-p|--prompt|--prompt=*|-h|--help|-v|--version) ]] && return 1; done
+        [[ -z $first ]]; return
+      fi
       for a in "$@"; do [[ $a == (-h|--help|-V|--version) ]] && return 1; done
       [[ -z $first || $first == (resume|fork) ]] && return 0
       [[ $first == (exec|e|review|login|logout|mcp|mcp-server|plugin|app-server|remote-control|app|completion|update|doctor|sandbox|debug|apply|a|queue|archive|delete|migrate-rollouts|unarchive|cloud|exec-server|features|help|agents) ]] && return 1
@@ -125,7 +130,7 @@ enum AgentShell {
       fi
       [[ -n $target ]] && native=$target
       local -a envs; local kv
-      for kv in ${(0)"$(env -0)"}; do [[ $kv == (TMUX|TMUX_PANE|CLAUDECODE|AGENTDECK_SESSION_ID)=* ]] || envs+=(-e "$kv"); done
+      for kv in ${(0)"$(env -0)"}; do [[ $kv == (TMUX|TMUX_PANE|CLAUDECODE|AGENTDECK_SESSION_ID|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_CHILD_SESSION|CLAUDE_CODE_SSE_PORT|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_EXECPATH|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_SESSION_ATTENDED|CLAUDE_EFFORT|CLAUDE_PID)=* ]] || envs+=(-e "$kv"); done
       _pc_t new-session -d -s "pc-$id" -x ${COLUMNS:-160} -y ${LINES:-48} -c "$PWD" "${envs[@]}" -e "PHONECAST_AGENT_ID=$id" -- "$bin" "${extra[@]}" "$@" || { "$bin" "$@"; return; }
       _pc_t set-option -t "pc-$id" @pc_id "$id"
       _pc_t set-option -t "pc-$id" @pc_agent "$agent"
@@ -135,6 +140,8 @@ enum AgentShell {
 
     claude() { _pc_run claude "$@"; }
     codex() { _pc_run codex "$@"; }
+    gemini() { _pc_run gemini "$@"; }
+    opencode() { _pc_run opencode "$@"; }
 
     pa() {
       if [[ $1 == notify ]]; then

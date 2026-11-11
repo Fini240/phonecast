@@ -25,6 +25,7 @@ struct AgentSession {
     var mode: String?                 // Claude permission mode (managed panes)
     var usage: [String: Any]?         // tokens, cost, context %, plan limits, budget
     var overBudget: String?
+    var host: String?                 // another machine (ssh target); nil = this Mac
 
     var json: [String: Any] {
         var o: [String: Any] = ["id": id, "agent": agent, "title": title, "status": status, "updatedAt": Int(updatedAt * 1000),
@@ -43,6 +44,7 @@ struct AgentSession {
         if let mode { o["mode"] = mode }
         if let usage { o["usage"] = usage }
         if let overBudget { o["over"] = overBudget }
+        if let host { o["host"] = host }
         return o
     }
 }

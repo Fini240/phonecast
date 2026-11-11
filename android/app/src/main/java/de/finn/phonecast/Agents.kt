@@ -80,6 +80,7 @@ object Agents {
                 tap = o.optBoolean("tap", false)
                 watched?.let { sid -> request("watch", JSONObject().put("sid", sid)) }
                 fire("host")
+                main.postDelayed({ flushQueue(ctx) }, 1500)
             }
             "sessions" -> {
                 if (host == null) { host = client; hostName = name }
@@ -149,12 +150,48 @@ object Agents {
         }
     }
 
-    /** Send text (+ JPEG/PNG bytes) to a chat; offline chats are reopened on the Mac first. */
-    fun send(sid: String, text: String, images: List<ByteArray> = emptyList(), cb: (newSid: String?, err: String?) -> Unit) {
+    /** A file to attach: its name and bytes. */
+    class Attachment(val name: String, val bytes: ByteArray)
+
+    /** Send text (+ JPEG/PNG bytes, + other files) to a chat; offline chats are reopened on the Mac first.
+     *  Without a Mac link, text-only messages wait in a queue and go out on the next connection. */
+    fun send(sid: String, text: String, images: List<ByteArray> = emptyList(), files: List<Attachment> = emptyList(), cb: (newSid: String?, err: String?) -> Unit) {
+        if (!connected && images.isEmpty() && files.isEmpty() && text.isNotBlank()) {
+            val ctx = HubService.instance
+            if (ctx != null) { queue(ctx, sid, text); cb(null, null); fire("queue"); return }
+        }
         val p = JSONObject().put("sid", sid).put("text", text)
         if (images.isNotEmpty()) p.put("images", JSONArray(images.map { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }))
-        request("send", p, 60_000) { d, err -> cb(d?.optString("sid"), err) }
+        if (files.isNotEmpty()) p.put("files", JSONArray(files.map { JSONObject().put("name", it.name).put("b64", android.util.Base64.encodeToString(it.bytes, android.util.Base64.NO_WRAP)) }))
+        request("send", p, 90_000) { d, err -> cb(d?.optString("sid"), err) }
     }
+
+    // ---- offline queue (messages written while the Mac was away) ----
+
+    private fun queueArr(ctx: Context) = try { JSONArray(ctx.getSharedPreferences("agents", Context.MODE_PRIVATE).getString("queue", "[]")) } catch (_: Exception) { JSONArray() }
+    fun queued(ctx: Context, sid: String? = null): Int { val a = queueArr(ctx); return (0 until a.length()).count { sid == null || a.optJSONObject(it)?.optString("sid") == sid } }
+    private fun queue(ctx: Context, sid: String, text: String) {
+        val a = queueArr(ctx).put(JSONObject().put("sid", sid).put("text", text).put("at", System.currentTimeMillis()))
+        ctx.getSharedPreferences("agents", Context.MODE_PRIVATE).edit().putString("queue", a.toString()).apply()
+    }
+    private fun flushQueue(ctx: Context) {
+        val a = queueArr(ctx)
+        if (a.length() == 0) return
+        ctx.getSharedPreferences("agents", Context.MODE_PRIVATE).edit().putString("queue", "[]").apply()
+        val items = (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+        fun next(i: Int) {
+            if (i >= items.size) { fire("queue"); return }
+            val it = items[i]
+            send(it.optString("sid"), it.optString("text"), cb = { _, err ->
+                if (err != null) { queue(ctx, it.optString("sid"), it.optString("text")) }
+                main.postDelayed({ next(i + 1) }, 400)
+            })
+        }
+        next(0)
+    }
+
+    /** The Mac's address as the phone sees it (for dev-server previews). */
+    fun hostAddress(): String? = HubService.instance?.agentHostAddress(host)
 
     // ---- helpers for the UI ----
 
@@ -189,6 +226,8 @@ object Agents {
             "error" -> tr("Error")
             "input" -> tr("Needs you")
             "budget" -> tr("Budget reached")
+            "stuck" -> tr("Stuck?")
+            "limit" -> tr("Usage limit")
             else -> o.optString("agent").replaceFirstChar { it.uppercase() }.ifEmpty { tr("Agent") }
         }
         val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -291,13 +330,6 @@ object Agents {
             try { val v = AgentsWidget.views(ctx).apply(ctx, android.widget.FrameLayout(ctx)); android.util.Log.i("AgentsDemo", "widget ok: " + (v as android.view.ViewGroup).childCount) }
             catch (e: Exception) { android.util.Log.e("AgentsDemo", "widget failed", e) }
         }, 2000)
-        main.postDelayed({
-            alert(ctx, JSONObject().put("sid", "t:a3").put("kind", "completed").put("title", "KVM: fix clipboard sync").put("agent", "codex").put("managed", true)
-                .put("body", "Clipboard sync now debounces at 150 ms and both sides pass the round-trip test."))
-            alert(ctx, JSONObject().put("sid", "t:a2").put("kind", "input").put("title", "Bakery website: contact form").put("agent", "claude").put("managed", true)
-                .put("body", "Do you want to make this edit to kontakt.html?").put("ask", JSONObject().put("id", "ap_2").put("title", "Do you want to make this edit to kontakt.html?")
-                    .put("choices", JSONArray().put(JSONObject().put("id", "1").put("label", "Yes")).put(JSONObject().put("id", "2").put("label", "Yes, allow all edits this session")).put(JSONObject().put("id", "3").put("label", "No")))))
-        }, 1500)
     }
 
     private fun demoAnswer(m: String, p: JSONObject, cb: (JSONObject?, String?) -> Unit) {
@@ -322,6 +354,11 @@ object Agents {
             "folders" -> cb(JSONObject().put("home", "/Users/me").put("folders", JSONArray(listOf("/Users/me/code/phonecast", "/Users/me/code/bakery-site"))), null)
             "changes" -> cb(JSONObject("{\"repo\":true,\"branch\":\"release-0.4\",\"ahead\":2,\"behind\":0,\"upstream\":true,\"remote\":\"origin\",\"gh\":true,\"files\":[{\"path\":\"android/app/build.gradle.kts\",\"kind\":\"modified\",\"add\":2,\"del\":2},{\"path\":\"mac/Info.plist\",\"kind\":\"modified\",\"add\":1,\"del\":1},{\"path\":\"CHANGELOG.md\",\"kind\":\"new\",\"add\":14,\"del\":0}]}"), null)
             "diff" -> cb(JSONObject().put("v", "diff --git a/android/app/build.gradle.kts b/android/app/build.gradle.kts\nindex 1a2b3c4..5d6e7f8 100644\n--- a/android/app/build.gradle.kts\n+++ b/android/app/build.gradle.kts\n@@ -10,8 +10,8 @@ android {\n     defaultConfig {\n         applicationId = \"de.finn.phonecast\"\n         minSdk = 30\n-        versionCode = 12\n-        versionName = \"0.3.2\"\n+        versionCode = 13\n+        versionName = \"0.4.0\"\n     }"), null)
+            "live" -> cb(JSONObject().put("ansi", "\u001b[38;5;174m ▐▛███▜▌\u001b[39m   \u001b[1mClaude Code\u001b[22m v2.1.322\n\u001b[38;5;174m▝▜█████▛▘\u001b[39m  Opus 5.5 · Claude Max\n\n\u001b[2m> Bump the version to 0.4.0\u001b[22m\n\n\u001b[32m⏺\u001b[39m Update(\u001b[1mandroid/app/build.gradle.kts\u001b[22m)\n  ⎿  \u001b[48;5;52m-        versionCode = 12\u001b[49m\n     \u001b[48;5;22m+        versionCode = 13\u001b[49m\n\n\u001b[38;5;174m✻\u001b[39m Publishing… \u001b[2m(12s · esc to interrupt)\u001b[22m\n\u001b[2m────────────────────────────────────────\u001b[22m\n❯ \n\u001b[2m────────────────────────────────────────\u001b[22m"), null)
+            "files" -> cb(JSONObject("{\"items\":[{\"name\":\"android\",\"dir\":true},{\"name\":\"mac\",\"dir\":true},{\"name\":\"node_modules\",\"dir\":true,\"dim\":true},{\"name\":\"README.md\",\"dir\":false,\"size\":24310},{\"name\":\"LICENSE\",\"dir\":false,\"size\":1071}]}"), null)
+            "file" -> cb(JSONObject().put("text", "# PhoneCast\n\nConnects an Android phone and a Mac.\n"), null)
+            "find" -> cb(JSONObject().put("files", JSONArray(listOf("README.md", "mac/Sources/AgentHub.swift", "android/app/src/main/java/de/finn/phonecast/AgentsPage.kt"))), null)
+            "agents" -> cb(JSONObject().put("agents", JSONArray(listOf("claude", "codex", "gemini", "opencode"))), null)
             "terminal" -> cb(JSONObject().put("v", "╭───────────────────────────╮\n│ ✻ Welcome to Claude Code! │\n╰───────────────────────────╯\n\n❯ Bump the version…\n\n● All three builds are done."), null)
             else -> cb(JSONObject(), null)
         }

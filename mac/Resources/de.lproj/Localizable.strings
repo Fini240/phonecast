@@ -215,3 +215,6 @@
 "Auto-accept edits" = "Änderungen automatisch";
 "Plan mode" = "Plan-Modus";
 "Bypass permissions" = "Ohne Rückfragen";
+"Other machines" = "Andere Rechner";
+"Save" = "Speichern";
+"SSH targets (user@host) where PhoneCast runs agents in tmux. Needs key login from this Mac and tmux + the agent there." = "SSH-Ziele (user@host), auf denen PhoneCast Agenten in tmux startet. Braucht Schlüssel-Login von diesem Mac sowie tmux und den Agenten dort.";

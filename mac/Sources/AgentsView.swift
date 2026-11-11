@@ -12,6 +12,8 @@ struct AgentsView: View {
     @State private var installed = AgentShell.installed()
     @State private var legacy = AgentShell.legacyInstalled()
     @State private var error: String?
+    @State private var hostsText = (UserDefaults.standard.stringArray(forKey: "agentHosts") ?? []).joined(separator: ", ")
+    @State private var showHosts = false
 
     private var tops: [AgentSession] {
         hub.sessions.filter { s in
@@ -34,7 +36,21 @@ struct AgentsView: View {
                         .pickerStyle(.segmented).labelsHidden()
                     }
                     .padding(10)
-                    TextField(tr("Search"), text: $query).textFieldStyle(.roundedBorder).padding(.horizontal, 10).padding(.bottom, 6)
+                    HStack {
+                        TextField(tr("Search"), text: $query).textFieldStyle(.roundedBorder)
+                        Button { showHosts.toggle() } label: { Image(systemName: "server.rack") }.help(tr("Other machines"))
+                            .popover(isPresented: $showHosts) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(tr("Other machines")).font(.headline)
+                                    Text(tr("SSH targets (user@host) where PhoneCast runs agents in tmux. Needs key login from this Mac and tmux + the agent there.")).font(.caption).foregroundStyle(.secondary).frame(width: 300, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                                    TextField("user@host, user@other", text: $hostsText).textFieldStyle(.roundedBorder).frame(width: 300)
+                                    Button(tr("Save")) {
+                                        UserDefaults.standard.set(hostsText.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init).filter { !$0.isEmpty }, forKey: "agentHosts")
+                                        showHosts = false; AgentHub.shared.kick()
+                                    }.buttonStyle(.borderedProminent)
+                                }.padding()
+                            }
+                    }.padding(.horizontal, 10).padding(.bottom, 6)
                     List(selection: $selection) {
                         ForEach(tops) { s in
                             AgentRow(s: s, ask: hub.asks[s.id] != nil).tag(s.id)

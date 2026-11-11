@@ -38,6 +38,7 @@ final class AgentTmux {
     struct Pane {
         let tag: String              // pc id or legacy agent-deck id
         let socket: String
+        var host: String? { AgentTmux.host(of: socket) }
         let paneId: String
         let session: String
         let dead: Bool
@@ -62,11 +63,52 @@ final class AgentTmux {
 
     // MARK: plumbing
 
+    /// Never handed to a new agent: tmux/session markers of whoever started PhoneCast. Claude Code's own
+    /// markers matter: an inherited CLAUDE_CODE_CHILD_SESSION turns transcript saving off.
     private static let envDeny: Set<String> = ["TMUX", "TMUX_PANE", "PHONECAST_AGENT_ID", "AGENTDECK_SESSION_ID", "CLAUDECODE",
-                                               "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX", "__CFBundleIdentifier"]
+                                               "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SSE_PORT",
+                                               "CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_MESSAGING_SOCKET",
+                                               "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_EFFORT", "CLAUDE_PID", "CODEX_SANDBOX", "CODEX_THREAD_ID",
+                                               "__CFBundleIdentifier"]
+
+    // MARK: other machines (agents on a Linux PC, a server…) over SSH
+
+    /// ssh targets from Settings (user@host); their tmux runs with ~/.phonecast/agents/tmux.sock there.
+    static var hosts: [String] { UserDefaults.standard.stringArray(forKey: "agentHosts") ?? [] }
+    private static var down: [String: Date] = [:]
+    private static let downLock = NSLock()
+    static func remoteSocket(_ host: String) -> String { "ssh://\(host)#" }
+    static func host(of socket: String) -> String? {
+        guard socket.hasPrefix("ssh://") else { return nil }
+        return String(socket.dropFirst(6).prefix { $0 != "#" })
+    }
+    static func isDown(_ h: String) -> Bool { downLock.lock(); defer { downLock.unlock() }; return (down[h] ?? .distantPast) > Date() }
+    static func markDown(_ h: String, _ isDown: Bool) { downLock.lock(); down[h] = isDown ? Date().addingTimeInterval(60) : nil; downLock.unlock() }
+
+    static func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    /// Runs a shell command on a host (persistent multiplexed connection, no password prompts).
+    @discardableResult
+    static func ssh(_ host: String, _ command: String, input: Data? = nil, timeout: Double = 12) -> (Int32, Data) {
+        let bin = ProcessInfo.processInfo.environment["PHONECAST_SSH_BIN"] ?? "/usr/bin/ssh"
+        let ctl = home.appendingPathComponent("ssh-%C").path
+        let args = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4", "-o", "ServerAliveInterval=10", "-o", "ControlMaster=auto",
+                    "-o", "ControlPath=\(ctl)", "-o", "ControlPersist=120", host, "--", command]
+        let r = runTool(bin, args, input: input, timeout: timeout)
+        if r.0 == 255 { markDown(host, true) } else { markDown(host, false) }
+        return r
+    }
+
+    static let remoteTmux = #"tmux -S "$HOME/.phonecast/agents/tmux.sock" -f "$HOME/.phonecast/agents/tmux.conf""#
 
     @discardableResult
     func tmux(_ socket: String, _ args: [String], input: Data? = nil, check: Bool = true) throws -> String {
+        if let h = Self.host(of: socket) {
+            let (st, out) = Self.ssh(h, Self.remoteTmux + " " + args.map(Self.q).joined(separator: " "), input: input)
+            if st == 255 { throw Fail("\(h) isn't reachable.") }
+            if check && st != 0 { throw Fail("tmux \(args.first ?? "") failed on \(h)") }
+            return String(decoding: out, as: UTF8.self)
+        }
         guard let bin = Self.tmuxBin else { throw Fail("tmux is not installed (brew install tmux)") }
         let conf = socket == Self.legacySocket ? Self.legacyConf : Self.conf
         var env = ProcessInfo.processInfo.environment
@@ -76,7 +118,10 @@ final class AgentTmux {
         return String(decoding: out, as: UTF8.self)
     }
 
-    var sockets: [String] { [Self.socket, Self.legacySocket].filter { FileManager.default.fileExists(atPath: $0) } }
+    var sockets: [String] {
+        [Self.socket, Self.legacySocket].filter { FileManager.default.fileExists(atPath: $0) }
+            + Self.hosts.filter { !Self.isDown($0) }.map(Self.remoteSocket)
+    }
 
     /// All tagged panes on both servers (one `list-panes` per server).
     func panes() -> [Pane] {
@@ -125,6 +170,7 @@ final class AgentTmux {
 
     /// `~/.claude/sessions/<pid>.json` of the Claude process in this pane.
     func registry(_ p: Pane) -> [String: Any]? {
+        if p.host != nil { return nil }
         let key = p.socket + p.paneId
         if let pid = regPid[key], let e = ClaudeSource.session(forPid: pid) { return e }
         for pid in [p.pid] + Procs.descendants(p.pid) {
@@ -137,6 +183,7 @@ final class AgentTmux {
 
     /// The native chat id this pane is showing right now (follows /clear, /new and resume pickers).
     func nativeId(_ p: Pane) -> String? {
+        if p.host != nil { return p.nativeHint }
         if p.agent == "claude" { return (registry(p)?["sessionId"] as? String) ?? p.nativeHint }
         if let c = codexAssoc[p.id], Date().timeIntervalSince1970 - c.0 < 20, c.1 != nil { return c.1 }
         let t = CodexSource.thread(forPids: [p.pid] + Procs.descendants(p.pid))
@@ -163,6 +210,16 @@ final class AgentTmux {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Fail("The message is empty.") }
         if text.unicodeScalars.contains(where: { ($0.value < 32 && $0 != "\n" && $0 != "\t") || $0.value == 0x7f }) { throw Fail("The message contains control characters.") }
         let p = try pane(id)
+        if !Self.knownAgents.contains(p.agent) {
+            // other agents: no prompt reading; stop a running turn with Esc, then paste and submit
+            if observe(p).working { try keys(p, "Escape"); Thread.sleep(forTimeInterval: 0.8) }
+            let buf = "pc-\(UInt32.random(in: 0...UInt32.max))"
+            try tmux(p.socket, ["load-buffer", "-b", buf, "-"], input: Data(text.utf8))
+            try tmux(p.socket, ["paste-buffer", "-p", "-r", "-d", "-b", buf, "-t", p.paneId])
+            Thread.sleep(forTimeInterval: 0.3)
+            try keys(p, "Enter")
+            return
+        }
         var st = observe(p)
         var interrupted = false
         if st.dialog != nil {
@@ -217,7 +274,8 @@ final class AgentTmux {
     }
 
     func key(_ id: String, _ k: String) throws {
-        let map = ["up": "Up", "down": "Down", "enter": "Enter", "escape": "Escape", "tab": "Tab", "left": "Left", "right": "Right", "btab": "BTab"]
+        let map = ["up": "Up", "down": "Down", "enter": "Enter", "escape": "Escape", "tab": "Tab", "left": "Left", "right": "Right", "btab": "BTab",
+                   "backspace": "BSpace", "ctrl-c": "C-c", "ctrl-d": "C-d", "pgup": "PPage", "pgdn": "NPage"]
         guard let t = map[k] else { throw Fail("Unsupported key.") }
         try keys(try pane(id), t)
     }
@@ -244,6 +302,24 @@ final class AgentTmux {
             if (try? pane(id)) == nil { return }
             throw Fail("The terminal didn't accept the choice.")
         }
+    }
+
+    static let knownAgents: Set<String> = ["claude", "codex"]
+    static let otherAgents = ["gemini", "opencode", "kimi"]
+
+    /// Types literal text into the pane (live terminal), optionally followed by Enter.
+    func type(_ id: String, _ text: String, enter: Bool) throws {
+        let p = try pane(id)
+        if !text.isEmpty { try tmux(p.socket, ["send-keys", "-t", p.paneId, "-l", "--", text]) }
+        if enter { try keys(p, "Enter") }
+    }
+
+    /// The pane with colours (live terminal), last `lines` lines plus the cursor position.
+    func live(_ id: String, lines: Int = 120) throws -> [String: Any] {
+        let p = try pane(id)
+        let text = try tmux(p.socket, ["capture-pane", "-p", "-e", "-t", p.paneId, "-S", "-\(lines)"])
+        let cur = (try? tmux(p.socket, ["display-message", "-p", "-t", p.paneId, "#{cursor_x} #{cursor_y} #{pane_width} #{pane_height}"]))?.split(separator: " ").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? []
+        return ["ansi": AgentText.redact(text), "cursor": cur]
     }
 
     func preview(_ id: String) throws -> String {
@@ -288,22 +364,27 @@ final class AgentTmux {
     }
 
     /// Start a new chat (or resume a native one) in a fresh managed pane. Returns the pane id ("t:<tag>").
-    func start(agent: String, cwd: String, model: String?, prompt: String?, resume: String? = nil) throws -> String {
-        guard agent == "claude" || agent == "codex" else { throw Fail("Unknown agent.") }
+    func start(agent: String, cwd: String, model: String?, prompt: String?, resume: String? = nil, fork: Bool = false, host: String? = nil) throws -> String {
+        guard Self.knownAgents.contains(agent) || Self.otherAgents.contains(agent) else { throw Fail("Unknown agent.") }
+        if let host { return try startRemote(host: host, agent: agent, cwd: cwd, model: model, prompt: prompt, resume: resume) }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDir), isDir.boolValue else { throw Fail("That folder doesn't exist.") }
         guard let bin = Self.binary(agent) else { throw Fail("\(agent) isn't installed.") }
-        if let resume, let live = panes().first(where: { !$0.dead && $0.agent == agent && nativeId($0) == resume }) { return live.id }
+        if !fork, let resume, let live = panes().first(where: { !$0.dead && $0.agent == agent && nativeId($0) == resume }) { return live.id }
         var argv = [bin]
         var native: String?
         let prompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         if agent == "claude" {
-            if let resume { argv += ["--resume", resume]; native = resume }
+            if let resume, fork { argv += ["--resume", resume, "--fork-session"]; native = nil }
+            else if let resume { argv += ["--resume", resume]; native = resume }
             else { native = UUID().uuidString.lowercased(); argv += ["--session-id", native!] }
             if let model, model != "default" { argv += ["--model", model] }
             if let prompt { argv += ["--", prompt] }
+        } else if agent != "codex" {
+            if let model, agent == "gemini" { argv += ["--model", model] }
+            if let prompt { argv += agent == "gemini" ? ["--prompt-interactive", prompt] : [prompt] }
         } else {
-            if resume != nil { argv.append("resume") }
+            if resume != nil { argv.append(fork ? "fork" : "resume") }
             if let model { argv += ["--model", model] }
             if let resume { argv.append(resume); native = resume }
             if let prompt { if resume == nil { argv.append("--") }; argv.append(prompt) }
@@ -322,9 +403,48 @@ final class AgentTmux {
         return "t:" + tag
     }
 
+    /// A chat on another machine: the agent runs in that machine's own login shell (its PATH and logins).
+    private func startRemote(host: String, agent: String, cwd: String, model: String?, prompt: String?, resume: String?) throws -> String {
+        let (st0, _) = Self.ssh(host, "mkdir -p \"$HOME/.phonecast/agents\" && chmod 700 \"$HOME/.phonecast/agents\" && cat > \"$HOME/.phonecast/agents/tmux.conf\" && command -v tmux >/dev/null && command -v \(Self.q(agent)) >/dev/null || { echo missing; exit 3; }",
+                               input: Data(Self.tmuxConf.utf8))
+        if st0 == 255 { throw Fail("\(host) isn't reachable.") }
+        if st0 == 3 { throw Fail("\(host) needs tmux and \(agent) installed (and in the login shell's PATH).") }
+        var argv = [agent]
+        var native: String?
+        let prompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if agent == "claude" {
+            if let resume { argv += ["--resume", resume]; native = resume } else { native = UUID().uuidString.lowercased(); argv += ["--session-id", native!] }
+            if let model, model != "default" { argv += ["--model", model] }
+            if let prompt { argv += ["--", prompt] }
+        } else if agent == "codex" {
+            if resume != nil { argv.append("resume") }
+            if let model { argv += ["--model", model] }
+            if let resume { argv.append(resume) }
+            if let prompt { if resume == nil { argv.append("--") }; argv.append(prompt) }
+        } else if let prompt { argv += agent == "gemini" ? ["--prompt-interactive", prompt] : [prompt] }
+        let tag = String((0..<12).map { _ in "0123456789abcdef".randomElement()! })
+        let name = "pc-\(tag)"
+        let dir = cwd == "~" || cwd.isEmpty ? "$HOME" : (cwd.hasPrefix("~/") ? "$HOME/" + cwd.dropFirst(2) : cwd)
+        // the agent starts in the user's login shell so PATH and logins match a normal terminal there
+        let inner = "cd \"\(dir)\" && exec " + argv.map(Self.q).joined(separator: " ")
+        let shellCmd = "exec \"${SHELL:-/bin/sh}\" -lic " + Self.q(inner)
+        let sock = Self.remoteSocket(host)
+        let pid = try tmux(sock, ["new-session", "-d", "-s", name, "-x", "160", "-y", "48", "-e", "PHONECAST_AGENT_ID=\(tag)", "-P", "-F", "#{pane_id}", "--", "sh", "-c", shellCmd])
+        guard pid.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("%") else { throw Fail("tmux didn't start the session on \(host).") }
+        try tmux(sock, ["set-option", "-t", name, "@pc_id", tag])
+        try tmux(sock, ["set-option", "-t", name, "@pc_agent", agent])
+        if let native { try tmux(sock, ["set-option", "-t", name, "@pc_native", native]) }
+        return "t:" + tag
+    }
+
     /// Opens a Terminal window attached to the pane (the Mac's "Open in Terminal").
     func openInTerminal(_ id: String) throws {
         let p = try pane(id)
+        if let h = p.host {
+            let cmd = "ssh -t \(h) " + Self.q(Self.remoteTmux + " attach-session -t " + p.session)
+            runTool("/usr/bin/osascript", ["-e", "tell application \"Terminal\"\nactivate\ndo script \"\(cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\"\nend tell"], timeout: 10)
+            return
+        }
         guard let bin = Self.tmuxBin else { return }
         let conf = p.socket == Self.legacySocket ? Self.legacyConf : Self.conf
         let cmd = "unset TMUX; exec \(bin) -S '\(p.socket)' -f '\(conf)' attach-session -t '\(p.session)'"

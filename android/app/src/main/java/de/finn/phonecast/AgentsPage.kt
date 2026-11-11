@@ -91,7 +91,9 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         prefs.edit().putString("open", sid).apply()
         Agents.foreground = sid
         sid?.let { Agents.clearNotification(a, it) }
-        termMode = false; attached.clear(); renderThumbs()
+        termMode = sid?.let { Agents.byId[it] }?.let { it.has("host") || it.optString("agent").let { a -> a != "claude" && a != "codex" } } ?: false
+        changesMode = false; filesMode = false; filesPath = ""; filePath = null
+        attached.clear(); attachedFiles.clear(); renderThumbs(); suggest(null)
         Agents.watch(sid)
         draftRestore()
         showPane(); refreshChatHeader(); renderMessages(); refreshList()
@@ -304,18 +306,19 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             st == "offline" -> tr("Finished")
             else -> stage.ifEmpty { tr("Running") }
         }
-        val folder = s.optString("cwd").substringAfterLast('/').ifEmpty { null }
+        val folder = (s.optString("cwd").substringAfterLast('/').ifEmpty { null })?.let { f -> s.optString("host").ifEmpty { null }?.let { "$f @ ${it.substringAfter('@')}" } ?: f }
         val role = s.optString("role").ifEmpty { null }
         return listOfNotNull(if (s.optBoolean("sub")) role else folder, what).joinToString(" · ")
     }
 
     private fun agentBadge(agent: String, status: String, size: Int): View {
         val f = FrameLayout(a)
-        val c = if (agent == "codex") (if (u.dark) 0xFF2E3440.toInt() else 0xFF20232A.toInt()) else (if (u.dark) 0xFF5A3A2C.toInt() else 0xFFF3E1D7.toInt())
+        val other = agent != "codex" && agent != "claude"
+        val c = if (other) (if (u.dark) 0xFF2C3A5A.toInt() else 0xFFDCE6F8.toInt()) else if (agent == "codex") (if (u.dark) 0xFF2E3440.toInt() else 0xFF20232A.toInt()) else (if (u.dark) 0xFF5A3A2C.toInt() else 0xFFF3E1D7.toInt())
         f.addView(TextView(a).apply {
-            text = if (agent == "codex") "›_" else "✻"
+            text = if (other) agent.take(1).uppercase() else if (agent == "codex") "›_" else "✻"
             gravity = Gravity.CENTER; textSize = if (agent == "codex") size * 0.32f else size * 0.42f
-            setTextColor(if (agent == "codex") Color.WHITE else if (u.dark) 0xFFF4B490.toInt() else 0xFFC4602D.toInt())
+            setTextColor(if (other) u.accent else if (agent == "codex") Color.WHITE else if (u.dark) 0xFFF4B490.toInt() else 0xFFC4602D.toInt())
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c) }
         }, FrameLayout.LayoutParams(dp(size), dp(size)))
@@ -371,6 +374,13 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     private var termMode = false
     /** The chat area shows the Changes view (git) instead of the messages. */
     private var changesMode = false
+    private var filesMode = false
+    private var filesPath = ""
+    private var filePath: String? = null
+    private val attachedFiles = ArrayList<Agents.Attachment>()
+    private val suggestRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+    private val termPoll = object : Runnable { override fun run() { if (termMode && view.isShown) renderTerm(); view.postDelayed(this, 900) } }
+    private var termBusy = false
     private var diffPath: String? = null
     private val voice = Voice(a)
     private lateinit var changesBtn: ImageView
@@ -396,8 +406,8 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             addView(chatTitle); addView(chatSub)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         stopBtn = iconButton(R.drawable.ic_stop, tr("Stop")) { stop() }
-        termBtn = iconButton(R.drawable.ic_terminal, tr("Terminal view")) { termMode = !termMode; changesMode = false; renderMessages(force = true); refreshChatHeader() }
-        changesBtn = iconButton(R.drawable.ic_changes, tr("Changes")) { changesMode = !changesMode; termMode = false; diffPath = null; renderMessages(force = true); refreshChatHeader() }
+        termBtn = iconButton(R.drawable.ic_terminal, tr("Terminal view")) { termMode = !termMode; changesMode = false; filesMode = false; renderMessages(force = true); refreshChatHeader() }
+        changesBtn = iconButton(R.drawable.ic_changes, tr("Changes")) { changesMode = !changesMode; termMode = false; filesMode = false; diffPath = null; renderMessages(force = true); refreshChatHeader() }
         bar.addView(stopBtn); bar.addView(changesBtn); bar.addView(termBtn)
         bar.addView(iconButton(R.drawable.ic_more, tr("More")) { chatMenu(it) })
         chatPane.addView(bar)
@@ -426,13 +436,14 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         chatPane.addView(askBox)
 
         // terminal keys (managed chats): for menus and pickers the TUI shows
-        for ((k, label) in listOf("up" to "↑", "down" to "↓", "enter" to "Enter", "escape" to "Esc", "tab" to "Tab")) {
+        for ((k, label) in listOf("up" to "↑", "down" to "↓", "left" to "←", "right" to "→", "enter" to "Enter", "escape" to "Esc", "tab" to "Tab", "backspace" to "⌫", "ctrl-c" to "Ctrl-C")) {
             keyStrip.addView(TextView(a).apply {
                 text = label; textSize = 14f; gravity = Gravity.CENTER; setTextColor(u.onTonal)
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 background = RippleDrawable(ColorStateList.valueOf(0x22000000), pill(u.tonalBg, 14), null)
                 setPadding(dp(14), dp(6), dp(14), dp(6))
-                setOnClickListener { v -> v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); key(k) }
+                setOnClickListener { v -> v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    if (k == "ctrl-c") confirm(tr("Send Ctrl-C? Pressed twice at an empty prompt, it quits the agent.")) { key(k) } else key(k) }
             }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         }
         chatPane.addView(HorizontalScrollView(a).apply {
@@ -446,7 +457,12 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             setPadding(dp(10), dp(6), dp(10), dp(10))
         }
         composer.addView(iconButton(R.drawable.ic_slash, tr("Commands")) { commands() }.apply { layoutParams = LinearLayout.LayoutParams(dp(40), dp(44)) })
-        composer.addView(iconButton(R.drawable.ic_photo, tr("Add photos")) { pickPhotos() }.apply { layoutParams = LinearLayout.LayoutParams(dp(40), dp(44)) })
+        composer.addView(iconButton(R.drawable.ic_photo, tr("Attach")) { v ->
+            val m = PopupMenu(a, v)
+            m.menu.add(0, 1, 0, tr("Photos")); m.menu.add(0, 2, 0, tr("Files"))
+            m.setOnMenuItemClickListener { if (it.itemId == 1) pickPhotos() else pickFiles(); true }
+            m.show()
+        }.apply { layoutParams = LinearLayout.LayoutParams(dp(40), dp(44)) })
         input = EditText(a).apply {
             hint = tr("Message"); textSize = 16f; minLines = 1; maxLines = 6
             setTextColor(u.text); setHintTextColor(u.text2)
@@ -454,7 +470,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             setPadding(dp(16), dp(11), dp(16), dp(11))
             inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or EditorInfo.TYPE_TEXT_FLAG_CAP_SENTENCES
             addTextChangedListener(object : TextWatcher {
-                override fun afterTextChanged(s: Editable?) { draftSave(); refreshSend() }
+                override fun afterTextChanged(s: Editable?) { draftSave(); refreshSend(); atToken()?.let { suggest(it) } ?: suggest(null) }
                 override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, af: Int) {}
                 override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
             })
@@ -464,9 +480,10 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             setImageResource(R.drawable.ic_send); imageTintList = ColorStateList.valueOf(u.onAccent)
             background = RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(u.accent) }, null)
             setPadding(dp(12), dp(12), dp(12), dp(12)); contentDescription = tr("Send")
-            setOnClickListener { if (input.text.isBlank() && attached.isEmpty()) dictate() else send() }
+            setOnClickListener { if (input.text.isBlank() && attached.isEmpty() && attachedFiles.isEmpty()) dictate() else send() }
         }
         composer.addView(sendBtn, LinearLayout.LayoutParams(dp(46), dp(46)))
+        chatPane.addView(HorizontalScrollView(a).apply { isHorizontalScrollBarEnabled = false; addView(suggestRow.apply { setPadding(dp(14), dp(4), dp(14), 0) }) })
         chatPane.addView(composeHint.apply { setPadding(dp(22), dp(2), dp(22), 0) })
         chatPane.addView(composer)
     }
@@ -506,18 +523,20 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         if (s.has("over")) usageText.setTextColor(u.red) else usageText.setTextColor(u.text2)
         u.gone(usageRow, modeChip.visibility == View.GONE && usageText.text.isEmpty())
         termBtn.imageTintList = ColorStateList.valueOf(if (termMode) u.accent else u.text2)
-        u.gone(keyStrip.parent as View, !managed || changesMode)
-        u.gone(askBox, changesMode)
+        u.gone(keyStrip.parent as View, !managed || changesMode || filesMode)
+        u.gone(askBox, changesMode || filesMode)
         val canSend = Agents.canSend(s)
         input.isEnabled = canSend; sendBtn.isEnabled = canSend
-        input.hint = tr(when {
+        if (termMode) { input.hint = tr("Type into the terminal"); input.isEnabled = managed; sendBtn.isEnabled = managed } else input.hint = tr(when {
             s.optBoolean("sub") -> "Subagents can't be messaged"
             !canSend -> "Open in another terminal — read only"
             working -> "Message — interrupts the current turn"
             !managed -> "Message — continues this chat on the Mac"
             else -> "Message"
         })
+        val q = Agents.queued(a, s.optString("id"))
         composeHint.text = when {
+            q > 0 -> tr(if (q == 1) "{0} message waits for the Mac" else "{0} messages wait for the Mac", q)
             !canSend && !s.optBoolean("sub") && s.optBoolean("live") -> tr("Started outside PhoneCast's terminal integration. Close it on the Mac to continue here.")
             else -> ""
         }
@@ -528,7 +547,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     }
 
     private fun refreshSend() {
-        val empty = input.text.isBlank() && attached.isEmpty()
+        val empty = input.text.isBlank() && attached.isEmpty() && attachedFiles.isEmpty()
         sendBtn.setImageResource(if (empty) R.drawable.ic_mic else R.drawable.ic_send)
         sendBtn.contentDescription = tr(if (empty) "Dictate" else "Send")
         val ok = !sending && input.isEnabled
@@ -578,17 +597,8 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     private fun renderMessages(force: Boolean = false) {
         if (open == null) { msgList.removeAllViews(); rendered.clear(); return }
         if (changesMode) { if (force) renderChanges(); return }
-        if (termMode) {
-            Agents.request("terminal", JSONObject().put("sid", open)) { d, err ->
-                if (!termMode) return@request
-                msgList.removeAllViews(); rendered.clear()
-                msgList.addView(HorizontalScrollView(a).apply {
-                    addView(u.mono(d?.optString("v") ?: err ?: "").apply { textSize = 11f; setTextColor(u.text); setPadding(dp(4), dp(4), dp(4), dp(4)) })
-                })
-                msgScroll.post { msgScroll.fullScroll(View.FOCUS_DOWN) }
-            }
-            return
-        }
+        if (termMode) { renderTerm(); return }
+        if (filesMode) { if (force) renderFiles(); return }
         val msgs = Agents.messages
         val ids = msgs.map { it.optString("id") }
         val atBottom = !msgScroll.canScrollVertically(1)
@@ -706,8 +716,11 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         return sb
     }
 
+    private var recoveryChat: Boolean? = null
+
     private fun chatMenu(anchor: View) {
         val s = current() ?: return
+        if (s.optBoolean("managed")) Agents.request("recovery", JSONObject().put("sid", s.optString("id"))) { d, _ -> recoveryChat = d?.optBoolean("continue") }
         val m = PopupMenu(a, anchor)
         if (s.optBoolean("managed")) m.menu.add(0, 1, 0, tr("Open in Terminal on the Mac"))
         if (!s.optBoolean("managed") && s.optBoolean("canResume")) m.menu.add(0, 2, 0, tr("Reopen on the Mac"))
@@ -717,6 +730,11 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         m.menu.add(0, 7, 0, tr("Read answers aloud")).apply { isCheckable = true; isChecked = prefs.getBoolean("speak.${s.optString("id")}", false) }
         m.menu.add(0, 8, 0, tr(if (Speech.speaking) "Stop reading" else "Read last answer"))
         m.menu.add(0, 9, 0, tr("Usage and budget"))
+        if (s.optString("cwd").isNotEmpty() && !s.optBoolean("sub")) m.menu.add(0, 10, 0, tr("Files"))
+        if (s.optString("nativeId").isNotEmpty() && !s.optBoolean("sub") && s.optString("agent") in setOf("claude", "codex")) m.menu.add(0, 11, 0, tr("Fork this chat"))
+        if (s.optBoolean("managed") && s.optString("agent") == "claude") m.menu.add(0, 12, 0, tr("Rename…"))
+        m.menu.add(0, 13, 0, tr("Open dev server…"))
+        if (s.optBoolean("managed")) m.menu.add(0, 14, 0, tr("Continue after usage limits")).apply { isCheckable = true; isChecked = recoveryChat ?: false }
         s.optString("parent").ifEmpty { null }?.let { p -> m.menu.add(0, 6, 0, tr("Open parent chat")) }
         m.setOnMenuItemClickListener {
             when (it.itemId) {
@@ -729,6 +747,18 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                 7 -> { val k = "speak.${s.optString("id")}"; val on = !prefs.getBoolean(k, false); prefs.edit().putBoolean(k, on).apply(); if (!on) Speech.stop() }
                 8 -> if (Speech.speaking) Speech.stop() else Agents.messages.lastOrNull { it.optString("r") == "assistant" }?.let { Speech.speak(a, it.optString("t"), flush = true) }
                 9 -> usageSheet()
+                10 -> { filesMode = true; termMode = false; changesMode = false; filesPath = ""; filePath = null; renderFiles(); refreshChatHeader() }
+                11 -> Agents.request("fork", JSONObject().put("sid", s.optString("id"))) { d, e -> if (e != null) toast(e) else d?.optString("sid")?.let { n -> view.postDelayed({ openChat(n) }, 800) } }
+                12 -> {
+                    val c = android.view.ContextThemeWrapper(a, dialogTheme())
+                    val f = EditText(c).apply { setText(s.optString("title")); setTextColor(u.text); setSingleLine(); selectAll() }
+                    themed().setTitle(tr("Rename chat")).setView(FrameLayout(c).apply { setPadding(dp(22), dp(8), dp(22), 0); addView(f) })
+                        .setNegativeButton(tr("Cancel"), null).setPositiveButton(tr("Rename")) { _, _ ->
+                            Agents.request("command", JSONObject().put("sid", s.optString("id")).put("text", "/rename " + f.text.toString().trim())) { _, e -> e?.let(::toast) }
+                        }.show()
+                }
+                13 -> devServers(s)
+                14 -> { val on = !(recoveryChat ?: false); Agents.request("recovery", JSONObject().put("sid", s.optString("id")).put("chat", JSONObject().put("continue", on))) { d, e -> e?.let(::toast); recoveryChat = d?.optBoolean("continue") } }
             }
             true
         }
@@ -743,12 +773,22 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         if (sending || (text.isEmpty() && attached.isEmpty())) return
         sending = true; refreshSend()
         sendBtn.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        if (termMode && attached.isEmpty() && attachedFiles.isEmpty()) {
+            // live terminal: type the text as keystrokes and press Enter
+            Agents.request("type", JSONObject().put("sid", sid).put("text", text).put("enter", true)) { _, err ->
+                sending = false; refreshSend()
+                if (err != null) toast(err) else { input.setText(""); draftClear(sid); renderTerm() }
+            }
+            return
+        }
         val imgs = ArrayList(attached)
-        // optimistic: show it right away, the transcript replaces it
-        Agents.send(sid, text, imgs) { newSid, err ->
+        val files = ArrayList(attachedFiles)
+        val wasQueued = !Agents.connected
+        Agents.send(sid, text, imgs, files) { newSid, err ->
+            if (wasQueued && err == null) toast(tr("Queued. It goes out when the Mac is back."))
             sending = false
             if (err != null) { toast(err); refreshSend(); return@send }
-            input.setText(""); attached.clear(); renderThumbs(); draftClear(sid)
+            input.setText(""); attached.clear(); attachedFiles.clear(); renderThumbs(); draftClear(sid)
             if (newSid != null && newSid != sid) openChat(newSid)
             refreshSend()
         }
@@ -778,11 +818,30 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             val last = prefs.getString("lastModel.$chosen", "")
             modelSpin.setSelection(max(0, list.indexOfFirst { it.second == last }))
         }
-        val seg = u.Segmented("", listOf("Claude Code" to "claude", "Codex" to "codex"), { chosen }, { chosen = it; fillModels() })
-        seg.refresh(); box.addView(seg.view)
+        val names = mapOf("claude" to "Claude", "codex" to "Codex", "gemini" to "Gemini", "opencode" to "OpenCode", "kimi" to "Kimi")
+        val segBox = FrameLayout(c)
+        fun buildSeg(list: List<String>) {
+            if (chosen !in list) chosen = list.first()
+            val seg = u.Segmented("", list.map { (names[it] ?: it) to it }, { chosen }, { chosen = it; fillModels() })
+            seg.refresh(); segBox.removeAllViews(); segBox.addView(seg.view)
+        }
+        buildSeg(listOf("claude", "codex"))
+        box.addView(segBox)
+        Agents.request("agents") { d, _ -> d?.optJSONArray("agents")?.let { arr -> buildSeg((0 until arr.length()).map { arr.optString(it) }) } }
         box.addView(u.hint("Model"))
         box.addView(modelSpin)
-        box.addView(u.hint("Folder on the Mac"))
+        var machine = prefs.getString("lastHost", "") ?: ""
+        val machineBox = FrameLayout(c)
+        box.addView(machineBox)
+        Agents.request("hosts", timeoutMs = 40_000) { d, _ ->
+            val arr = d?.optJSONArray("hosts") ?: return@request
+            val hs = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optBoolean("up") }.map { it.optString("host") }
+            if (hs.isEmpty()) return@request
+            if (machine !in hs) machine = ""
+            val seg = u.Segmented(tr("Machine"), listOf(tr("This Mac") to "") + hs.map { it.substringAfter('@') to it }, { machine }, { machine = it })
+            seg.refresh(); machineBox.addView(seg.view)
+        }
+        box.addView(u.hint("Folder (on that machine)"))
         val folderBox = AutoCompleteTextView(c).apply {
             setText(folder ?: prefs.getString("lastFolder", "~")); textSize = 15f; setSingleLine(); threshold = 0
             setTextColor(u.text)
@@ -816,8 +875,8 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                 b.isEnabled = false
                 @Suppress("UNCHECKED_CAST") val model = (modelSpin.tag as? List<String>)?.getOrNull(modelSpin.selectedItemPosition) ?: ""
                 val cwd = folderBox.text.toString().trim().ifEmpty { "~" }
-                prefs.edit().putString("lastAgent", chosen).putString("lastFolder", cwd).putString("lastModel.$chosen", model).apply()
-                Agents.request("start", JSONObject().put("agent", chosen).put("cwd", cwd).put("model", model).put("prompt", prompt.text.toString())) { d, err ->
+                prefs.edit().putString("lastAgent", chosen).putString("lastFolder", cwd).putString("lastModel.$chosen", model).putString("lastHost", machine).apply()
+                Agents.request("start", JSONObject().put("agent", chosen).put("cwd", cwd).put("model", model).put("prompt", prompt.text.toString()).put("host", machine), 40_000) { d, err ->
                     if (err != null) { toast(err); b.isEnabled = true; return@request }
                     dlg.dismiss()
                     d?.optString("sid")?.let { sid -> view.postDelayed({ openChat(sid) }, 600) }
@@ -838,6 +897,21 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     }
 
     fun onResult(req: Int, res: Int, data: Intent?): Boolean {
+        if (req == REQ_FILES) {
+            if (res != Activity.RESULT_OK || data == null) return true
+            val uris = ArrayList<Uri>()
+            data.clipData?.let { c -> for (i in 0 until c.itemCount) uris += c.getItemAt(i).uri }
+            if (uris.isEmpty()) data.data?.let { uris += it }
+            Thread {
+                val got = uris.take(10).mapNotNull { u -> try {
+                    val name = a.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "file"
+                    val bytes = a.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: return@mapNotNull null
+                    if (bytes.size > 25 shl 20) { view.post { toast(tr("{0} is over 25 MB", name)) }; null } else Agents.Attachment(name, bytes)
+                } catch (_: Exception) { null } }
+                view.post { attachedFiles += got; renderThumbs(); refreshSend() }
+            }.start()
+            return true
+        }
         if (req != REQ_PHOTOS) return false
         if (res != Activity.RESULT_OK || data == null) return true
         val uris = ArrayList<Uri>()
@@ -864,6 +938,13 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
 
     private fun renderThumbs() {
         thumbs.removeAllViews()
+        attachedFiles.forEachIndexed { i, f ->
+            thumbs.addView(TextView(a).apply {
+                text = "📄 " + f.name + "  ✕"; textSize = 13f; setTextColor(u.onTonal); maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
+                background = pill(u.tonalBg, 14); setPadding(dp(12), dp(8), dp(12), dp(8)); maxWidth = dp(220)
+                setOnClickListener { attachedFiles.removeAt(i); renderThumbs(); refreshSend() }
+            }, LinearLayout.LayoutParams(-2, -2).apply { setMargins(0, dp(6), dp(8), dp(2)) })
+        }
         attached.forEachIndexed { i, bytes ->
             thumbs.addView(FrameLayout(a).apply {
                 addView(ImageView(a).apply {
@@ -1130,6 +1211,9 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         m.menu.add(0, 1, 0, tr("Live status notification")).apply { isCheckable = true; isChecked = AgentsLive.enabled(a) }
         m.menu.add(0, 2, 0, tr("Read finished answers aloud")).apply { isCheckable = true; isChecked = prefs.getBoolean("speakDone", false) }
         m.menu.add(0, 3, 0, tr("Cost & plan limits (Claude statusline)")).apply { isCheckable = true; isChecked = Agents.tap }
+        m.menu.add(0, 4, 0, tr("Continue chats after usage limits…"))
+        m.menu.add(0, 5, 0, tr("Alert when an agent seems stuck…"))
+        m.menu.add(0, 6, 0, tr("Other machines…"))
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 1 -> { prefs.edit().putBoolean("live", !AgentsLive.enabled(a)).apply(); AgentsLive.cancel(a); AgentsLive.update(a) }
@@ -1140,10 +1224,206 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                         Agents.request("tap", JSONObject().put("on", true)) { d, e -> e?.let(::toast); Agents.setTap(d?.optBoolean("v") == true) }
                     } else Agents.request("tap", JSONObject().put("on", false)) { d, e -> e?.let(::toast); Agents.setTap(d?.optBoolean("v") == true) }
                 }
+                4 -> Agents.request("recovery") { d, e ->
+                    if (e != null) { toast(e); return@request }
+                    val on = d?.optJSONObject("global")?.optBoolean("continue") ?: false
+                    themed().setTitle(tr("Continue after usage limits"))
+                        .setMessage(tr("When a chat stops at a usage limit, PhoneCast sends “continue” a minute after the limit resets. You can change it per chat (⋯ in the chat)."))
+                        .setPositiveButton(tr(if (on) "Turn off for all chats" else "Turn on for all chats")) { _, _ ->
+                            Agents.request("recovery", JSONObject().put("global", JSONObject().put("continue", !on))) { _, e2 -> toast(e2 ?: tr("Saved")) }
+                        }.setNegativeButton(tr("Close"), null).show()
+                }
+                6 -> machines()
+                5 -> {
+                    val opts = listOf(5, 10, 20, 30, 0)
+                    themed().setTitle(tr("Alert when an agent seems stuck")).setItems(opts.map { if (it == 0) tr("Never") else tr("After {0} min without progress", it) }.toTypedArray()) { _, i ->
+                        Agents.request("recovery", JSONObject().put("global", JSONObject().put("stuckMin", if (opts[i] == 0) 100000 else opts[i]))) { _, e2 -> toast(e2 ?: tr("Saved")) }
+                    }.show()
+                }
             }
             true
         }
         m.show()
+    }
+
+    // ---- live terminal ----
+
+    private fun renderTerm() {
+        val sid = open ?: return
+        if (termBusy) return
+        termBusy = true
+        Agents.request("live", JSONObject().put("sid", sid).put("lines", 160)) { d, err ->
+            termBusy = false
+            if (!termMode || open != sid) return@request
+            val atBottom = !msgScroll.canScrollVertically(1) || msgList.childCount == 0 || msgList.getChildAt(0).tag != "term"
+            val tv = (msgList.getChildAt(0)?.takeIf { it.tag == "term" } as? HorizontalScrollView)?.getChildAt(0) as? TextView
+                ?: TextView(a).apply { typeface = Typeface.MONOSPACE; textSize = 10.5f; setTextColor(TERM_FG); setTextIsSelectable(true); setPadding(dp(10), dp(10), dp(10), dp(10)) }.also { t ->
+                    msgList.removeAllViews(); rendered.clear()
+                    // agents draw for a dark terminal: keep it dark in both themes
+                    msgList.addView(HorizontalScrollView(a).apply { tag = "term"; background = pill(TERM_BG, 14); addView(t) })
+                }
+            tv.text = if (d != null) Ansi.spans(d.optString("ansi"), TERM_FG) else (err ?: "")
+            if (atBottom) msgScroll.post { msgScroll.fullScroll(View.FOCUS_DOWN) }
+        }
+        view.removeCallbacks(termPoll); view.postDelayed(termPoll, 900)
+    }
+
+    // ---- files ----
+
+    private fun renderFiles() {
+        val sid = open ?: return
+        msgList.removeAllViews(); rendered.clear()
+        val fp = filePath
+        val crumbs = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(4), dp(6), dp(4), dp(6)) }
+        val parts = listOf("") + filesPath.split('/').filter { it.isNotEmpty() }
+        parts.forEachIndexed { i, part ->
+            crumbs.addView(TextView(a).apply {
+                text = (if (i == 0) (current()?.optString("cwd")?.substringAfterLast('/') ?: "/") else part) + if (i < parts.size - 1 || fp != null) "  /  " else ""
+                textSize = 14f; setTextColor(if (i < parts.size - 1 || fp != null) u.accent else u.text)
+                setOnClickListener { filesPath = parts.subList(1, i + 1).joinToString("/"); filePath = null; renderFiles() }
+            })
+        }
+        if (fp != null) crumbs.addView(u.label(fp.substringAfterLast('/'), 14f, bold = true))
+        msgList.addView(HorizontalScrollView(a).apply { isHorizontalScrollBarEnabled = false; addView(crumbs) })
+        if (fp != null) {
+            Agents.request("file", JSONObject().put("sid", sid).put("path", fp)) { d, err ->
+                if (!filesMode || filePath != fp) return@request
+                val txt = when { err != null -> err; d?.optBoolean("binary") == true -> tr("Binary file ({0} KB)", (d.optLong("size") / 1024)); else -> d?.optString("text") ?: "" }
+                msgList.addView(HorizontalScrollView(a).apply { addView(u.mono(txt).apply { textSize = 11.5f; setTextColor(u.text); setPadding(dp(6), dp(6), dp(6), dp(6)) }) })
+                if (d?.optBoolean("cut") == true) msgList.addView(u.hint(tr("Only the first 400 KB are shown.")))
+                msgList.addView(u.tonal(tr("Mention in the message")) { insertAt(fp) })
+                msgScroll.post { msgScroll.scrollTo(0, 0) }
+            }
+            return
+        }
+        Agents.request("files", JSONObject().put("sid", sid).put("path", filesPath)) { d, err ->
+            if (!filesMode || filePath != null) return@request
+            if (err != null) { msgList.addView(u.label(err, 14f, secondary = true)); return@request }
+            val items = d?.optJSONArray("items") ?: return@request
+            for (i in 0 until items.length()) {
+                val it = items.optJSONObject(i) ?: continue
+                val dir = it.optBoolean("dir"); val name = it.optString("name")
+                msgList.addView(LinearLayout(a).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(8), dp(10), dp(8), dp(10)); alpha = if (it.optBoolean("dim")) 0.5f else 1f
+                    background = RippleDrawable(ColorStateList.valueOf(0x22000000), null, pill(Color.WHITE, 10))
+                    addView(u.label(if (dir) "📁" else "📄", 15f), LinearLayout.LayoutParams(dp(30), -2))
+                    addView(u.label(name, 14.5f), LinearLayout.LayoutParams(0, -2, 1f))
+                    if (!dir) addView(u.label(fmtSize(it.optLong("size")), 12f, secondary = true))
+                    val rel = if (filesPath.isEmpty()) name else "$filesPath/$name"
+                    setOnClickListener { if (dir) filesPath = rel else filePath = rel; renderFiles() }
+                    setOnLongClickListener { insertAt(rel); true }
+                })
+            }
+            if (items.length() == 0) msgList.addView(u.label(tr("Empty folder"), 14f, secondary = true).apply { setPadding(dp(8), dp(12), 0, 0) })
+            msgList.addView(u.hint(tr("Long-press a file to mention it in your message.")))
+        }
+    }
+
+    private fun fmtSize(n: Long) = when { n >= 1 shl 20 -> String.format("%.1f MB", n / 1048576.0); n >= 1024 -> "${n / 1024} KB"; else -> "$n B" }
+
+    // ---- @ mentions ----
+
+    /** The "@word" being typed at the cursor, or null. */
+    private fun atToken(): String? {
+        val t = input.text.toString(); val c = input.selectionStart.coerceIn(0, t.length)
+        val start = t.lastIndexOf('@', c - 1).takeIf { it >= 0 } ?: return null
+        if (start > 0 && !t[start - 1].isWhitespace()) return null
+        val tok = t.substring(start + 1, c)
+        return if (tok.any { it.isWhitespace() }) null else tok
+    }
+
+    private var suggestSeq = 0
+    private fun suggest(q: String?) {
+        val sid = open
+        if (q == null || sid == null || current()?.optString("cwd").isNullOrEmpty()) { suggestRow.removeAllViews(); return }
+        val seq = ++suggestSeq
+        view.postDelayed({
+            if (seq != suggestSeq) return@postDelayed
+            Agents.request("find", JSONObject().put("sid", sid).put("q", q)) { d, _ ->
+                if (seq != suggestSeq) return@request
+                suggestRow.removeAllViews()
+                val arr = d?.optJSONArray("files") ?: return@request
+                for (i in 0 until minOf(12, arr.length())) {
+                    val f = arr.optString(i)
+                    suggestRow.addView(TextView(a).apply {
+                        text = f.substringAfterLast('/'); textSize = 13f; setTextColor(u.onTonal)
+                        background = RippleDrawable(ColorStateList.valueOf(0x22000000), pill(u.tonalBg, 14), null)
+                        setPadding(dp(12), dp(6), dp(12), dp(6)); contentDescription = f
+                        setOnClickListener { replaceAt(f) }
+                    }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+                }
+            }
+        }, 180)
+    }
+
+    private fun replaceAt(path: String) {
+        val t = input.text.toString(); val c = input.selectionStart.coerceIn(0, t.length)
+        val start = t.lastIndexOf('@', c - 1)
+        if (start < 0) { insertAt(path); return }
+        val n = t.substring(0, start) + "@" + path + " " + t.substring(c)
+        input.setText(n); input.setSelection((start + path.length + 2).coerceAtMost(n.length)); suggest(null)
+    }
+
+    private fun insertAt(path: String) {
+        if (filesMode) { filesMode = false; renderMessages(force = true); refreshChatHeader() }
+        val t = input.text.toString()
+        val n = (if (t.isEmpty() || t.endsWith(" ")) t else "$t ") + "@" + path + " "
+        input.setText(n); input.setSelection(n.length); input.requestFocus()
+    }
+
+    private fun pickFiles() {
+        @Suppress("DEPRECATION")
+        a.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), REQ_FILES)
+    }
+
+    // ---- dev-server previews ----
+
+    private fun devServers(s: JSONObject) {
+        Agents.request("previews", JSONObject().put("sid", s.optString("id"))) { d, err ->
+            if (err != null) { toast(err); return@request }
+            val ports = d?.optJSONArray("ports")
+            val list = (0 until (ports?.length() ?: 0)).mapNotNull { ports!!.optJSONObject(it) }
+            val c = android.view.ContextThemeWrapper(a, dialogTheme())
+            val f = EditText(c).apply { hint = tr("Port, e.g. 5173"); inputType = EditorInfo.TYPE_CLASS_NUMBER; setTextColor(u.text); setHintTextColor(u.text2) }
+            val b = themed().setTitle(tr("Open a dev server on the phone"))
+            if (list.isNotEmpty()) b.setItems(list.map { it.optString("url") }.toTypedArray()) { _, i -> openPreview(list[i].optInt("port"), list[i].optString("path", "/")) }
+            else b.setMessage(tr("No local web address in this chat yet. Enter the port the server runs on:"))
+            b.setView(FrameLayout(c).apply { setPadding(dp(22), dp(8), dp(22), 0); addView(f) })
+                .setNegativeButton(tr("Cancel"), null)
+                .setPositiveButton(tr("Open")) { _, _ -> f.text.toString().toIntOrNull()?.let { openPreview(it, "/") } }.show()
+        }
+    }
+
+    private fun openPreview(port: Int, path: String) {
+        val host = Agents.hostAddress() ?: run { toast(tr("The Mac isn't connected.")); return }
+        Agents.request("preview", JSONObject().put("port", port)) { d, err ->
+            if (err != null) { toast(err); return@request }
+            val p = d?.optInt("port") ?: return@request
+            val h = if (host.contains(':')) "[$host]" else host
+            try { a.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://$h:$p$path"))) } catch (_: Exception) { toast(tr("No browser found.")) }
+        }
+    }
+
+    /** ssh targets the Mac runs agents on (user@host, key login set up on the Mac). */
+    private fun machines() {
+        Agents.request("hosts", timeoutMs = 40_000) { d, err ->
+            if (err != null) { toast(err); return@request }
+            val arr = d?.optJSONArray("hosts")
+            val list = (0 until (arr?.length() ?: 0)).mapNotNull { arr!!.optJSONObject(it) }
+            val c = android.view.ContextThemeWrapper(a, dialogTheme())
+            val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0) }
+            box.addView(u.label(tr("The Mac starts and watches agents on these machines over SSH (key login from the Mac, tmux and the agent installed there)."), 13.5f, secondary = true))
+            for (h in list) box.addView(u.label("${if (h.optBoolean("up")) "●" else "○"}  ${h.optString("host")}  " +
+                (if (h.optBoolean("up")) h.optJSONArray("tools")?.let { t -> (0 until t.length()).joinToString(", ") { t.optString(it) } }?.ifEmpty { tr("no tools found") } ?: "" else tr("not reachable")), 14f).apply { setPadding(0, dp(8), 0, 0) })
+            val f = EditText(c).apply { setText(list.joinToString(", ") { it.optString("host") }); hint = "user@host, user@other"; setTextColor(u.text); setHintTextColor(u.text2) }
+            box.addView(f)
+            themed().setTitle(tr("Other machines")).setView(ScrollView(c).apply { addView(box) }).setNegativeButton(tr("Close"), null)
+                .setPositiveButton(tr("Save")) { _, _ ->
+                    val hs = org.json.JSONArray(f.text.split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() })
+                    Agents.request("hosts", JSONObject().put("set", hs), 40_000) { _, e -> toast(e ?: tr("Saved")) }
+                }.show()
+        }
     }
 
     fun onPermission(req: Int, granted: Boolean) { if (req == Voice.REQ_MIC && granted) dictate() }
@@ -1221,5 +1501,5 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         open?.let { Agents.watch(it); draftRestore(); refreshChatHeader(); renderMessages(force = true) }
     }
 
-    companion object { const val REQ_PHOTOS = 7 }
+    companion object { const val REQ_PHOTOS = 7; const val REQ_FILES = 12; const val TERM_BG = 0xFF17181C.toInt(); const val TERM_FG = 0xFFD8D8DC.toInt() }
 }
