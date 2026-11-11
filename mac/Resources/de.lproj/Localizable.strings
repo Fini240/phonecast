@@ -251,3 +251,5 @@
 "Pick a PhoneCast key map (.phonecast-keys.json). It replaces the map for this screen layout." = "Wähle eine PhoneCast-Tastenbelegung (.phonecast-keys.json). Sie ersetzt die Belegung für dieses Bildschirmformat.";
 "That file isn't a PhoneCast key map." = "Diese Datei ist keine PhoneCast-Tastenbelegung.";
 "Key map imported — check it with ⌘E and drag markers if the game's buttons sit elsewhere" = "Tastenbelegung importiert – prüfe sie mit ⌘E und verschiebe Markierungen, falls die Knöpfe des Spiels woanders liegen";
+"Show mirror (⇧⌘M)" = "Spiegelung zeigen (⇧⌘M)";
+"Mirror phone (⇧⌘M)" = "Handy spiegeln (⇧⌘M)";

@@ -219,20 +219,29 @@ struct OverviewView: View {
                 }
                 if store.connected, let np = store.nowPlaying { NowPlayingCard(np: np) }
                 HStack(spacing: 10) {
+                    // icons only: the row is too narrow for the words; hovering shows the full name
                     Button { Hub.shared.mirror() } label: {
                         Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle").padding(.horizontal, 6)
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut("m", modifiers: [.command, .shift])
+                    .help(store.phoneCasting ? "Show mirror (⇧⌘M)" : "Mirror phone (⇧⌘M)")
                     Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files…", systemImage: "square.and.arrow.up") }
+                        .help("Send files…")
                     Button { Hub.shared.sendClipboard(nil) } label: { Label("Send clipboard", systemImage: "doc.on.clipboard") }
+                        .help("Send clipboard")
                     Button { nav.section = .messages } label: { Label("New message", systemImage: "square.and.pencil") }
+                        .help("New message")
                     Button { Hub.shared.ring(!store.ringing) } label: {
                         Label(store.ringing ? "Stop ringing" : "Find phone", systemImage: store.ringing ? "bell.slash" : "bell.and.waves.left.and.right")
                     }
+                    .help(store.ringing ? "Stop ringing" : "Find phone")
                     Button { Continuity.locatePhone() } label: { Label("Show on map", systemImage: "map") }
+                        .help("Show on map")
                     Button { Continuity.sendTabToPhone() } label: { Label("Tab to phone", systemImage: "safari") }
+                        .help("Tab to phone")
                 }
+                .labelStyle(.iconOnly)
                 .controlSize(.large)
                 .disabled(!store.connected)
                 Panel(title: "Devices", symbol: "point.3.connected.trianglepath.dotted") {
