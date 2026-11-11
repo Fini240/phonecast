@@ -40,6 +40,13 @@ final class AgentHub: ObservableObject {
     private var lastAlert: [String: Double] = [:]
     private var awake: IOPMAssertionID = 0
     private var lastAsks: [String: [String: Any]] = [:]
+    private var budgetHit = Set<String>()
+
+    func usage(_ s: AgentSession) -> [String: Any]? {
+        var u = s.agent == "claude" ? AgentUsage.claude(native: s.nativeId, path: s.transcript) : AgentUsage.codex(path: s.transcript)
+        if let b = AgentBudgets.all()[s.id] { u?["budget"] = b }
+        return u
+    }
     private let snapLock = NSLock()
     private var _latest: [AgentSession] = []
     /// Latest list, safe from any thread.
@@ -100,6 +107,7 @@ final class AgentHub: ObservableObject {
                                  cwd: p.cwd, model: meta?.model, status: st.status,
                                  stage: st.working ? st.activity : st.dialog?.title, updatedAt: max(p.activity, p.created),
                                  managed: true, lastMessage: meta?.last, live: true, canResume: false, attached: p.attached, transcript: meta?.path)
+            s.mode = st.mode
             if let d = st.dialog {
                 newAsks[p.id] = ["id": d.approvalId, "title": AgentText.clip(AgentText.redact(d.title), 300),
                                  "detail": AgentText.clip(AgentText.redact(d.detail), 4000),
@@ -126,6 +134,22 @@ final class AgentHub: ObservableObject {
         }
         for i in out.indices { if let p = out[i].parentId, let a = alias[p] { out[i].parentId = a } }
         out.sort { $0.updatedAt > $1.updatedAt }
+        // usage for the chats that matter now (live, managed, watched); history stays cheap
+        let budgets = AgentBudgets.all()
+        for i in out.indices where !out[i].isSubagent && (out[i].live || out[i].managed || out[i].id == watched || budgets[out[i].id] != nil) {
+            out[i].usage = usage(out[i])
+            if let b = budgets[out[i].id], let u = out[i].usage, let why = AgentBudgets.exceeded(b, u) {
+                if budgetHit.insert(out[i].id).inserted {
+                    var s = out[i]; s.lastMessage = why
+                    alert("budget", s, nil)
+                    if b["stop"] as? Bool == true, s.managed, s.status == "working" {
+                        let sid = s.id
+                        actions.async { let l = self.lock(sid); l.lock(); defer { l.unlock() }; try? self.tmux.stop(sid) }
+                    }
+                }
+                out[i].overBudget = why
+            } else { budgetHit.remove(out[i].id) }
+        }
 
         // transitions -> alerts (first sight is a baseline; quiet idle after work is debounced 6 s)
         for s in out where !s.isSubagent {
@@ -178,6 +202,7 @@ final class AgentHub: ObservableObject {
         if lastAlert.count > 300 { lastAlert = lastAlert.filter { now - $0.value < 3600 } }
         let body: String
         switch kind {
+        case "budget": body = s.lastMessage ?? "Over budget"
         case "completed": body = s.lastMessage ?? "Finished"
         case "error": body = s.lastMessage ?? "The agent reported an error"
         default: body = (ask?["title"] as? String) ?? s.stage ?? "Waiting for you"
@@ -246,7 +271,7 @@ final class AgentHub: ObservableObject {
         switch m {
         case "hello":
             work.async { self.lastSentDigest = ""; self.poll() }
-            ok(["installed": AgentShell.installed(), "enabled": enabled])
+            ok(["installed": AgentShell.installed(), "enabled": enabled, "tap": AgentUsage.tapInstalled()])
         case "watch":
             work.async {
                 self.watched = sid.isEmpty ? nil : sid
@@ -287,6 +312,49 @@ final class AgentHub: ObservableObject {
                 let t = try self.tmux.start(agent: p["agent"] as? String ?? "claude", cwd: (p["cwd"] as? String ?? "~").expandingTilde,
                                             model: (p["model"] as? String)?.nilIfEmpty, prompt: p["prompt"] as? String)
                 return ["sid": t]
+            }
+        case "changes":
+            run {
+                guard let s = self.latest.first(where: { $0.id == sid }), let cwd = s.cwd else { throw AgentTmux.Fail("Chat not found.") }
+                return try AgentGit.changes(cwd)
+            }
+        case "diff":
+            run {
+                guard let s = self.latest.first(where: { $0.id == sid }), let cwd = s.cwd else { throw AgentTmux.Fail("Chat not found.") }
+                return try AgentGit.diff(cwd, p["path"] as? String ?? "")
+            }
+        case "git":
+            run {
+                guard let s = self.latest.first(where: { $0.id == sid }), let cwd = s.cwd else { throw AgentTmux.Fail("Chat not found.") }
+                return try AgentGit.act(cwd, p["op"] as? String ?? "", p)
+            }
+        case "command":
+            // slash commands are typed into the TUI like a message (/compact, /model sonnet, /effort high, …)
+            run {
+                let cmd = (p["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard cmd.hasPrefix("/"), !cmd.contains("\n") else { throw AgentTmux.Fail("Not a command.") }
+                let l = self.lock(sid); l.lock(); defer { l.unlock() }
+                try self.tmux.send(sid, cmd)
+                return true
+            }
+        case "mode": run { try self.tmux.key(sid, "btab"); return true }
+        case "usage":
+            work.async {
+                guard let s = self.latest.first(where: { $0.id == sid }) else { fail("Chat not found."); return }
+                ok(self.usage(s) ?? [:])
+            }
+        case "budget":
+            var b: [String: Any] = [:]
+            if let v = (p["usd"] as? NSNumber)?.doubleValue, v > 0 { b["usd"] = v }
+            if let v = (p["tokens"] as? NSNumber)?.intValue, v > 0 { b["tokens"] = v }
+            if !b.isEmpty { b["stop"] = p["stop"] as? Bool ?? false }
+            AgentBudgets.set(sid, b.isEmpty ? nil : b)
+            work.async { self.budgetHit.remove(sid); self.lastSentDigest = ""; self.poll() }
+            ok(true)
+        case "tap":
+            run {
+                if p["on"] as? Bool == false { try AgentUsage.removeTap() } else { try AgentUsage.installTap() }
+                return AgentUsage.tapInstalled()
             }
         case "models": run { AgentModels.list(refresh: p["refresh"] as? Bool ?? false) }
         case "folders":

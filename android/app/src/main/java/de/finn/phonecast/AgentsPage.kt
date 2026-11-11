@@ -121,6 +121,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), dp(20), dp(16), dp(4))
             addView(u.label("Agents", 30f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconButton(R.drawable.ic_more, tr("Settings")) { settingsMenu(it) })
             addView(iconButton(R.drawable.ic_add, tr("New chat"), filled = true) { newChat() })
         }
         searchBox = EditText(a).apply {
@@ -368,6 +369,14 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     private val msgList = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(16)) }
     private val rendered = ArrayList<String>()
     private var termMode = false
+    /** The chat area shows the Changes view (git) instead of the messages. */
+    private var changesMode = false
+    private var diffPath: String? = null
+    private val voice = Voice(a)
+    private lateinit var changesBtn: ImageView
+    private val usageRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+    private val modeChip = TextView(a)
+    private val usageText = u.label("", 12f, secondary = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
     private val keyStrip = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val thumbs = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
     private val attached = ArrayList<ByteArray>()
@@ -387,10 +396,23 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             addView(chatTitle); addView(chatSub)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         stopBtn = iconButton(R.drawable.ic_stop, tr("Stop")) { stop() }
-        termBtn = iconButton(R.drawable.ic_terminal, tr("Terminal view")) { termMode = !termMode; renderMessages(force = true) }
-        bar.addView(stopBtn); bar.addView(termBtn)
+        termBtn = iconButton(R.drawable.ic_terminal, tr("Terminal view")) { termMode = !termMode; changesMode = false; renderMessages(force = true); refreshChatHeader() }
+        changesBtn = iconButton(R.drawable.ic_changes, tr("Changes")) { changesMode = !changesMode; termMode = false; diffPath = null; renderMessages(force = true); refreshChatHeader() }
+        bar.addView(stopBtn); bar.addView(changesBtn); bar.addView(termBtn)
         bar.addView(iconButton(R.drawable.ic_more, tr("More")) { chatMenu(it) })
         chatPane.addView(bar)
+        // usage and permission mode: one quiet line under the title
+        modeChip.apply {
+            textSize = 12f; setTextColor(u.onTonal); typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = RippleDrawable(ColorStateList.valueOf(0x22000000), pill(u.tonalBg, 12), null)
+            setPadding(dp(10), dp(3), dp(10), dp(3))
+            setOnClickListener { v -> v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); Agents.request("mode", JSONObject().put("sid", open)) { _, e -> e?.let(::toast) } }
+        }
+        usageRow.addView(modeChip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        usageRow.addView(usageText, LinearLayout.LayoutParams(0, -2, 1f))
+        usageRow.setPadding(dp(if (u.wide) 16 else 52), 0, dp(12), dp(6))
+        usageRow.setOnClickListener { usageSheet() }
+        chatPane.addView(usageRow)
 
         workStrip.addView(ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = true; indeterminateTintList = ColorStateList.valueOf(u.accent)
@@ -423,7 +445,8 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM
             setPadding(dp(10), dp(6), dp(10), dp(10))
         }
-        composer.addView(iconButton(R.drawable.ic_photo, tr("Add photos")) { pickPhotos() })
+        composer.addView(iconButton(R.drawable.ic_slash, tr("Commands")) { commands() }.apply { layoutParams = LinearLayout.LayoutParams(dp(40), dp(44)) })
+        composer.addView(iconButton(R.drawable.ic_photo, tr("Add photos")) { pickPhotos() }.apply { layoutParams = LinearLayout.LayoutParams(dp(40), dp(44)) })
         input = EditText(a).apply {
             hint = tr("Message"); textSize = 16f; minLines = 1; maxLines = 6
             setTextColor(u.text); setHintTextColor(u.text2)
@@ -441,7 +464,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             setImageResource(R.drawable.ic_send); imageTintList = ColorStateList.valueOf(u.onAccent)
             background = RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(u.accent) }, null)
             setPadding(dp(12), dp(12), dp(12), dp(12)); contentDescription = tr("Send")
-            setOnClickListener { send() }
+            setOnClickListener { if (input.text.isBlank() && attached.isEmpty()) dictate() else send() }
         }
         composer.addView(sendBtn, LinearLayout.LayoutParams(dp(46), dp(46)))
         chatPane.addView(composeHint.apply { setPadding(dp(22), dp(2), dp(22), 0) })
@@ -468,8 +491,23 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         workText.text = s.optString("stage").ifEmpty { tr("Working…") }
         u.gone(stopBtn, !(managed && (working || st == "needs_input")))
         u.gone(termBtn, !managed)
+        u.gone(changesBtn, s.optBoolean("sub") || s.optString("cwd").isEmpty())
+        changesBtn.imageTintList = ColorStateList.valueOf(if (changesMode) u.accent else u.text2)
+        val mode = s.optString("mode")
+        modeChip.text = when (mode) {
+            "", "default" -> tr("Ask before edits")
+            "accept edits" -> tr("Auto-accept edits")
+            "plan mode" -> tr("Plan mode")
+            "bypass permissions" -> tr("Bypass permissions")
+            else -> mode
+        }
+        u.gone(modeChip, !(managed && s.optString("agent") == "claude"))
+        usageText.text = usageLine(s.optJSONObject("usage")) + (s.optString("over").ifEmpty { null }?.let { "  ·  ⚠ $it" } ?: "")
+        if (s.has("over")) usageText.setTextColor(u.red) else usageText.setTextColor(u.text2)
+        u.gone(usageRow, modeChip.visibility == View.GONE && usageText.text.isEmpty())
         termBtn.imageTintList = ColorStateList.valueOf(if (termMode) u.accent else u.text2)
-        u.gone(keyStrip.parent as View, !managed)
+        u.gone(keyStrip.parent as View, !managed || changesMode)
+        u.gone(askBox, changesMode)
         val canSend = Agents.canSend(s)
         input.isEnabled = canSend; sendBtn.isEnabled = canSend
         input.hint = tr(when {
@@ -490,8 +528,12 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
     }
 
     private fun refreshSend() {
-        val ok = !sending && (input.text.isNotBlank() || attached.isNotEmpty()) && input.isEnabled
+        val empty = input.text.isBlank() && attached.isEmpty()
+        sendBtn.setImageResource(if (empty) R.drawable.ic_mic else R.drawable.ic_send)
+        sendBtn.contentDescription = tr(if (empty) "Dictate" else "Send")
+        val ok = !sending && input.isEnabled
         sendBtn.alpha = if (ok) 1f else 0.4f
+        sendBtn.backgroundTintList = if (voice.listening) ColorStateList.valueOf(u.red) else null
     }
 
     private fun renderAsk(s: JSONObject) {
@@ -535,6 +577,7 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
 
     private fun renderMessages(force: Boolean = false) {
         if (open == null) { msgList.removeAllViews(); rendered.clear(); return }
+        if (changesMode) { if (force) renderChanges(); return }
         if (termMode) {
             Agents.request("terminal", JSONObject().put("sid", open)) { d, err ->
                 if (!termMode) return@request
@@ -560,7 +603,9 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             })
         } else msgList.findViewWithTag<View>("empty")?.let { msgList.removeView(it) }
         var prevRole = if (rendered.isEmpty()) "" else msgs.getOrNull(rendered.size - 1)?.optString("r") ?: ""
+        val speak = appendOnly && prefs.getBoolean("speak.$open", false)
         for (m in msgs.drop(rendered.size)) {
+            if (speak && m.optString("r") == "assistant") Speech.speak(a, m.optString("t"))
             msgList.addView(bubble(m, prevRole))
             prevRole = m.optString("r")
             rendered += m.optString("id")
@@ -669,6 +714,9 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
         m.menu.add(0, 3, 0, tr(if (s.optString("id") in pins) "Unpin" else "Pin to top"))
         m.menu.add(0, 4, 0, tr("Copy folder path"))
         if (!s.optBoolean("sub")) m.menu.add(0, 5, 0, tr("New chat in this folder"))
+        m.menu.add(0, 7, 0, tr("Read answers aloud")).apply { isCheckable = true; isChecked = prefs.getBoolean("speak.${s.optString("id")}", false) }
+        m.menu.add(0, 8, 0, tr(if (Speech.speaking) "Stop reading" else "Read last answer"))
+        m.menu.add(0, 9, 0, tr("Usage and budget"))
         s.optString("parent").ifEmpty { null }?.let { p -> m.menu.add(0, 6, 0, tr("Open parent chat")) }
         m.setOnMenuItemClickListener {
             when (it.itemId) {
@@ -678,6 +726,9 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
                 4 -> copy(s.optString("cwd"))
                 5 -> newChat(s.optString("cwd"), s.optString("agent"))
                 6 -> openChat(s.optString("parent"))
+                7 -> { val k = "speak.${s.optString("id")}"; val on = !prefs.getBoolean(k, false); prefs.edit().putBoolean(k, on).apply(); if (!on) Speech.stop() }
+                8 -> if (Speech.speaking) Speech.stop() else Agents.messages.lastOrNull { it.optString("r") == "assistant" }?.let { Speech.speak(a, it.optString("t"), flush = true) }
+                9 -> usageSheet()
             }
             true
         }
@@ -829,6 +880,273 @@ class AgentsPage(private val a: Activity, private val u: Ui) {
             }, LinearLayout.LayoutParams(dp(64), dp(64)).apply { setMargins(0, dp(6), dp(8), dp(2)) })
         }
     }
+
+    // ---- voice ----
+
+    private fun dictate() {
+        if (voice.listening) { voice.stop(); refreshSend(); return }
+        val before = input.text.toString()
+        val started = voice.start({ text, _ ->
+            val sep = if (before.isBlank() || before.endsWith(" ")) "" else " "
+            input.setText(before + sep + text); input.setSelection(input.text.length)
+        }) { err -> err?.let(::toast); refreshSend() }
+        if (started) sendBtn.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        refreshSend()
+    }
+
+    // ---- usage ----
+
+    private fun fmtTok(n: Long) = when { n >= 1_000_000 -> String.format("%.1fM", n / 1e6); n >= 1000 -> "${n / 1000}k"; else -> "$n" }
+
+    private fun usageLine(u: JSONObject?): String {
+        if (u == null) return ""
+        val parts = ArrayList<String>()
+        if (u.has("ctxPct")) parts += tr("context {0}%", u.optDouble("ctxPct").toInt())
+        val inT = u.optLong("in") + u.optLong("cached"); val outT = u.optLong("out")
+        if (inT + outT > 0) parts += "${fmtTok(inT)} ↑ ${fmtTok(outT)} ↓"
+        if (u.has("cost")) parts += String.format("$%.2f", u.optDouble("cost"))
+        u.optJSONArray("limits")?.let { l -> for (i in 0 until l.length()) l.optJSONObject(i)?.let { parts += "${it.optString("label")} ${it.optDouble("pct").toInt()}%" } }
+        return parts.joinToString("  ·  ")
+    }
+
+    private fun usageSheet() {
+        val s = current() ?: return
+        val theme = if (u.dark) android.R.style.Theme_DeviceDefault_Dialog_Alert else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
+        val c = android.view.ContextThemeWrapper(a, theme)
+        val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0) }
+        val us = s.optJSONObject("usage") ?: JSONObject()
+        fun row(k: String, v: String) = box.addView(LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, dp(4))
+            addView(u.label(k, 14f, secondary = true), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(u.label(v, 14f, bold = true))
+        })
+        if (us.has("ctxPct")) row(tr("Context used"), "${us.optDouble("ctxPct").toInt()}%" + (us.optLong("ctxSize").takeIf { it > 0 }?.let { " " + tr("of {0}", fmtTok(it)) } ?: ""))
+        row(tr("Input tokens"), fmtTok(us.optLong("in")))
+        if (us.optLong("cached") > 0) row(tr("Read from cache"), fmtTok(us.optLong("cached")))
+        row(tr("Output tokens"), fmtTok(us.optLong("out")))
+        if (us.has("cost")) row(tr("Cost (API prices)"), String.format("$%.2f", us.optDouble("cost")))
+        us.optJSONArray("limits")?.let { l -> for (i in 0 until l.length()) l.optJSONObject(i)?.let {
+            val resets = it.optLong("resets").takeIf { r -> r > 0 }?.let { r -> " · " + tr("resets {0}", java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(if (r > 1e11) r else r * 1000))) } ?: ""
+            row(tr("Plan limit {0}", it.optString("label")), "${it.optDouble("pct").toInt()}%$resets")
+        } }
+        if (!us.has("cost") && s.optString("agent") == "claude" && !Agents.tap)
+            box.addView(u.hint(tr("Cost and plan limits appear after turning on “Cost & plan limits” in Agents → ⋯.")))
+        box.addView(u.title(tr("Budget for this chat")).apply { setPadding(0, dp(16), 0, 0) })
+        val b = us.optJSONObject("budget") ?: JSONObject()
+        val usd = EditText(c).apply { hint = tr("Dollars (e.g. 5)"); inputType = EditorInfo.TYPE_CLASS_NUMBER or EditorInfo.TYPE_NUMBER_FLAG_DECIMAL; setTextColor(u.text); setHintTextColor(u.text2)
+            if (b.has("usd")) setText(b.optDouble("usd").toString()) }
+        val tok = EditText(c).apply { hint = tr("or thousand tokens (e.g. 500)"); inputType = EditorInfo.TYPE_CLASS_NUMBER; setTextColor(u.text); setHintTextColor(u.text2)
+            if (b.has("tokens")) setText((b.optLong("tokens") / 1000).toString()) }
+        val stopIt = android.widget.CheckBox(c).apply { text = tr("Stop the chat when it's reached"); isChecked = b.optBoolean("stop"); setTextColor(u.text) }
+        box.addView(usd); box.addView(tok); box.addView(stopIt)
+        box.addView(u.hint(tr("You get a notification when the budget is reached. Dollars need “Cost & plan limits” (Claude) — Codex counts tokens.")))
+        AlertDialog.Builder(a, theme).setTitle(s.optString("title")).setView(ScrollView(c).apply { addView(box) })
+            .setNegativeButton(tr("Close"), null)
+            .setPositiveButton(tr("Save budget")) { _, _ ->
+                val p = JSONObject().put("sid", s.optString("id")).put("stop", stopIt.isChecked)
+                usd.text.toString().replace(',', '.').toDoubleOrNull()?.let { p.put("usd", it) }
+                tok.text.toString().toLongOrNull()?.let { p.put("tokens", it * 1000) }
+                Agents.request("budget", p) { _, e -> toast(e ?: tr("Budget saved")) }
+            }.show()
+    }
+
+    // ---- commands ----
+
+    private fun commands() {
+        val s = current() ?: return
+        if (!s.optBoolean("managed")) { toast(tr("Commands work in chats running in PhoneCast's terminal.")); return }
+        val claude = s.optString("agent") == "claude"
+        val items = ArrayList<Pair<String, () -> Unit>>()
+        fun cmd(text: String, showTerminal: Boolean = false) {
+            Agents.request("command", JSONObject().put("sid", open).put("text", text), 40_000) { _, e ->
+                if (e != null) toast(e) else if (showTerminal) { termMode = true; changesMode = false; view.postDelayed({ renderMessages(force = true); refreshChatHeader() }, 900) }
+            }
+        }
+        items += tr("Switch model…") to { pickModel(s) }
+        if (claude) {
+            items += tr("Effort…") to {
+                val levels = listOf("low", "medium", "high", "max")
+                themed().setTitle(tr("Effort")).setItems(levels.map { tr(it) }.toTypedArray()) { _, i -> cmd("/effort ${levels[i]}") }.show()
+            }
+            items += tr("Next permission mode (now: {0})", modeChip.text) to { Agents.request("mode", JSONObject().put("sid", open)) { _, e -> e?.let(::toast) } }
+            items += tr("Compact the conversation") to { cmd("/compact") }
+            items += tr("Usage limits (/usage)") to { cmd("/usage", true) }
+            items += tr("Context (/context)") to { cmd("/context", true) }
+            items += tr("Clear the conversation…") to { confirm(tr("Start fresh? The current conversation is kept in the history.")) { cmd("/clear") } }
+        } else {
+            items += tr("Compact the conversation") to { cmd("/compact") }
+            items += tr("Status (/status)") to { cmd("/status", true) }
+            items += tr("Approval mode (/approvals)") to { cmd("/approvals") }
+            items += tr("Show the diff (/diff)") to { cmd("/diff", true) }
+            items += tr("New conversation (/new)") to { confirm(tr("Start a new conversation in this terminal?")) { cmd("/new") } }
+        }
+        items += tr("Ask the agent to commit") to { Agents.send(s.optString("id"), tr("Please commit the current changes with a good commit message.")) { _, e -> e?.let(::toast) } }
+        items += tr("Other command…") to {
+            val c = android.view.ContextThemeWrapper(a, dialogTheme())
+            val f = EditText(c).apply { setText("/"); setSelection(1); setTextColor(u.text); setSingleLine() }
+            themed().setTitle(tr("Command")).setView(FrameLayout(c).apply { setPadding(dp(22), dp(8), dp(22), 0); addView(f) })
+                .setNegativeButton(tr("Cancel"), null).setPositiveButton(tr("Send")) { _, _ -> cmd(f.text.toString().trim(), true) }.show()
+        }
+        themed().setTitle(tr("Commands")).setItems(items.map { it.first }.toTypedArray()) { _, i -> items[i].second() }.show()
+    }
+
+    private fun pickModel(s: JSONObject) {
+        val agent = s.optString("agent")
+        Agents.request("models", timeoutMs = 70_000) { d, err ->
+            if (err != null) { toast(err); return@request }
+            val arr = d?.optJSONArray("agents") ?: return@request
+            val ms = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.firstOrNull { it.optString("id") == agent }?.optJSONArray("models") ?: return@request
+            val list = (0 until ms.length()).mapNotNull { ms.optJSONObject(it) }
+            themed().setTitle(tr("Switch model")).setItems(list.map { it.optString("label") + (it.optString("desc").ifEmpty { null }?.let { d2 -> "\n" + d2 } ?: "") }.toTypedArray()) { _, i ->
+                val id = list[i].optString("id")
+                // Claude takes the model as an argument; Codex opens its own picker (answer it in the chat)
+                val text = if (agent == "claude") "/model $id" else "/model"
+                Agents.request("command", JSONObject().put("sid", open).put("text", text), 40_000) { _, e -> toast(e ?: tr("Model: {0}", list[i].optString("label"))) }
+            }.show()
+        }
+    }
+
+    private fun dialogTheme() = if (u.dark) android.R.style.Theme_DeviceDefault_Dialog_Alert else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
+    private fun themed() = AlertDialog.Builder(a, dialogTheme())
+    private fun confirm(text: String, yes: () -> Unit) = themed().setMessage(text).setNegativeButton(tr("Cancel"), null).setPositiveButton(tr("OK")) { _, _ -> yes() }.show()
+
+    // ---- changes (git) ----
+
+    private fun renderChanges() {
+        val sid = open ?: return
+        msgList.removeAllViews(); rendered.clear()
+        msgList.addView(u.label(tr("Loading…"), 14f, secondary = true).apply { gravity = Gravity.CENTER; setPadding(0, dp(40), 0, 0) })
+        val path = diffPath
+        if (path != null) {
+            Agents.request("diff", JSONObject().put("sid", sid).put("path", path)) { d, err ->
+                if (!changesMode || open != sid || diffPath != path) return@request
+                msgList.removeAllViews()
+                msgList.addView(u.quiet("← " + tr("All changes")) { diffPath = null; renderChanges() }.apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL })
+                msgList.addView(u.label(path, 14f, bold = true).apply { setPadding(dp(4), dp(4), dp(4), dp(8)) })
+                msgList.addView(HorizontalScrollView(a).apply {
+                    addView(TextView(a).apply {
+                        text = diffSpans(d?.optString("v") ?: err ?: ""); typeface = Typeface.MONOSPACE; textSize = 11.5f
+                        setTextColor(u.text); setTextIsSelectable(true); setPadding(dp(6), dp(6), dp(6), dp(6))
+                    })
+                })
+                msgScroll.post { msgScroll.scrollTo(0, 0) }
+            }
+            return
+        }
+        Agents.request("changes", JSONObject().put("sid", sid)) { d, err ->
+            if (!changesMode || open != sid || diffPath != null) return@request
+            msgList.removeAllViews()
+            if (err != null || d == null) { msgList.addView(u.label(err ?: "", 14f, secondary = true)); return@request }
+            if (!d.optBoolean("repo")) { msgList.addView(u.label(tr("This folder isn't a git repository."), 14f, secondary = true).apply { gravity = Gravity.CENTER; setPadding(0, dp(40), 0, 0) }); return@request }
+            val files = d.optJSONArray("files")
+            val n = files?.length() ?: 0
+            val head = listOfNotNull(
+                tr("Branch {0}", d.optString("branch")),
+                if (d.optInt("ahead") > 0) tr("{0} to push", d.optInt("ahead")) else null,
+                if (d.optInt("behind") > 0) tr("{0} to pull", d.optInt("behind")) else null,
+                if (n == 0) tr("no changes") else tr(if (n == 1) "{0} file changed" else "{0} files changed", n),
+            ).joinToString("  ·  ")
+            msgList.addView(u.label(head, 14f, bold = true).apply { setPadding(dp(4), dp(8), dp(4), dp(8)) })
+            var add = 0; var del = 0
+            for (i in 0 until n) {
+                val f = files!!.optJSONObject(i) ?: continue
+                add += f.optInt("add"); del += f.optInt("del")
+                val kind = f.optString("kind")
+                msgList.addView(LinearLayout(a).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(6), dp(9), dp(6), dp(9))
+                    background = RippleDrawable(ColorStateList.valueOf(0x22000000), null, pill(Color.WHITE, 10))
+                    addView(TextView(a).apply {
+                        text = when (kind) { "new", "added" -> "A"; "deleted" -> "D"; "renamed" -> "R"; else -> "M" }
+                        setTextColor(when (kind) { "new", "added" -> u.green; "deleted" -> u.red; else -> u.orange }); typeface = Typeface.MONOSPACE; textSize = 13f
+                    }, LinearLayout.LayoutParams(dp(22), -2))
+                    addView(u.label(f.optString("path"), 13.5f).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.START }, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(TextView(a).apply {
+                        val sb = SpannableStringBuilder()
+                        if (f.optInt("add") > 0) { val st = sb.length; sb.append("+${f.optInt("add")} "); sb.setSpan(android.text.style.ForegroundColorSpan(u.green), st, sb.length, 0) }
+                        if (f.optInt("del") > 0) { val st = sb.length; sb.append("−${f.optInt("del")}"); sb.setSpan(android.text.style.ForegroundColorSpan(u.red), st, sb.length, 0) }
+                        text = sb; textSize = 12.5f; typeface = Typeface.MONOSPACE; setPadding(dp(8), 0, 0, 0)
+                    })
+                    setOnClickListener { diffPath = f.optString("path"); renderChanges() }
+                })
+            }
+            if (n > 0) msgList.addView(u.label(tr("{0} lines added, {1} removed", add, del), 12.5f, secondary = true).apply { setPadding(dp(6), dp(6), 0, dp(4)) })
+            // git actions
+            val acts = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, 0) }
+            if (n > 0) acts.addView(u.primary(tr("Commit…")) { commitDialog() })
+            if (n > 0) acts.addView(u.tonal(tr("Let the agent commit")) { Agents.send(sid, tr("Please commit the current changes with a good commit message.")) { _, e -> toast(e ?: tr("Asked the agent")) } })
+            if (d.optInt("ahead") > 0 || (!d.optBoolean("upstream") && d.optString("remote").isNotEmpty())) acts.addView(u.tonal(tr("Push")) { gitOp("push") })
+            if (d.optInt("behind") > 0) acts.addView(u.tonal(tr("Pull")) { gitOp("pull") })
+            if (d.optBoolean("gh") && d.optString("remote").isNotEmpty() && d.optString("branch") !in setOf("main", "master")) acts.addView(u.tonal(tr("Create pull request")) { prDialog() })
+            msgList.addView(acts)
+        }
+    }
+
+    private fun diffSpans(t: String): CharSequence {
+        val sb = SpannableStringBuilder()
+        val addBg = if (u.dark) 0x3328A745 else 0x2228A745
+        val delBg = if (u.dark) 0x33E5534B else 0x22E5534B
+        t.lines().take(4000).forEach { l ->
+            val st = sb.length
+            sb.append(l).append('\n')
+            val bg = when { l.startsWith("+++") || l.startsWith("---") -> 0; l.startsWith("+") -> addBg; l.startsWith("-") -> delBg; else -> 0 }
+            if (bg != 0) sb.setSpan(BackgroundColorSpan(bg), st, sb.length, 0)
+            if (l.startsWith("@@")) sb.setSpan(android.text.style.ForegroundColorSpan(u.accent), st, sb.length, 0)
+            if (l.startsWith("diff ") || l.startsWith("index ")) sb.setSpan(android.text.style.ForegroundColorSpan(u.text2), st, sb.length, 0)
+        }
+        return sb
+    }
+
+    private fun gitOp(op: String, extra: JSONObject = JSONObject()) {
+        toast(tr("Working…"))
+        Agents.request("git", extra.put("sid", open).put("op", op), 150_000) { d, err ->
+            toast(err ?: d?.optString("v") ?: tr("Done"))
+            if (changesMode) renderChanges()
+        }
+    }
+
+    private fun commitDialog() {
+        val c = android.view.ContextThemeWrapper(a, dialogTheme())
+        val f = EditText(c).apply { hint = tr("Commit message"); minLines = 2; setTextColor(u.text); setHintTextColor(u.text2) }
+        themed().setTitle(tr("Commit all changes")).setView(FrameLayout(c).apply { setPadding(dp(22), dp(8), dp(22), 0); addView(f) })
+            .setNegativeButton(tr("Cancel"), null)
+            .setPositiveButton(tr("Commit")) { _, _ -> gitOp("commit", JSONObject().put("message", f.text.toString())) }.show()
+    }
+
+    private fun prDialog() {
+        val c = android.view.ContextThemeWrapper(a, dialogTheme())
+        val box = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0) }
+        val title = EditText(c).apply { hint = tr("Title (empty = from the commits)"); setTextColor(u.text); setHintTextColor(u.text2) }
+        val draft = android.widget.CheckBox(c).apply { text = tr("Draft"); setTextColor(u.text) }
+        box.addView(title); box.addView(draft)
+        themed().setTitle(tr("Create pull request")).setView(box).setNegativeButton(tr("Cancel"), null)
+            .setPositiveButton(tr("Create")) { _, _ -> gitOp("pr", JSONObject().put("title", title.text.toString()).put("draft", draft.isChecked)) }.show()
+    }
+
+    // ---- settings (list header ⋯) ----
+
+    private fun settingsMenu(anchor: View) {
+        val m = PopupMenu(a, anchor)
+        m.menu.add(0, 1, 0, tr("Live status notification")).apply { isCheckable = true; isChecked = AgentsLive.enabled(a) }
+        m.menu.add(0, 2, 0, tr("Read finished answers aloud")).apply { isCheckable = true; isChecked = prefs.getBoolean("speakDone", false) }
+        m.menu.add(0, 3, 0, tr("Cost & plan limits (Claude statusline)")).apply { isCheckable = true; isChecked = Agents.tap }
+        m.setOnMenuItemClickListener {
+            when (it.itemId) {
+                1 -> { prefs.edit().putBoolean("live", !AgentsLive.enabled(a)).apply(); AgentsLive.cancel(a); AgentsLive.update(a) }
+                2 -> prefs.edit().putBoolean("speakDone", !prefs.getBoolean("speakDone", false)).apply()
+                3 -> {
+                    val on = !Agents.tap
+                    if (on) confirm(tr("PhoneCast wraps your Claude statusline (it keeps working as before) to read cost and plan limits. ~/.claude/settings.json is backed up first.")) {
+                        Agents.request("tap", JSONObject().put("on", true)) { d, e -> e?.let(::toast); Agents.setTap(d?.optBoolean("v") == true) }
+                    } else Agents.request("tap", JSONObject().put("on", false)) { d, e -> e?.let(::toast); Agents.setTap(d?.optBoolean("v") == true) }
+                }
+            }
+            true
+        }
+        m.show()
+    }
+
+    fun onPermission(req: Int, granted: Boolean) { if (req == Voice.REQ_MIC && granted) dictate() }
 
     // ---- drafts (per chat, survive app restarts) ----
 

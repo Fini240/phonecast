@@ -59,6 +59,7 @@ enum AgentScreen {
     static let promptLine = Rx(#"^\s*[❯›][\x{00a0} ]\S"#)
     static let dashed = Rx(#"^\s*[╌┄]{8,}\s*$"#)
     static let codexFooter = Rx(#"(?i)(context \d+% left|\? for shortcuts|tab to queue|for agents)"#)
+    static let modeRe = Rx(#"(?:⏵⏵|⏸|⏵)\s+([a-z][a-z ]+?)\s+on\b"#)
     static let sgr = Rx(#"\x1b\[([0-9;:]*)m"#)
 
     struct Option { let index: Int; let label: String; let number: Int? }
@@ -75,6 +76,7 @@ enum AgentScreen {
         var dialog: Dialog?
         var inputVisible = false
         var draft: String?          // nil = no prompt box seen
+        var mode: String?           // Claude permission mode: "default", "accept edits", "plan mode", "bypass permissions", …
         var status: String {
             if dialog != nil { return "needs_input" }
             if working { return "working" }
@@ -105,6 +107,10 @@ enum AgentScreen {
         var (visible, draft, top) = agent == "claude" ? claudeInput(lines, styledLines) : codexInput(lines, styledLines)
         if st.dialog != nil { visible = false; draft = nil }
         st.inputVisible = visible; st.draft = draft
+        if agent == "claude" && visible {
+            st.mode = "default"
+            for ln in lines.suffix(6) { if let m = modeRe.search(ln) { st.mode = m.g(1); break } }
+        }
         let end = top ?? lines.count
         let region = lines[max(0, end - 14)..<max(0, min(end, lines.count))]
         for ln in region.reversed() {

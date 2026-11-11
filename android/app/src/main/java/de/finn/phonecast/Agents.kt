@@ -36,6 +36,9 @@ object Agents {
     @Volatile var host: Any? = null; private set
     var hostName: String = ""; private set
     var integrationInstalled = true; private set
+    /** The Mac reads Claude's statusline data (cost, context, plan limits). */
+    var tap = false; private set
+    fun setTap(on: Boolean) { tap = on; fire("host") }
 
     var sessions: List<JSONObject> = emptyList(); private set
     val byId = HashMap<String, JSONObject>()
@@ -74,6 +77,7 @@ object Agents {
             "hello" -> {
                 host = client; hostName = name
                 integrationInstalled = o.optBoolean("installed", true)
+                tap = o.optBoolean("tap", false)
                 watched?.let { sid -> request("watch", JSONObject().put("sid", sid)) }
                 fire("host")
             }
@@ -85,6 +89,7 @@ object Agents {
                     sessions = list
                     byId.clear(); list.forEach { byId[it.optString("id")] = it }
                     fire("sessions")
+                    AgentsLive.update(ctx)
                 }
             }
             "msgs" -> main.post {
@@ -105,6 +110,7 @@ object Agents {
         if (host !== client) return
         host = null
         main.post {
+            HubService.instance?.let { AgentsLive.update(it) }
             synchronized(pending) { pending.values.toList().also { pending.clear() } }.forEach { it(null, "The Mac disconnected.") }
             fire("host")
         }
@@ -171,6 +177,9 @@ object Agents {
 
     private fun alert(ctx: Context, o: JSONObject) {
         val sid = o.optString("sid")
+        // hands-free: read finished answers aloud (Agents → ⋯ → Read finished answers aloud)
+        if (o.optString("kind") == "completed" && ctx.getSharedPreferences("agents", Context.MODE_PRIVATE).getBoolean("speakDone", false))
+            Speech.speak(ctx, tr("{0} is done.", o.optString("title")) + " " + o.optString("body"))
         if (sid.isNotEmpty() && sid == foreground) return     // already on screen
         channel(ctx)
         val kind = o.optString("kind")
@@ -179,6 +188,7 @@ object Agents {
             "completed" -> tr("Done")
             "error" -> tr("Error")
             "input" -> tr("Needs you")
+            "budget" -> tr("Budget reached")
             else -> o.optString("agent").replaceFirstChar { it.uppercase() }.ifEmpty { tr("Agent") }
         }
         val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -256,7 +266,8 @@ object Agents {
                 .put("cwd", cwd).put("managed", status != "offline").put("live", status != "offline").put("canResume", status == "offline").apply(extra)
         sessions = listOf(
             s("t:a1", "claude", "Release v0.4 of PhoneCast", "needs_input", 40, "/Users/me/code/phonecast") {
-                put("model", "claude-opus-5-5"); put("stage", "Do you want to run this command?")
+                put("model", "claude-opus-5-5"); put("stage", "Do you want to run this command?"); put("mode", "accept edits")
+                put("usage", JSONObject("{\"ctxPct\":38,\"ctxSize\":1000000,\"in\":412000,\"cached\":8200000,\"out\":96000,\"cost\":4.87,\"limits\":[{\"label\":\"5 h\",\"pct\":43},{\"label\":\"7 days\",\"pct\":54}]}"))
                 put("ask", JSONObject().put("id", "ap_1").put("title", "Do you want to proceed?")
                     .put("detail", "Bash command\n  gh release create v0.4.0 dist/PhoneCast.apk dist/PhoneCast-mac-arm64.zip\n  Publish the release")
                     .put("choices", JSONArray().put(JSONObject().put("id", "1").put("label", "Yes"))
@@ -274,7 +285,12 @@ object Agents {
         )
         byId.clear(); sessions.forEach { byId[it.optString("id")] = it }
         fire("sessions")
+        AgentsLive.update(ctx)
         watched?.let { request("watch", JSONObject().put("sid", it)) }
+        main.postDelayed({
+            try { val v = AgentsWidget.views(ctx).apply(ctx, android.widget.FrameLayout(ctx)); android.util.Log.i("AgentsDemo", "widget ok: " + (v as android.view.ViewGroup).childCount) }
+            catch (e: Exception) { android.util.Log.e("AgentsDemo", "widget failed", e) }
+        }, 2000)
         main.postDelayed({
             alert(ctx, JSONObject().put("sid", "t:a3").put("kind", "completed").put("title", "KVM: fix clipboard sync").put("agent", "codex").put("managed", true)
                 .put("body", "Clipboard sync now debounces at 150 ms and both sides pass the round-trip test."))
@@ -304,6 +320,8 @@ object Agents {
             }
             "models" -> cb(JSONObject("{\"agents\":[{\"id\":\"claude\",\"models\":[{\"id\":\"opus\",\"label\":\"Opus 5.5\"},{\"id\":\"sonnet\",\"label\":\"Sonnet 5.5\"}]},{\"id\":\"codex\",\"models\":[{\"id\":\"gpt-6-luna\",\"label\":\"GPT-6 Luna\"}]}]}"), null)
             "folders" -> cb(JSONObject().put("home", "/Users/me").put("folders", JSONArray(listOf("/Users/me/code/phonecast", "/Users/me/code/bakery-site"))), null)
+            "changes" -> cb(JSONObject("{\"repo\":true,\"branch\":\"release-0.4\",\"ahead\":2,\"behind\":0,\"upstream\":true,\"remote\":\"origin\",\"gh\":true,\"files\":[{\"path\":\"android/app/build.gradle.kts\",\"kind\":\"modified\",\"add\":2,\"del\":2},{\"path\":\"mac/Info.plist\",\"kind\":\"modified\",\"add\":1,\"del\":1},{\"path\":\"CHANGELOG.md\",\"kind\":\"new\",\"add\":14,\"del\":0}]}"), null)
+            "diff" -> cb(JSONObject().put("v", "diff --git a/android/app/build.gradle.kts b/android/app/build.gradle.kts\nindex 1a2b3c4..5d6e7f8 100644\n--- a/android/app/build.gradle.kts\n+++ b/android/app/build.gradle.kts\n@@ -10,8 +10,8 @@ android {\n     defaultConfig {\n         applicationId = \"de.finn.phonecast\"\n         minSdk = 30\n-        versionCode = 12\n-        versionName = \"0.3.2\"\n+        versionCode = 13\n+        versionName = \"0.4.0\"\n     }"), null)
             "terminal" -> cb(JSONObject().put("v", "╭───────────────────────────╮\n│ ✻ Welcome to Claude Code! │\n╰───────────────────────────╯\n\n❯ Bump the version…\n\n● All three builds are done."), null)
             else -> cb(JSONObject(), null)
         }

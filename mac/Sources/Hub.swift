@@ -310,7 +310,7 @@ final class Hub: NSObject, NSMenuDelegate {
                     guard let l, let d = try? JSONSerialization.data(withJSONObject: o) else { return }
                     l.send(HT.agentEvent, d)
                 }
-                AgentHub.shared.emit?(["e": "hello", "installed": AgentShell.installed(), "enabled": AgentHub.shared.enabled])
+                AgentHub.shared.emit?(["e": "hello", "installed": AgentShell.installed(), "enabled": AgentHub.shared.enabled, "tap": AgentUsage.tapInstalled()])
                 AgentHub.shared.phoneConnected = true
                 if let t = ProcessInfo.processInfo.environment["PHONECAST_TEST_SEND"] { self.sendFiles([URL(fileURLWithPath: t)]) }
             }

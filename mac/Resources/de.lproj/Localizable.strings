@@ -211,3 +211,7 @@
 "Claude Code and Codex chats on this Mac. The phone shows the same list in its Agents tab: reply, stop and answer questions from anywhere." = "Claude-Code- und Codex-Chats auf diesem Mac. Das Handy zeigt dieselbe Liste im Tab Agenten: antworten, stoppen und Fragen beantworten, von überall.";
 "Your ~/.zshrc still routes claude/codex through Agent Deck. Switch to PhoneCast: new terminals open in PhoneCast's own managed tmux; sessions already running keep working and stay controllable." = "Deine ~/.zshrc leitet claude/codex noch über Agent Deck. Wechsle zu PhoneCast: neue Terminals öffnen in PhoneCasts eigenem tmux; laufende Sitzungen arbeiten weiter und bleiben steuerbar.";
 "Makes claude and codex in new terminals open in a managed tmux pane, so the phone can reply, stop them and answer their questions. Normal terminal use is unchanged." = "claude und codex öffnen in neuen Terminals in einem verwalteten tmux-Fenster, damit das Handy antworten, sie stoppen und Fragen beantworten kann. Sonst ändert sich am Terminal nichts.";
+"Ask before edits" = "Fragt vor Änderungen";
+"Auto-accept edits" = "Änderungen automatisch";
+"Plan mode" = "Plan-Modus";
+"Bypass permissions" = "Ohne Rückfragen";

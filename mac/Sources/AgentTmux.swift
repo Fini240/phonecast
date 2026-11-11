@@ -217,7 +217,7 @@ final class AgentTmux {
     }
 
     func key(_ id: String, _ k: String) throws {
-        let map = ["up": "Up", "down": "Down", "enter": "Enter", "escape": "Escape", "tab": "Tab", "left": "Left", "right": "Right"]
+        let map = ["up": "Up", "down": "Down", "enter": "Enter", "escape": "Escape", "tab": "Tab", "left": "Left", "right": "Right", "btab": "BTab"]
         guard let t = map[k] else { throw Fail("Unsupported key.") }
         try keys(try pane(id), t)
     }

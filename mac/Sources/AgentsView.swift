@@ -145,6 +145,12 @@ struct AgentChatView: View {
                     Text(s.title).font(.title3.weight(.semibold)).lineLimit(1)
                     Text([s.agent == "codex" ? "Codex" : "Claude Code", s.model, s.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath }].compactMap { $0 }.joined(separator: " · "))
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    if !usageLine.isEmpty || s.mode != nil {
+                        HStack(spacing: 8) {
+                            if let m = s.mode { Text(modeName(m)).font(.caption.weight(.medium)).padding(.horizontal, 8).padding(.vertical, 2).background(Capsule().fill(Color.accentColor.opacity(0.15))) }
+                            Text(usageLine).font(.caption).foregroundStyle(s.overBudget != nil ? Color.red : Color.secondary).lineLimit(1)
+                        }
+                    }
                 }
                 Spacer()
                 if s.managed && (s.status == "working" || s.status == "needs_input") {
@@ -193,6 +199,21 @@ struct AgentChatView: View {
             if let t = s.transcript, let st = fileStamp(t), st.mtime != stamp { load() }
         }
         .alert(error ?? "", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") {} }
+    }
+
+    private var usageLine: String {
+        guard let u = s.usage else { return "" }
+        func tok(_ v: Any?) -> String { let n = (v as? Int) ?? 0; return n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1e6) : n >= 1000 ? "\(n / 1000)k" : "\(n)" }
+        var parts: [String] = []
+        if let c = u["ctxPct"] as? Double { parts.append("context \(Int(c))%") }
+        parts.append("\(tok(((u["in"] as? Int) ?? 0) + ((u["cached"] as? Int) ?? 0))) ↑ \(tok(u["out"])) ↓")
+        if let c = u["cost"] as? Double { parts.append(String(format: "$%.2f", c)) }
+        for l in (u["limits"] as? [[String: Any]]) ?? [] { parts.append("\(l["label"] ?? "") \(Int((l["pct"] as? Double) ?? 0))%") }
+        if let o = s.overBudget { parts.append("⚠ " + o) }
+        return parts.joined(separator: "  ·  ")
+    }
+    private func modeName(_ m: String) -> String {
+        switch m { case "default": tr("Ask before edits"); case "accept edits": tr("Auto-accept edits"); case "plan mode": tr("Plan mode"); case "bypass permissions": tr("Bypass permissions"); default: m }
     }
 
     private var canSend: Bool { !s.isSubagent && (s.managed || s.canResume) }

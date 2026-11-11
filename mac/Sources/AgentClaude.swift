@@ -22,6 +22,9 @@ struct AgentSession {
     var task: String?
     var attached = false              // a Mac terminal shows the pane right now
     var transcript: String?           // Claude transcript / Codex rollout (never sent)
+    var mode: String?                 // Claude permission mode (managed panes)
+    var usage: [String: Any]?         // tokens, cost, context %, plan limits, budget
+    var overBudget: String?
 
     var json: [String: Any] {
         var o: [String: Any] = ["id": id, "agent": agent, "title": title, "status": status, "updatedAt": Int(updatedAt * 1000),
@@ -37,6 +40,9 @@ struct AgentSession {
         if let agentRole { o["role"] = agentRole }
         if let task { o["task"] = task }
         if attached { o["attached"] = true }
+        if let mode { o["mode"] = mode }
+        if let usage { o["usage"] = usage }
+        if let overBudget { o["over"] = overBudget }
         return o
     }
 }

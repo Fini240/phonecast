@@ -796,6 +796,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (dashWeb.onPermission(requestCode, grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)) return
+        if (requestCode == Voice.REQ_MIC) { agents?.onPermission(requestCode, grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED); return }
         if (requestCode == REQ_PERMS) askCapture()
         if (requestCode == REQ_FEATURES) HubService.instance?.features?.startCallWatch()
     }

@@ -204,6 +204,18 @@ Bypass once with `PHONECAST_AGENTS_OFF=1 claude` or `command claude`.
   current turn first (never Ctrl-C), then pastes your text and confirms it was sent.
 - **Finished chats** are reopened on the Mac (`claude --resume` / `codex resume`) when you reply.
 - **Questions** (permissions, trust folder…) show as buttons in the chat and in the notification.
+- **Voice**: the microphone button dictates (when the message field is empty). **Read answers aloud** per chat
+  (⋯ in the chat), or **Read finished answers aloud** for all chats (⋯ in the Agents list) for hands-free use.
+- **Changes**: the ⇅ button shows what the agent changed in the chat's git repository, with a diff per file,
+  and Commit, Push, Pull and Create pull request (needs the GitHub CLI `gh` on the Mac), or "Let the agent commit".
+- **Commands** (the / button): switch model and effort, cycle Claude's permission mode (the chip under the title:
+  ask before edits → auto-accept edits → plan mode), compact, clear, `/usage`, `/context`, or any other command.
+- **Usage**: context used, tokens in and out, and, after turning on **Cost & plan limits** (⋯ in the Agents list),
+  the chat's cost and your 5-hour / 7-day plan limits. PhoneCast wraps your Claude statusline for this; it keeps
+  showing the same thing, and `~/.claude/settings.json` is backed up first. Codex reports its limits by itself.
+  Tap the line for details and a **budget** per chat (dollars or tokens), with a notification or an automatic stop.
+- **Live status**: an ongoing notification while agents work (Android 16 shows it as a live update), an **Agents**
+  Quick Settings tile and a home-screen **widget**.
 - **`pa`** in a terminal lists the running sessions and attaches to one; `pa notify "title" "text"` from
   inside a session sends a phone notification.
 - While an agent works, the Mac doesn't go to sleep (the display still may).
