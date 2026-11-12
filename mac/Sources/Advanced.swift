@@ -69,14 +69,14 @@ enum Advanced {
         case "phone": size = "--new-display"
         default: size = "--new-display=1080x2160/400"
         }
-        start("app:\(pkg)", [size, "--start-app=\(pkg)", "--no-vd-destroy-content", "--no-audio",
+        start("app:\(pkg)", [size, "--start-app=\(pkg)", "--no-vd-destroy-content", "--no-vd-system-decorations", "--no-audio",
                              "--window-title=\(name)", "--display-ime-policy=local"], what: name)
     }
 
     /// The phone's camera in a window. Share that window in a call, or capture it in OBS.
     static func camera(facing: String) {
         stop("camera")
-        start("camera", ["--video-source=camera", "--camera-facing=\(facing)", "--no-audio", "--no-control",
+        start("camera", ["--video-source=camera", "--camera-facing=\(facing)", "--max-size=1920", "--no-audio", "--no-control",
                          "--window-title=\(tr("Phone camera"))"], what: tr("Phone camera"))
     }
 

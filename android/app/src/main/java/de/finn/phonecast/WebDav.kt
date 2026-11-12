@@ -338,5 +338,16 @@ object WebDav {
     }
 
     /** The phone's address on the network [peer] reached it from (Wi-Fi or Tailscale). */
-    fun localAddressFor(peer: Socket?): String? = (peer?.localAddress as? InetAddress)?.hostAddress?.substringBefore('%')
+    fun localAddressFor(peer: Socket?): String? {
+        val local = peer?.localAddress ?: return null
+        // Bonjour links often run over IPv6 link-local (fe80::…%wlan0), which Finder can't mount: use the IPv4
+        // address of the same network interface instead (Wi-Fi or Tailscale)
+        if (local is java.net.Inet6Address) {
+            val v4 = try { java.net.NetworkInterface.getByInetAddress(local)?.inetAddresses?.toList()?.firstOrNull { it is java.net.Inet4Address } } catch (_: Exception) { null }
+            if (v4 != null) return v4.hostAddress
+            val mapped = local.hostAddress?.substringAfterLast("::ffff:", "")
+            if (!mapped.isNullOrEmpty() && mapped.count { it == '.' } == 3) return mapped
+        }
+        return local.hostAddress?.substringBefore('%')
+    }
 }

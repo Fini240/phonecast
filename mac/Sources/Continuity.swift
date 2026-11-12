@@ -71,7 +71,9 @@ enum Continuity {
     static func openInFinder() {
         let hub = Hub.shared
         guard hub.connected else { Banners.shared.info(tr("Phone not connected"), ""); return }
+        NSLog("phone in Finder: asking the phone")
         hub.request("webdav.start", [:]) { r in
+            NSLog("phone in Finder: phone answered \(String(describing: r).prefix(120))")
             DispatchQueue.main.async {
                 switch r {
                 case .failure(let e):
@@ -85,14 +87,20 @@ enum Continuity {
                     // already mounted (same address): just show it
                     if let v = mountedVolume(host: host, port: port) { NSWorkspace.shared.open(v); return }
                     DispatchQueue.global().async {
+                        // osascript, not NSAppleScript: that one only works on the main thread, and mounting takes seconds.
+                        // The script (with the password) goes in on stdin, so it never shows up in `ps`.
                         let script = "mount volume \"http://\(host):\(port)/\" as user name \"\(user)\" with password \"\(pass)\""
-                        var err: NSDictionary?
-                        let res = NSAppleScript(source: script)?.executeAndReturnError(&err)
+                        let p = Process(), inp = Pipe(), out = Pipe()
+                        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); p.arguments = ["-"]
+                        p.standardInput = inp; p.standardOutput = out; p.standardError = out
+                        try? p.run()
+                        inp.fileHandleForWriting.write(Data(script.utf8)); try? inp.fileHandleForWriting.close()
+                        let msg = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                        p.waitUntilExit()
+                        NSLog("phone in Finder: mount http://\(host):\(port)/ -> \(p.terminationStatus) \(msg)")
                         DispatchQueue.main.async {
                             if let v = mountedVolume(host: host, port: port) { NSWorkspace.shared.open(v) }
-                            else {
-                                Banners.shared.info(tr("Couldn't mount the phone"), (err?[NSAppleScript.errorMessage] as? String) ?? res?.stringValue ?? "")
-                            }
+                            else { Banners.shared.info(tr("Couldn't mount the phone"), msg.trimmingCharacters(in: .whitespacesAndNewlines)) }
                         }
                     }
                 }
@@ -101,6 +109,9 @@ enum Continuity {
     }
 
     private static func mountedVolume(host: String, port: Int) -> URL? {
+        // Finder names a WebDAV volume after the host ("/Volumes/192.168.1.20")
+        let byName = URL(fileURLWithPath: "/Volumes/" + host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")))
+        if FileManager.default.fileExists(atPath: byName.path) { return byName }
         let keys: [URLResourceKey] = [.volumeURLForRemountingKey]
         for v in FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
             if let r = try? v.resourceValues(forKeys: Set(keys)).volumeURLForRemounting,
