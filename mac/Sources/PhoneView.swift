@@ -7,6 +7,9 @@ struct Bind: Codable {
     var x: Double; var y: Double; var label: String
     /// Turbo: while the key is held, tap again and again (taps per second), instead of one long press.
     var turbo: Double? = nil
+    /// Macro: one key taps these spots one after another (the bind's own x/y is the first one).
+    var steps: [NPoint]? = nil
+    var stepMs: Double? = nil
 }
 
 /// Key map: which key/mouse button taps where, plus WASD joystick and mouse-look area.
@@ -17,6 +20,8 @@ struct KeyMap: Codable {
     var look: NPoint?
     var lookR: Double = 0.16     // how far a look drag may go before the finger re-centres
     var sens: Double = 1.0
+    /// MOBA mode: holding the right mouse button walks toward the cursor (pushes the joystick that way).
+    var moba: Bool? = nil
 
     static let wasdKeys = ["k13", "k0", "k1", "k2"]
 
@@ -138,6 +143,8 @@ final class PhoneView: NSView {
 
     // edit mode state
     private(set) var pending: NPoint?
+    /// ⌥M in the key map: clicks collect macro spots until a key binds them.
+    private(set) var recording: [NPoint]?
 
     private let joyId: UInt8 = 1, lookId: UInt8 = 9, mouseId: UInt8 = 0, scrollId: UInt8 = 8
 
@@ -345,14 +352,52 @@ final class PhoneView: NSView {
         }
     }
     override func rightMouseDown(with e: NSEvent) {
+        if mode != .edit, map.moba == true, map.joy != nil, !typing { mobaWalk(e, down: true); return }
         switch mode {
         case .normal: link?.send(CT.global, Data([Global.back]))
         case .game: press("m1")
         case .edit: editClick(e, button: 1)
         }
     }
-    override func rightMouseUp(with e: NSEvent) { if mode == .game { release("m1") } }
-    override func rightMouseDragged(with e: NSEvent) { if mode == .game { look(e) } }
+    override func rightMouseUp(with e: NSEvent) {
+        if mobaDown { mobaWalk(e, down: false); return }
+        if mode == .game { release("m1") }
+    }
+    override func rightMouseDragged(with e: NSEvent) {
+        if mobaDown { mobaWalk(e, down: true); return }
+        if mode == .game { look(e) }
+    }
+
+    // MARK: MOBA mode
+
+    private var mobaDown = false
+    /// Right mouse held: the joystick leans from the middle of the screen (where MOBA heroes stand)
+    /// toward the cursor; let go = stop.
+    private func mobaWalk(_ e: NSEvent, down: Bool) {
+        guard let c = map.joy else { return }
+        if !down {
+            if mobaDown { send(Touch.up, joyId, joyTarget ?? c); joyDown = false; mobaDown = false }
+            return
+        }
+        let r = videoRect, p = convert(e.locationInWindow, from: nil)
+        var dx = Double(p.x - r.midX), dy = Double(r.midY - p.y)   // y down
+        let len = hypot(dx, dy)
+        guard len > 4 else { return }
+        dx /= len; dy /= len
+        let (ux, uy) = unturn(dx, dy)
+        let (ox, oy) = offset(ux * map.joyR, uy * map.joyR)
+        let target = NPoint(x: c.x + ox, y: c.y + oy)
+        if !mobaDown {
+            mobaDown = true; joyDown = true; joyTarget = target
+            send(Touch.down, joyId, c)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                guard let self, self.mobaDown, let t = self.joyTarget else { return }
+                self.send(Touch.move, self.joyId, t)
+            }
+            return
+        }
+        if joyTarget != target { joyTarget = target; send(Touch.move, joyId, target) }
+    }
     override func otherMouseDown(with e: NSEvent) {
         switch mode {
         case .normal: link?.send(CT.global, Data([Global.home]))
@@ -531,6 +576,21 @@ final class PhoneView: NSView {
 
     private func press(_ name: String) {
         guard let b = map.binds[name], held[name] == nil, !freeIds.isEmpty else { return }
+        if let steps = b.steps, !steps.isEmpty {
+            // macro: short taps on each spot in turn; holding the key doesn't repeat it
+            let id = freeIds.removeFirst(), gap = max(0.04, (b.stepMs ?? 90) / 1000)
+            held[name] = id
+            for (i, p) in steps.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * gap) { [weak self] in self?.send(Touch.down, id, p) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * gap + min(Self.minPress, gap * 0.6)) { [weak self] in self?.send(Touch.up, id, p) }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(steps.count) * gap + 0.05) { [weak self] in
+                guard let self else { return }
+                if self.held[name] == id { self.held[name] = nil }
+                if !self.freeIds.contains(id) { self.freeIds.append(id) }
+            }
+            return
+        }
         if let rate = b.turbo, rate > 0, turbos[name] == nil {
             // turbo: short taps for as long as the key is held
             let p = NPoint(x: b.x, y: b.y), id = freeIds.removeFirst()
@@ -562,6 +622,7 @@ final class PhoneView: NSView {
             }
             return
         }
+        if map.binds[name]?.steps != nil { return }   // a macro runs to its end by itself
         guard let id = held[name], let b = map.binds[name] else { return }
         let elapsed = CACurrentMediaTime() - (pressedAt[name] ?? 0)
         if elapsed < Self.minPress {
@@ -728,6 +789,9 @@ final class PhoneView: NSView {
 
     private func editClick(_ e: NSEvent, button: Int) {
         let p = norm(e)
+        if recording != nil, button == 0, e.modifierFlags.intersection([.option, .control]).isEmpty {
+            recording!.append(p); overlay.needsDisplay = true; return
+        }
         if e.modifierFlags.contains(.option) { map.joy = p; map.save(); pending = nil }
         else if e.modifierFlags.contains(.control) { map.look = p; map.save(); pending = nil }
         else if pending != nil { bind("m\(button)", label: ["LMB", "RMB", "MMB"][min(button, 2)]) }
@@ -738,7 +802,10 @@ final class PhoneView: NSView {
     private func editKey(_ e: NSEvent) {
         switch e.keyCode {
         case 53:
-            if pending != nil { pending = nil } else { setMode(.normal) }
+            if recording != nil { recording = nil }
+            else if pending != nil { pending = nil } else { setMode(.normal) }
+        case 46 where e.modifierFlags.contains(.option) && pending == nil && recording == nil:
+            recording = []   // ⌥M: start a macro
         case 51, 117:
             deleteNearest(pending ?? overlay.hover)
             pending = nil
@@ -749,6 +816,16 @@ final class PhoneView: NSView {
                 map.binds[k] = b; map.save()
             }
         default:
+            if let rec = recording, !e.isARepeat {
+                // the key that runs the macro
+                if let first = rec.first {
+                    var b = Bind(x: first.x, y: first.y, label: Self.keyName(e.keyCode, e.charactersIgnoringModifiers) + "▸\(rec.count)")
+                    b.steps = rec
+                    map.binds["k\(e.keyCode)"] = b; map.save()
+                }
+                recording = nil
+                break
+            }
             guard let p = pending, !e.isARepeat else { break }
             if Self.wasd[e.keyCode] != nil {
                 // W/A/S/D = the movement joystick: this spot becomes its centre
@@ -853,6 +930,9 @@ final class PhoneView: NSView {
                 NSColor.white.withAlphaComponent(alpha * 0.8).setStroke(); ring.lineWidth = 1.5; ring.stroke()
                 marker(l, "LOOK", .systemOrange, radius: 22)
             }
+            if let rec = o.recording {
+                for (i, n) in rec.enumerated() { marker(n, "\(i + 1)", .systemPink, radius: 13) }
+            }
             if let p = o.pending {
                 let c = o.viewPoint(p)
                 NSColor.systemYellow.setStroke()
@@ -863,8 +943,10 @@ final class PhoneView: NSView {
             }
 
             if editing {
-                let help = o.pending == nil
-                    ? "KEY MAP — click a button on the phone screen, then press the key, mouse button or controller button for it.\nMovement: click the middle of the joystick, then press W or push the left stick (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌥T over a marker: turbo  ·  ⌫ over a marker: delete  ·  Esc: done"
+                let help = o.recording != nil
+                    ? "MACRO — click the spots in the order they should be tapped (\(o.recording!.count) so far), then press the key that runs them.  Esc: cancel"
+                    : o.pending == nil
+                    ? "KEY MAP — click a button on the phone screen, then press the key, mouse button or controller button for it.\nMovement: click the middle of the joystick, then press W or push the left stick (scroll to resize)  ·  ⌃-click: mouse-look area  ·  drag a marker to move it  ·  ⌥T over a marker: turbo  ·  ⌥M: record a macro  ·  ⌫ over a marker: delete  ·  Esc: done"
                     : "Now press a key, a mouse button or a controller button to bind this spot (left stick = joystick, right stick = look area).  Esc: cancel"
                 let para = NSMutableParagraphStyle(); para.alignment = .center
                 let s = NSAttributedString(string: help, attributes: [

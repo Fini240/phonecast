@@ -255,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             item("Mouse-look faster", #selector(sensUp(_:)), "+"),
             item("Mouse-look slower", #selector(sensDown(_:)), "-"),
             .separator(),
+            item("MOBA mode: right mouse walks toward the cursor", #selector(toggleMoba(_:)), ""),
             item("Clear key map", #selector(clearMap(_:)), ""),
             .separator(),
             item("Export key map…", #selector(exportMap(_:)), ""),
@@ -522,6 +523,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     @objc func sensUp(_ s: Any?) { view.map.sens = min(5, view.map.sens * 1.12); view.map.save(); updateTitle() }
     @objc func sensDown(_ s: Any?) { view.map.sens = max(0.1, view.map.sens / 1.12); view.map.save(); updateTitle() }
+    @objc func toggleMoba(_ s: Any?) {
+        view.map.moba = view.map.moba == true ? nil : true
+        view.map.save()
+        (s as? NSMenuItem)?.state = view.map.moba == true ? .on : .off
+        view.setMessage(view.map.moba == true
+            ? (view.map.joy == nil ? "MOBA mode needs a movement joystick: set one with ⌘E (click its middle, press W)" : "MOBA mode on: hold the right mouse button to walk toward the cursor")
+            : "MOBA mode off: right-click is Back again")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.view.setMessage(nil) }
+    }
+
     @objc func rotateLeft(_ s: Any?) { turnView(-1) }
     @objc func rotateRight(_ s: Any?) { turnView(1) }
     /// Shows the picture turned (a tablet app stuck in portrait, a video on its side) without turning the phone.
@@ -865,7 +876,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
-    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop() }
+    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop(); Advanced.stopAll() }
 
     private func connect(_ ep: NWEndpoint, label: String, pin: String) {
         link?.onState = nil; link?.onPacket = nil

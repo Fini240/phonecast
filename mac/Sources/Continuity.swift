@@ -64,6 +64,51 @@ enum Continuity {
         }
     }
 
+    // MARK: phone storage in Finder
+
+    /// Asks the phone to start its WebDAV server (WebDav.kt) and mounts it, so the phone's storage is a
+    /// drive in Finder. The phone stops the server after 30 minutes without use.
+    static func openInFinder() {
+        let hub = Hub.shared
+        guard hub.connected else { Banners.shared.info(tr("Phone not connected"), ""); return }
+        hub.request("webdav.start", [:]) { r in
+            DispatchQueue.main.async {
+                switch r {
+                case .failure(let e):
+                    Banners.shared.info(tr("Couldn't open the phone in Finder"),
+                        e.permission ? tr("On the phone: PhoneCast → Settings → Allow browsing phone files.") : e.message)
+                case .success(let d):
+                    guard let o = d as? [String: Any], let port = o["port"] as? Int, let user = o["user"] as? String, let pass = o["pass"] as? String else { return }
+                    var host = (o["host"] as? String) ?? ""
+                    if host.isEmpty { host = UserDefaults.standard.string(forKey: "lastHubHost") ?? "" }
+                    if host.contains(":") { host = "[\(host)]" }   // IPv6
+                    // already mounted (same address): just show it
+                    if let v = mountedVolume(host: host, port: port) { NSWorkspace.shared.open(v); return }
+                    DispatchQueue.global().async {
+                        let script = "mount volume \"http://\(host):\(port)/\" as user name \"\(user)\" with password \"\(pass)\""
+                        var err: NSDictionary?
+                        let res = NSAppleScript(source: script)?.executeAndReturnError(&err)
+                        DispatchQueue.main.async {
+                            if let v = mountedVolume(host: host, port: port) { NSWorkspace.shared.open(v) }
+                            else {
+                                Banners.shared.info(tr("Couldn't mount the phone"), (err?[NSAppleScript.errorMessage] as? String) ?? res?.stringValue ?? "")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static func mountedVolume(host: String, port: Int) -> URL? {
+        let keys: [URLResourceKey] = [.volumeURLForRemountingKey]
+        for v in FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
+            if let r = try? v.resourceValues(forKeys: Set(keys)).volumeURLForRemounting,
+               r.host == host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")), r.port == port { return v }
+        }
+        return nil
+    }
+
     // MARK: Shortcuts for the phone
 
     private static var cached: [String] = []

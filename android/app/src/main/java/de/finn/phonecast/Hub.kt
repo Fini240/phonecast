@@ -234,6 +234,9 @@ class HubService : Service() {
     fun send(type: Int, payload: ByteArray = ByteArray(0)) { clients.forEach { it.control(type, payload) } }
     fun sendJson(type: Int, o: JSONObject) = send(type, o.toString().toByteArray())
     /** An agents request to the computer that hosts them ([Agents.host]). */
+    /** This phone's own address on the connection [to] came in on (for servers the computer should reach). */
+    fun localAddressFor(to: Any?): String? = (to as? Client)?.socket?.let { WebDav.localAddressFor(it) }
+
     fun agentHostAddress(to: Any?): String? = (to as? Client)?.socket?.inetAddress?.hostAddress?.substringBefore('%')
     fun sendAgent(to: Any, p: ByteArray) { (to as? Client)?.takeIf { it in clients }?.control(HubProto.AGENT_REQ, p) }
     /** To the computer [to] (an [origin]); to every computer when [to] is null. */

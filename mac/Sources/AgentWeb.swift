@@ -153,6 +153,13 @@ final class AgentWeb {
         case ("GET", "/"), ("GET", "/index.html"):
             respond(c, 200, "text/html; charset=utf-8", Data(AgentWebUI.html.utf8),
                     headers: ["Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'"])
+        case ("GET", "/phone"):
+            respond(c, 200, "text/html; charset=utf-8", Data(PhoneWeb.html.utf8),
+                    headers: ["Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"])
+        case ("POST", "/phoneapi"):
+            guard signedIn(headers) else { json(c, ["ok": false, "message": "signin"], status: 401); return }
+            let o = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            PhoneWeb.handle(o) { [weak self] r in self?.json(c, r) }
         case ("GET", "/local"):
             let loop = remote == "::1" || remote.hasPrefix("127.") || remote == "::ffff:127.0.0.1"
             guard loop, query == "t=" + localToken else { respond(c, 403, "text/plain", Data("no".utf8)); return }

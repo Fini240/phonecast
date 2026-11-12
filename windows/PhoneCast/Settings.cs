@@ -43,7 +43,15 @@ static class Settings
 }
 
 public sealed class NPoint { public double x { get; set; } public double y { get; set; } public NPoint() { } public NPoint(double x, double y) { this.x = x; this.y = y; } }
-public sealed class Bind { public double x { get; set; } public double y { get; set; } public string label { get; set; } = ""; }
+public sealed class Bind
+{
+    public double x { get; set; } public double y { get; set; } public string label { get; set; } = "";
+    /// Turbo: taps per second while held (null = a normal press). Same JSON as the Mac's key maps.
+    public double? turbo { get; set; }
+    /// Macro: one key taps these spots one after another.
+    public List<NPoint> steps { get; set; }
+    public double? stepMs { get; set; }
+}
 
 /// Key map: which key/mouse button taps where, plus the WASD joystick and the mouse-look area.
 /// Keys are named "k<SDL scancode>", mouse buttons "m0"/"m1"/"m2".
@@ -72,9 +80,24 @@ public sealed class KeyMap
         return (m, copied);
     }
 
+    static readonly JsonSerializerOptions Quiet = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+
+    /// A key map file to share ("Fortnite.phonecast-keys.json"); the Mac reads and writes the same format.
+    public string Export(string game) => JsonSerializer.Serialize(new JsonObjectFile { game = game, layout = Layout, map = this },
+        new JsonSerializerOptions(Quiet) { WriteIndented = true });
+
+    public static KeyMap Import(string json)
+    {
+        try { var f = JsonSerializer.Deserialize<JsonObjectFile>(json); if (f?.map != null) { f.map.binds ??= new(); return f.map; } } catch { }
+        try { var m = JsonSerializer.Deserialize<KeyMap>(json); if (m != null && (m.binds?.Count > 0 || m.joy != null || m.look != null)) { m.binds ??= new(); return m; } } catch { }
+        return null;
+    }
+
+    public sealed class JsonObjectFile { public int phonecastKeyMap { get; set; } = 1; public string game { get; set; } = ""; public string layout { get; set; } = ""; public KeyMap map { get; set; } }
+
     public void Save()
     {
-        var data = JsonSerializer.Serialize(this);
+        var data = JsonSerializer.Serialize(this, Quiet);
         Settings.Set("keymap", data);
         if (Layout != "") Settings.Set("keymap." + Layout, data);
         Settings.Set("lookSens", sens);

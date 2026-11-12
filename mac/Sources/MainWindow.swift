@@ -240,6 +240,8 @@ struct OverviewView: View {
                         .help("Show on map")
                     Button { Continuity.sendTabToPhone() } label: { Label("Tab to phone", systemImage: "safari") }
                         .help("Tab to phone")
+                    Button { Continuity.openInFinder() } label: { Label("Phone in Finder", systemImage: "externaldrive.connected.to.line.below") }
+                        .help("Phone in Finder")
                 }
                 .labelStyle(.iconOnly)
                 .controlSize(.large)
@@ -777,6 +779,8 @@ struct FilesView: View {
                         }
                     }
                     Spacer()
+                    Button { Continuity.openInFinder() } label: { Label("Open in Finder", systemImage: "externaldrive.connected.to.line.below") }
+                        .help("Mount the phone's storage as a drive in Finder")
                     Button { Hub.shared.choose(dir: store.filePath) { refresh() } } label: { Label("Upload here…", systemImage: "square.and.arrow.up") }
                     Button { refresh() } label: { Image(systemName: "arrow.clockwise") }
                 }
@@ -858,7 +862,7 @@ struct AppsView: View {
                     Button { store.loadApps() } label: { Image(systemName: "arrow.clockwise") }
                 }
                 .padding(12)
-                Text("Click an app to open it on the phone and show it here.").font(.caption).foregroundStyle(.secondary)
+                Text("Click an app to open it on the phone and show it here. Right-click: open it in its own window (needs USB debugging, see Settings → Advanced).").font(.caption).foregroundStyle(.secondary)
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 12)], spacing: 16) {
                         ForEach(filtered) { a in
@@ -870,6 +874,10 @@ struct AppsView: View {
                                 .frame(width: 92)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Open on the phone") { store.openApp(a) }
+                                Button("Open in its own window (USB debugging)") { Advanced.openAppWindow(pkg: a.pkg, name: a.name) }
+                            }
                         }
                     }
                     .padding(16)
@@ -1065,10 +1073,74 @@ struct SettingsView: View {
                 }
                 Text("Missing ones are allowed in the PhoneCast app on the phone.").font(.caption).foregroundStyle(.secondary)
             }
+            AdvancedSection()
         }
         .formStyle(.grouped)
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             axOK = AXIsProcessTrusted(); screenOK = CGPreflightScreenCaptureAccess()
+        }
+    }
+}
+
+/// Settings → Advanced (USB debugging): scrcpy-powered extras (Advanced.swift).
+struct AdvancedSection: View {
+    @State private var status = "…"
+    @State private var shape = Advanced.appShape
+    @State private var pairAddr = ""
+    @State private var pairCode = ""
+    @State private var connectAddr = UserDefaults.standard.string(forKey: "advancedConnect") ?? ""
+    @State private var result = ""
+    @State private var mic = false
+    @State private var screenOff = UserDefaults.standard.bool(forKey: "advancedScreenOff")
+
+    var body: some View {
+        Section("Advanced (USB debugging)") {
+            Text("With USB debugging (or Wireless debugging) on, PhoneCast can do what Android only lets a computer's debugger do: open phone apps in their own Mac windows, show the phone's camera in a window, play the phone's microphone on the Mac, and turn the phone's screen really off while it's mirrored. Uses scrcpy (brew install scrcpy).")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Image(systemName: status.hasPrefix(tr("Ready")) ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(status.hasPrefix(tr("Ready")) ? .green : .orange)
+                Text(status)
+                Spacer()
+                Button("Check again") { refresh() }
+            }
+            Picker("App windows", selection: $shape) {
+                Text("Phone shape (tall)").tag("tall")
+                Text("Tablet shape (wide)").tag("wide")
+                Text("Same as the phone's screen").tag("phone")
+            }
+            .onChange(of: shape) { _, v in Advanced.appShape = v }
+            Text("Apps: right-click an app → “Open in its own window”. Closing the window puts the app back on the phone.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Phone camera (back)") { Advanced.camera(facing: "back") }
+                Button("Phone camera (front)") { Advanced.camera(facing: "front") }
+            }
+            Toggle("Play the phone's microphone on the Mac", isOn: Binding(get: { mic }, set: { mic = $0; Advanced.microphone($0) }))
+            Toggle("Turn the phone's screen off while it's mirrored", isOn: Binding(get: { screenOff }, set: { screenOff = $0; Advanced.screenOff($0) }))
+            DisclosureGroup("Wireless debugging (no cable)") {
+                Text("On the phone: Developer options → Wireless debugging → Pair device with pairing code. Enter the address and code shown there.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField("192.168.1.20:37099", text: $pairAddr)
+                    TextField("Pairing code", text: $pairCode).frame(width: 110)
+                    Button("Pair") { Advanced.pair(pairAddr, code: pairCode) { result = $0; refresh() } }
+                }
+                HStack {
+                    TextField("Address under Wireless debugging (IP:port)", text: $connectAddr)
+                    Button("Connect") {
+                        UserDefaults.standard.set(connectAddr, forKey: "advancedConnect")
+                        Advanced.connect(connectAddr) { result = $0; refresh() }
+                    }
+                }
+                if !result.isEmpty { Text(result).font(.caption.monospaced()).foregroundStyle(.secondary) }
+            }
+        }
+        .onAppear { refresh(); mic = Advanced.running("mic") }
+    }
+
+    private func refresh() {
+        DispatchQueue.global().async {
+            let s = Advanced.status()
+            DispatchQueue.main.async { status = s }
         }
     }
 }

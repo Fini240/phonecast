@@ -157,6 +157,14 @@ sealed unsafe partial class App
                     }
                     break;
                 }
+            case HubLink.Resp:
+                {
+                    if (JsonNode.Parse(Encoding.UTF8.GetString(p)) is not JsonObject o) break;
+                    Action<JsonObject> done = null;
+                    lock (waiting) { int id = (int?)o["id"] ?? -1; if (waiting.Remove(id, out var d)) done = d; }
+                    done?.Invoke(o);
+                    break;
+                }
             case HubLink.Event:
                 {
                     if (JsonNode.Parse(Encoding.UTF8.GetString(p)) is not JsonObject o) break;
@@ -212,6 +220,53 @@ sealed unsafe partial class App
     // ---------- things this PC sends ----------
 
     void HubRequest(string m, JsonObject p) => hub?.SendJson(HubLink.Req, new JsonObject { ["id"] = nextReq++, ["m"] = m, ["p"] = p });
+
+    /// Answers the phone sends back for requests that wait for one (RESP {id, ok, data | message}).
+    readonly Dictionary<int, Action<JsonObject>> waiting = new();
+
+    void HubRequest(string m, JsonObject p, Action<JsonObject> done)
+    {
+        int id = nextReq++;
+        lock (waiting) waiting[id] = done;
+        hub?.SendJson(HubLink.Req, new JsonObject { ["id"] = id, ["m"] = m, ["p"] = p });
+    }
+
+    /// "Show the phone on a map": its position in the browser (OpenStreetMap).
+    void LocatePhone()
+    {
+        if (!HubNeeded()) return;
+        Balloon("Locating the phone…", "This can take up to 20 seconds.", null);
+        HubRequest("phone.locate", new JsonObject(), r =>
+        {
+            if ((bool?)r["ok"] != true) { Balloon("Couldn't locate the phone", (string)r["error"] == "permission"
+                ? "On the phone: PhoneCast → Settings → Allow location (Allow all the time)." : (string)r["message"] ?? "", null); return; }
+            var d = r["data"] as JsonObject;
+            double lat = (double?)d?["lat"] ?? 0, lon = (double?)d?["lon"] ?? 0;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var url = $"https://www.openstreetmap.org/?mlat={lat.ToString(inv)}&mlon={lon.ToString(inv)}#map=17/{lat.ToString(inv)}/{lon.ToString(inv)}";
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+        });
+    }
+
+    void ExportMap()
+    {
+        if (mode == Mode.Game) SetMode(Mode.Normal);
+        using var d = new SaveFileDialog { FileName = $"Key map {KeyMap.Layout}.phonecast-keys.json", Filter = "PhoneCast key map|*.json" };
+        if (d.ShowDialog() != DialogResult.OK) return;
+        var game = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(d.FileName));
+        File.WriteAllText(d.FileName, map.Export(game));
+    }
+
+    void ImportMap()
+    {
+        if (mode == Mode.Game) SetMode(Mode.Normal);
+        using var d = new OpenFileDialog { Filter = "PhoneCast key map|*.json" };
+        if (d.ShowDialog() != DialogResult.OK) return;
+        var m = KeyMap.Import(File.ReadAllText(d.FileName));
+        if (m == null) { MessageBox.Show("That file isn't a PhoneCast key map.", "PhoneCast"); return; }
+        m.sens = map.sens;   // keep your own mouse speed
+        map = m; map.Save(); overlayDirty = true;
+    }
 
     bool HubNeeded()
     {

@@ -504,8 +504,18 @@ sealed unsafe partial class App
         }
         if (editing)
         {
-            string help = pending == null
-                ? "KEY MAP — click a button on the phone screen, then press the key or mouse button for it.\nMovement: click the middle of the joystick, then press W (scroll to resize) · Alt-click: joystick · Ctrl-click: mouse-look area · drag a marker to move it · Backspace over a marker: delete · Esc: done"
+            if (recording != null)
+                foreach (var (rp, ri) in recording.Select((rp, ri) => (rp, ri)))
+                {
+                    var c = ViewPoint(rp);
+                    using var rb = new SolidBrush(Color.FromArgb(200, 230, 60, 140));
+                    g.FillEllipse(rb, c.X - 12 * s, c.Y - 12 * s, 24 * s, 24 * s);
+                    g.DrawString((ri + 1).ToString(), new Font("Segoe UI", 11f * s, FontStyle.Bold, GraphicsUnit.Pixel), Brushes.White, new RectangleF(c.X - 12 * s, c.Y - 9 * s, 24 * s, 20 * s), center);
+                }
+            string help = recording != null
+                ? $"MACRO — click the spots in the order they should be tapped ({recording.Count} so far), then press the key that runs them.  Esc: cancel"
+                : pending == null
+                ? "KEY MAP — click a button on the phone screen, then press the key or mouse button for it.\nMovement: click the middle of the joystick, then press W (scroll to resize) · Alt-click: joystick · Ctrl-click: mouse-look area · drag a marker to move it · Shift+T over a marker: turbo · Shift+M: record a macro · Backspace over a marker: delete · Esc: done"
                 : "Now press a key, or click a mouse button, to bind this spot.  Esc: cancel";
             using var hf = new Font("Segoe UI", 12f * s, FontStyle.Regular, GraphicsUnit.Pixel);
             var box = new RectangleF(12 * s, 12 * s, outW - 24 * s, 54 * s);

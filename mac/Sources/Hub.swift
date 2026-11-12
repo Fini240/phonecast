@@ -799,6 +799,15 @@ final class Hub: NSObject, NSMenuDelegate {
         _ = act(store.ringing ? "Stop ringing phone" : "Ring phone (find it)", #selector(ringPhone(_:)))
         _ = act("Show phone on a map", #selector(locatePhone(_:)))
         _ = act("Open this browser tab on phone", #selector(tabToPhone(_:)))
+        _ = act("Open phone in Finder", #selector(phoneInFinder(_:)))
+        let adv = NSMenu()
+        for (t, sel, job) in [("Phone camera (back)", #selector(advCamBack(_:)), "camera"), ("Phone camera (front)", #selector(advCamFront(_:)), ""),
+                              ("Phone microphone on the Mac", #selector(advMic(_:)), "mic"), ("Phone screen off while mirrored", #selector(advScreenOff(_:)), "screenoff")] {
+            let i = NSMenuItem(title: tr(t), action: sel, keyEquivalent: ""); i.target = self
+            if !job.isEmpty, Advanced.running(job) { i.state = .on }
+            adv.addItem(i)
+        }
+        let advItem = NSMenuItem(title: tr("Advanced (USB debugging)"), action: nil, keyEquivalent: ""); advItem.submenu = adv; m.addItem(advItem)
         m.addItem(.separator())
         for r in store.devices { info(r.name + "   " + (r.ms.map { "● \(Int($0.rounded())) ms" } ?? "○ offline")) }
         m.addItem(.separator())
@@ -822,6 +831,11 @@ final class Hub: NSObject, NSMenuDelegate {
     @objc func ringPhone(_ s: Any?) { ring(!store.ringing) }
     @objc func locatePhone(_ s: Any?) { Continuity.locatePhone() }
     @objc func tabToPhone(_ s: Any?) { Continuity.sendTabToPhone() }
+    @objc func phoneInFinder(_ s: Any?) { Continuity.openInFinder() }
+    @objc func advCamBack(_ s: Any?) { Advanced.running("camera") ? Advanced.stop("camera") : Advanced.camera(facing: "back") }
+    @objc func advCamFront(_ s: Any?) { Advanced.camera(facing: "front") }
+    @objc func advMic(_ s: Any?) { Advanced.microphone(!Advanced.running("mic")) }
+    @objc func advScreenOff(_ s: Any?) { Advanced.screenOff(!Advanced.running("screenoff")) }
     @objc func togglePhoneDnd(_ s: Any?) {
         let on = !store.phoneDnd
         store.phoneStatus["dnd"] = on            // feels instant; the phone's status confirms

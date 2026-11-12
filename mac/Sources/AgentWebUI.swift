@@ -131,7 +131,7 @@ dialog input,dialog select,dialog textarea{width:100%;padding:9px 12px;border-ra
 </div>
 <div id="app" hidden>
   <section id="side">
-    <div class="head"><h1>Agents</h1><button class="icon" id="settings" title="Settings">⋯</button><button class="icon filled" id="new" title="New chat">＋</button></div>
+    <div class="head"><h1>Agents</h1><a class="icon" href="/phone" title="Phone: notifications and messages" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center">☎</a><button class="icon" id="settings" title="Settings">⋯</button><button class="icon filled" id="new" title="New chat">＋</button></div>
     <input class="search" id="q" placeholder="Search chats and folders">
     <div class="chips" id="chips"></div>
     <div id="list"></div>

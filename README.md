@@ -16,6 +16,10 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Mac Shortcuts on the phone**: your Shortcuts from the Mac's Shortcuts app as buttons on the phone's Mac tab.
 - **Drop an app on the mirror**: an `.apk` dropped on the phone's picture opens Android's installer.
 - **Dim while shown**: the phone goes dark while the Mac shows it (battery, heat, privacy); the Mac's picture stays bright.
+- **Phone in Finder**: the phone's storage as a drive in Finder (Files → Open in Finder, or the menu bar).
+- **Phone in a browser**: notifications and text messages at `http://<Mac>:27190/phone` (iPad, school laptop).
+- **Advanced (USB debugging)**: phone apps in their own Mac windows, the phone's camera in a window, the phone's
+  microphone on the Mac, and the phone's screen really off while mirrored (uses scrcpy, see below).
 - **Game controllers**: an Xbox, PlayStation or Switch Pro controller on the Mac plays phone games.
 - **New screenshots** on the phone land on the Mac (Downloads and clipboard) by themselves.
 - **Record the mirror** to a video (⇧⌘R or the record button under the mirror), saved in Movies/PhoneCast.
@@ -142,9 +146,11 @@ right-click or Esc for Back, middle-click for Home. Typing goes into the focused
    - Movement: click the middle of the joystick, then press W (scroll to resize).
    - Mouse look: ⌃-click the area you drag to look around.
    - ⌫ over a marker deletes it. Esc finishes.
+   - **⌥M** records a **macro**: click the spots in order, then press the key that taps them one after another.
    - **⌥T** over a marker makes it a **turbo** key: while held it taps 8 times a second, ⌥T again 15, then off.
    - **Game → Export / Import key map** saves the map as a `.phonecast-keys.json` file to share or keep; an
      imported map keeps your own mouse speed. Positions are fractions of the screen, so check them with ⌘E.
+   - **Game → MOBA mode**: holding the right mouse button walks toward the cursor (needs a movement joystick).
 2. **⌘G** starts mouse aiming, which captures the mouse. Esc leaves it. **⌘+ / ⌘−** change the speed.
 3. For aiming without mouse acceleration, allow PhoneCast under System Settings → Privacy & Security →
    **Input Monitoring**, then reopen the app. Without it, PhoneCast falls back to accelerated mouse movement.
@@ -173,6 +179,33 @@ same menu undoes the change. Without the Mac, the phone app's **Screen shape** s
 **Back to normal shape** (for when you unplug) and **Fit the Mac again**. To remove the shape change from a computer: `adb shell wm size reset`.
 
 **Sharpness:** the same menu can render the phone at more pixels than its screen has (Sharp = 2560 px wide, Sharpest = 3200 px), so the picture isn't blurry on a Retina display. Android allows up to 2× the panel. More pixels means more GPU work and heat; games may still draw their 3D world at a lower resolution (Fortnite: *3D Resolution* in its graphics settings).
+
+## Phone in Finder
+
+Files → **Open in Finder** (or the menu bar) mounts the phone's storage as a drive: copy, rename, delete and open
+files as on any disk. The phone runs a small WebDAV server only while a computer uses it (it stops after 30 minutes
+without use) with a new random password each time; it needs "All files access". The files go unencrypted over
+your network, so use it at home or over Tailscale. Finder's hidden `._` files never land on the phone.
+
+## Phone in a browser
+
+`http://<the Mac's address>:27190/phone` (the ☎ button on the Agents page) shows the phone's notifications (reply,
+open on the phone, dismiss) and text messages (read, answer, start new ones) on any device, with the same sign-in
+code as the Agents page.
+
+## Advanced (USB debugging)
+
+Some things Android only allows a computer's debugger: PhoneCast does them with
+[scrcpy](https://github.com/Genymobile/scrcpy) (`brew install scrcpy`) when USB debugging or Wireless debugging is on.
+Settings → **Advanced** shows whether it's ready and pairs Wireless debugging without a cable.
+
+- **App windows**: Apps → right-click an app → *Open in its own window*. Each app gets its own virtual screen
+  (tall, wide or the phone's own shape, in Settings); closing the window puts the app back on the phone.
+- **Phone camera** (back or front) in a window: share that window in a call or capture it in OBS.
+- **Phone microphone on the Mac**: played on the Mac's speakers (route it through BlackHole to record it).
+- **Screen off while mirrored**: the phone's panel goes dark while PhoneCast keeps showing it.
+
+The normal features never need USB debugging.
 
 ## PC menu (streaming a dual-boot PC)
 

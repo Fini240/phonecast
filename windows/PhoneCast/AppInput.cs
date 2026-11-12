@@ -97,7 +97,8 @@ sealed unsafe partial class App
     void ReleaseAll()
     {
         link?.Touch(TouchA.CancelAll, 0, 0, 0);
-        held.Clear(); freeIds.Clear(); freeIds.AddRange(new byte[] { 2, 3, 4, 5, 6, 7, 8 });
+        held.Clear(); freeIds.Clear(); freeIds.AddRange(new byte[] { 2, 3, 4, 5, 6, 7, 8 }); turbosOn.Clear();
+        if (pinching) { pinching = false; Send(TouchA.Up, PinchA, pinchL); Send(TouchA.Up, PinchB, pinchR); }
         joyKeys.Clear(); joyDown = false;
         lookDown = false; lookFlushPending = false;
         scrolling = false; leftDown = false;
@@ -149,8 +150,30 @@ sealed unsafe partial class App
         }
     }
 
+    // Ctrl + wheel (a touchpad pinch arrives as this on Windows) = two fingers spreading on the phone
+    bool pinching; NPoint pinchC, pinchL, pinchR; double pinchSpread, pinchLastAt;
+    const byte PinchA = 11, PinchB = 12;
+
+    void Pinch(float dy, int mx, int my)
+    {
+        NPoint L() => new(Math.Clamp(pinchC.x - pinchSpread * Math.Min(videoW, videoH) / videoW, 0, 1), pinchC.y);
+        NPoint R() => new(Math.Clamp(pinchC.x + pinchSpread * Math.Min(videoW, videoH) / videoW, 0, 1), pinchC.y);
+        if (!pinching)
+        {
+            pinching = true; pinchC = Norm(mx, my); pinchSpread = 0.08;
+            pinchL = L(); pinchR = R();
+            Send(TouchA.Down, PinchA, pinchL); Send(TouchA.Down, PinchB, pinchR);
+        }
+        pinchSpread = Math.Clamp(pinchSpread * Math.Pow(1.12, dy), 0.02, 0.45);
+        pinchL = L(); pinchR = R();
+        Send(TouchA.Move, PinchA, pinchL); Send(TouchA.Move, PinchB, pinchR);
+        pinchLastAt = Now;
+        After(0.25, () => { if (pinching && Now - pinchLastAt >= 0.24) { pinching = false; Send(TouchA.Up, PinchA, pinchL); Send(TouchA.Up, PinchB, pinchR); } });
+    }
+
     void Wheel(float dx, float dy, int mx, int my)
     {
+        if (mode == Mode.Normal && (Sdl.SDL_GetModState() & Sdl.KMOD_CTRL) != 0) { Pinch(dy, mx, my); return; }
         if (mode == Mode.Edit) { map.joyR = Math.Clamp(map.joyR + dy * 0.01, 0.04, 0.3); map.Save(); overlayDirty = true; return; }
         if (mode != Mode.Normal) return;
         // a real finger drag that follows the wheel / touchpad; the phone does its own fling
@@ -273,9 +296,43 @@ sealed unsafe partial class App
         if (held.ContainsKey("k" + sc)) Release("k" + sc);
     }
 
+    readonly HashSet<string> turbosOn = new();
+
     void Press(string name)
     {
         if (!map.binds.TryGetValue(name, out var b) || held.ContainsKey(name) || freeIds.Count == 0) return;
+        if (b.steps is { Count: > 0 } steps)
+        {
+            // macro: a short tap on each spot in turn; holding the key doesn't repeat it
+            byte mid = freeIds[0]; freeIds.RemoveAt(0);
+            held[name] = mid;
+            double gap = Math.Max(0.04, (b.stepMs ?? 90) / 1000);
+            for (int i = 0; i < steps.Count; i++)
+            {
+                var p = steps[i];
+                After(i * gap, () => Send(TouchA.Down, mid, p));
+                After(i * gap + Math.Min(MinPress, gap * 0.6), () => Send(TouchA.Up, mid, p));
+            }
+            After(steps.Count * gap + 0.05, () => { if (held.TryGetValue(name, out var h) && h == mid) held.Remove(name); if (!freeIds.Contains(mid)) freeIds.Add(mid); });
+            return;
+        }
+        if (b.turbo is double rate && rate > 0)
+        {
+            // turbo: short taps for as long as the key is held
+            byte tid = freeIds[0]; freeIds.RemoveAt(0);
+            held[name] = tid; turbosOn.Add(name);
+            var tp = new NPoint(b.x, b.y);
+            double every = 1 / Math.Min(rate, 15);
+            void Tap()
+            {
+                if (!turbosOn.Contains(name)) return;
+                Send(TouchA.Down, tid, tp);
+                After(Math.Min(MinPress, 0.4 / rate), () => Send(TouchA.Up, tid, tp));
+                After(every, Tap);
+            }
+            Tap();
+            return;
+        }
         byte id = freeIds[0]; freeIds.RemoveAt(0);
         held[name] = id;
         pressedAt[name] = Now;
@@ -284,6 +341,12 @@ sealed unsafe partial class App
 
     void Release(string name)
     {
+        if (turbosOn.Remove(name))
+        {
+            if (held.Remove(name, out var t)) After(0.1, () => { if (!freeIds.Contains(t)) freeIds.Add(t); });
+            return;
+        }
+        if (map.binds.TryGetValue(name, out var mb) && mb.steps != null) return;   // a macro runs to its end by itself
         if (!held.TryGetValue(name, out var id) || !map.binds.TryGetValue(name, out var b)) return;
         double elapsed = Now - pressedAt.GetValueOrDefault(name);
         if (elapsed < MinPress) { After(MinPress - elapsed, () => Release(name)); return; } // 30-fps games miss shorter taps
@@ -364,8 +427,12 @@ sealed unsafe partial class App
 
     // ---------- key map editing ----------
 
+    /// Shift+M in the key map: clicks collect macro spots until a key binds them.
+    List<NPoint> recording;
+
     void EditClick(NPoint p, int button, ushort mods)
     {
+        if (recording != null && button == 1 && (mods & (Sdl.KMOD_ALT | Sdl.KMOD_CTRL)) == 0) { recording.Add(p); overlayDirty = true; return; }
         if ((mods & Sdl.KMOD_ALT) != 0) { map.joy = p; map.Save(); pending = null; }
         else if ((mods & Sdl.KMOD_CTRL) != 0) { map.look = p; map.Save(); pending = null; }
         else if (pending != null) { var n = ButtonName(button); if (n != null) Bind(n, button switch { 1 => "LMB", 3 => "RMB", 2 => "MMB", 4 => "M4", _ => "M5" }); }
@@ -378,9 +445,29 @@ sealed unsafe partial class App
         if (ctrl && !repeat && pending == null && (sc == 8 || sc == 14 || sc == 9 || sc == 18) && Shortcut(sc, shift)) return;
         switch (sc)
         {
-            case 41: if (pending != null) pending = null; else SetMode(Mode.Normal); break;
+            case 41: if (recording != null) recording = null; else if (pending != null) pending = null; else SetMode(Mode.Normal); break;
+            case 16 when shift && pending == null && recording == null: recording = new(); break;                 // Shift+M: record a macro
+            case 23 when shift && pending == null && recording == null:                                           // Shift+T: turbo off → 8 → 15
+                if (hover != null && NearestMarker(hover) is string tk && map.binds.TryGetValue(tk, out var tb))
+                {
+                    tb.turbo = tb.turbo == null ? 8 : tb.turbo < 15 ? 15 : null;
+                    tb.label = tb.label.Split('⚡')[0] + (tb.turbo is double r ? $"⚡{r:0}" : "");
+                    map.Save();
+                }
+                break;
             case 42: case 76: DeleteNearest(pending ?? hover); pending = null; break;
             default:
+                if (recording != null && !repeat)
+                {
+                    if (recording.Count > 0)
+                    {
+                        sc = Canonical.GetValueOrDefault(sc, sc);
+                        map.binds["k" + sc] = new Bind { x = recording[0].x, y = recording[0].y, label = KeyName(sc) + "▸" + recording.Count, steps = recording };
+                        map.Save();
+                    }
+                    recording = null;
+                    break;
+                }
                 if (pending == null || repeat) break;
                 if (Wasd.ContainsKey(sc))
                 {

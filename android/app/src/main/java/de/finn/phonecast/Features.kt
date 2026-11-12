@@ -79,6 +79,14 @@ class Features(private val ctx: Context, private val hub: HubService) {
         "media.cmd" -> hub.extras.mediaCmd(p.getString("a"))
         "phone.ring" -> hub.extras.ring(p.optBoolean("on", true))
         "phone.locate" -> locate()
+        "webdav.start" -> {
+            if (!Environment.isExternalStorageManager()) throw SecurityException("files")
+            WebDav.bind(ctx)
+            val pass = WebDav.start(root)
+            JSONObject().put("port", WebDav.PORT).put("user", WebDav.USER).put("pass", pass)
+                .put("host", hub.localAddressFor(hub.origin.get()) ?: "")
+        }
+        "webdav.stop" -> { WebDav.stop(); true }
         "url.open" -> openUrl(p.getString("url"))
         "dnd.set" -> {
             // the notification listener may switch Do Not Disturb without any extra permission

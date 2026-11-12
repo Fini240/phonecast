@@ -539,7 +539,8 @@ sealed unsafe partial class App
         ShapeWhole = 80, Shape169, ShapeNormal, Sharp0 = 90, Sharp2560, Sharp3200,
         InstallUsbDk = 100, Help = 110, Pair = 111, CheckUpdates = 112,
         DecCpu = 130, DecGpu,
-        LinkClip = 140, LinkFiles, LinkRing, LinkPlay, LinkNext, LinkPrev,
+        LinkClip = 140, LinkFiles, LinkRing, LinkPlay, LinkNext, LinkPrev, LinkLocate,
+        ExportMap = 150, ImportMap,
         QuickSettings = 120, LockPhone, Screenshot, VolUp, VolDown, MutePhone, PowerMenu,
     }
 
@@ -565,7 +566,7 @@ sealed unsafe partial class App
         Sub("&Game",
             (M.EditMap, "Edit key map\tCtrl+E"), (M.Game, "Mouse aiming (game mode)\tCtrl+G"), (M.Typing, "Keys type text (instead of buttons)\tCtrl+T"),
             (M.Markers, "Show key markers in game mode\tCtrl+J"), (0, "-"), (M.SensUp, "Mouse-look faster\tCtrl+="), (M.SensDown, "Mouse-look slower\tCtrl+-"),
-            (0, "-"), (M.ClearMap, "Clear key map"));
+            (0, "-"), (M.ExportMap, "Export key map…"), (M.ImportMap, "Import key map…"), (M.ClearMap, "Clear key map"));
         Sub("&View",
             (M.Full, "Full screen\tF11"), (M.Fit, "Fit window to phone\tCtrl+0"), (0, "-"),
             (M.ScaleFit, "Fit — whole picture, black bars\tCtrl+1"), (M.ScaleFill, "Fill — no bars, crops the edges\tCtrl+2"), (M.ScaleStretch, "Stretch — no bars, distorts\tCtrl+3"),
@@ -584,7 +585,7 @@ sealed unsafe partial class App
         Sub("&Link",
             (M.LinkClip, "Send clipboard to the phone\tCtrl+Shift+C"), (M.LinkFiles, "Send files to the phone… (or drop them on the window)"), (0, "-"),
             (M.LinkPlay, "Play / pause the phone's music"), (M.LinkNext, "Next track"), (M.LinkPrev, "Previous track"), (0, "-"),
-            (M.LinkRing, "Ring the phone"));
+            (M.LinkRing, "Ring the phone"), (M.LinkLocate, "Show the phone on a map"));
         Sub("&Help", (M.Help, "Keyboard shortcuts\tCtrl+I"), (M.CheckUpdates, "Check for updates…"));
         Win32.SetMenu(hwnd, menuBar);
         RefreshMenu();
@@ -633,6 +634,9 @@ sealed unsafe partial class App
             case M.LinkClip: SendClipboard(); break;
             case M.LinkFiles: SendFilesDialog(); break;
             case M.LinkRing: RingPhone(); break;
+            case M.LinkLocate: LocatePhone(); break;
+            case M.ExportMap: ExportMap(); break;
+            case M.ImportMap: ImportMap(); break;
             case M.LinkPlay: MediaCmd("toggle"); break;
             case M.LinkNext: MediaCmd("next"); break;
             case M.LinkPrev: MediaCmd("prev"); break;
