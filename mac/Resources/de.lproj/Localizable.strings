@@ -6,7 +6,7 @@
 
 /* banners */
 "From %@: %@" = "Von %1$@: %2$@";
-"Saved in Downloads/PhoneCast" = "Gespeichert in Downloads/PhoneCast";
+"Saved in Downloads" = "Gespeichert in Downloads";
 "Copied from %@" = "Von %@ kopiert";
 "Link from %@" = "Link von %@";
 "Reply…" = "Antworten…"; "Send" = "Senden"; "Reply" = "Antworten"; "Open on phone" = "Auf dem Handy öffnen"; "Clear" = "Entfernen";
@@ -91,7 +91,7 @@
 "The folder and everything in it is deleted. This can't be undone." = "Der Ordner und alles darin wird gelöscht. Das lässt sich nicht rückgängig machen.";
 "This can't be undone." = "Das lässt sich nicht rückgängig machen."; "Delete" = "Löschen";
 "Search apps" = "Apps suchen"; "Click an app to open it on the phone and show it here." = "Klicke eine App an, um sie auf dem Handy zu öffnen und hier zu zeigen.";
-"Send files or folders…" = "Dateien oder Ordner senden…"; "Open Downloads/PhoneCast" = "Downloads/PhoneCast öffnen"; "Drop files here" = "Dateien hier ablegen";
+"Send files or folders…" = "Dateien oder Ordner senden…"; "Open Downloads" = "Downloads öffnen"; "Drop files here" = "Dateien hier ablegen";
 "Sent to phone" = "An das Handy gesendet"; "Received" = "Empfangen";
 
 /* settings */

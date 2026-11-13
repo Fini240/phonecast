@@ -37,7 +37,7 @@ final class Banners {
     func file(_ url: URL, from phone: String) {
         present(key: UUID().uuidString, sticky: false) { close in
             SimpleBanner(symbol: "arrow.down.doc.fill", title: tr("From %@: %@", phone, url.lastPathComponent),
-                         text: tr("Saved in Downloads/PhoneCast"), buttons: [
+                         text: tr("Saved in Downloads"), buttons: [
                             ("Show in Finder", { NSWorkspace.shared.activateFileViewerSelecting([url]) }),
                             ("Open", { NSWorkspace.shared.open(url) }),
                          ], close: close)

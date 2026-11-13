@@ -900,17 +900,15 @@ struct TransfersView: View {
             HStack {
                 Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files or folders…", systemImage: "square.and.arrow.up") }.disabled(!store.connected)
                 Spacer()
-                Button("Open Downloads/PhoneCast") {
-                    let d = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("PhoneCast")
-                    try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-                    NSWorkspace.shared.open(d)
+                Button("Open Downloads") {
+                    NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
                 }
             }
             .padding(12)
             Divider()
             if store.transfers.isEmpty {
                 Placeholder(symbol: "arrow.up.arrow.down", title: "Drop files here",
-                            text: "They go to the phone's Downloads/PhoneCast folder. From the phone: Share → “PhoneCast to Mac”; files land in ~/Downloads/PhoneCast.")
+                            text: "They go to the phone's Downloads/PhoneCast folder. From the phone: Share → “PhoneCast to Mac”; files land in ~/Downloads.")
             } else {
                 List(store.transfers) { t in
                     HStack {

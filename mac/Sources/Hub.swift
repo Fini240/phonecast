@@ -660,7 +660,7 @@ final class Hub: NSObject, NSMenuDelegate {
 
     @objc func chooseFiles(_ s: Any?) { choose(dir: nil) }
 
-    /// Pick files or folders and send them (to Downloads/PhoneCast, or to `dir` on the phone).
+    /// Pick files or folders and send them (to the phone's Downloads/PhoneCast, or to `dir` on the phone).
     func choose(dir: String?, done: (() -> Void)? = nil) {
         let p = NSOpenPanel()
         p.allowsMultipleSelection = true; p.canChooseDirectories = true
@@ -868,7 +868,7 @@ final class Hub: NSObject, NSMenuDelegate {
     }
 }
 
-/// A file arriving from the phone: ~/Downloads/PhoneCast, or a temp folder when the Mac asked
+/// A file arriving from the phone: straight into ~/Downloads (like AirDrop), or a temp folder when the Mac asked
 /// for it only to look at it (Quick Look / open).
 final class IncomingFile {
     private var fh: FileHandle?
@@ -882,7 +882,7 @@ final class IncomingFile {
         self.size = size; self.progress = progress
         let dir = temp
             ? FileManager.default.temporaryDirectory.appendingPathComponent("PhoneCast-\(UUID().uuidString.prefix(8))")
-            : FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("PhoneCast")
+            : FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
         var u = dir.appendingPathComponent(safe.isEmpty ? "file" : safe)
@@ -903,7 +903,12 @@ final class IncomingFile {
         if pct != lastPct { lastPct = pct; progress(size > 0 ? Double(got) / Double(size) : 0) }
     }
 
-    func finish() -> URL? { try? fh?.close(); fh = nil; return url }
+    func finish() -> URL? {
+        try? fh?.close(); fh = nil
+        // bounce the Downloads stack in the Dock, the way AirDrop and Safari do
+        DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: url.path)
+        return url
+    }
     func abort() { try? fh?.close(); fh = nil; try? FileManager.default.removeItem(at: url) }
 }
 
