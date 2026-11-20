@@ -178,6 +178,7 @@ final class Hub: NSObject, NSMenuDelegate {
     /// Linked through the internet relay: allow more delay, and move back to Wi-Fi when the phone shows up here.
     private var viaRelay = false
     private var lastWifiTry: CFTimeInterval = 0
+    private var wifiProbing = false
     private var lastPong: CFTimeInterval = 0
     private var retryWork: DispatchWorkItem?
     private var statusItem: NSStatusItem!
@@ -247,9 +248,10 @@ final class Hub: NSObject, NSMenuDelegate {
         if let ts = d.string(forKey: "tailnetHost"), !ts.isEmpty { out.append((.hostPort(host: NWEndpoint.Host(ts), port: 27185), "\(ts) (Tailscale)")) }
         // last: over the internet, from any network (see Relay.swift): direct IPv6 first, then the relay
         if Relay.forced { out = [] }
-        out += Relay.shared.directEndpoints(27185)
-        if let r = Relay.shared.endpoint(27185) { out.append((r, Relay.label)) }
-        return out
+        var remote = Relay.shared.directEndpoints(27185)
+        if let r = Relay.shared.endpoint(27185) { remote.append((r, Relay.label)) }
+        // the phone is somewhere else (the relay knows): don't spend ~20 s on home addresses first
+        return Relay.shared.phoneAway ? remote + out : out + remote
     }
 
     func connect() {
@@ -437,11 +439,28 @@ final class Hub: NSObject, NSMenuDelegate {
         if CACurrentMediaTime() - lastPong > (viaRelay ? 12 : 5) { l.close("the phone stopped answering"); return }
         // back on the same Wi-Fi as the phone: drop the relay for the direct way (at most every 5 min,
         // in case this Wi-Fi keeps devices apart and only the relay works)
-        if viaRelay, !Relay.forced, !found.isEmpty, CACurrentMediaTime() - lastWifiTry > 300 {
+        // Bonjour can keep a phone listed after it left, so first check it really answers here.
+        if viaRelay, !Relay.forced, !Relay.shared.phoneAway, let ep = found.values.first, CACurrentMediaTime() - lastWifiTry > 60, !wifiProbing {
             lastWifiTry = CACurrentMediaTime()
-            NSLog("hub: the phone is on this Wi-Fi now, leaving the relay")
-            candidateIndex = 0
-            l.close("switching to Wi-Fi"); return
+            wifiProbing = true
+            let tcp = NWProtocolTCP.Options(); tcp.connectionTimeout = 2
+            let c = NWConnection(to: ep, using: NWParameters(tls: nil, tcp: tcp))
+            var settled = false
+            let done: (Bool) -> Void = { [weak self] ok in
+                DispatchQueue.main.async {
+                    guard let self, !settled else { return }
+                    settled = true; self.wifiProbing = false; c.cancel()
+                    guard ok, self.viaRelay, let l = self.link else { return }
+                    NSLog("hub: the phone answers on this Wi-Fi now, leaving the relay")
+                    self.candidateIndex = 0
+                    l.close("switching to Wi-Fi")
+                }
+            }
+            c.stateUpdateHandler = { st in
+                switch st { case .ready: done(true); case .failed, .waiting: done(false); default: break }
+            }
+            c.start(queue: .main)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { done(false) }
         }
         var t = CACurrentMediaTime().bitPattern.bigEndian
         l.send(HT.ping, Data(bytes: &t, count: 8))

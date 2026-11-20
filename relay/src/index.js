@@ -34,38 +34,54 @@ export class Room extends DurableObject {
     // id -> messages from the Mac before the phone picked up. Memory only: if the object is evicted in
     // that second, the Mac's first bytes are lost, it hears nothing for 15 s and simply tries again.
     this.pending = new Map();
-    // keep-alive pings are answered without waking the object up (the phone's socket is open all day)
+    // old phone apps (0.8.5) send "ping": answered without waking the object up
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
+
+  // The phone's live control socket. A replaced one can stay listed for minutes when its network is gone
+  // (the close never completes), so replaced sockets are marked "old" and skipped.
+  phones() {
+    return this.ctx.getWebSockets("phone").filter((w) => w.deserializeAttachment()?.role === "phone")
+      .sort((a, b) => (b.deserializeAttachment().t || 0) - (a.deserializeAttachment().t || 0));   // newest first
+  }
+  phone() { return this.phones()[0]; }
 
   async fetch(req) {
     const u = new URL(req.url);
     const kind = u.pathname.split("/")[3];
 
     if (kind === "addrs") {
-      const online = this.ctx.getWebSockets("phone").length > 0;
+      const online = !!this.phone();
       const addrs = online ? (await this.ctx.storage.get("addrs")) || [] : [];
-      return Response.json({ online, addrs }, { headers: { "cache-control": "no-store" } });
+      const lan = online ? (await this.ctx.storage.get("lan")) || [] : [];
+      return Response.json({ online, addrs, lan }, { headers: { "cache-control": "no-store" } });
     }
 
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
     if (kind === "phone") {
-      for (const old of this.ctx.getWebSockets("phone")) { try { old.close(4000, "replaced"); } catch {} }
+      for (const old of this.ctx.getWebSockets("phone")) {
+        try { old.serializeAttachment({ role: "old" }); old.close(4000, "replaced"); } catch {}
+      }
       this.ctx.acceptWebSocket(server, ["phone"]);
-      server.serializeAttachment({ role: "phone" });
+      server.serializeAttachment({ role: "phone", t: Date.now() });
     } else if (kind === "mac") {
       const port = Number(u.searchParams.get("port"));
       if (!PORTS.has(port)) return new Response("bad port\n", { status: 400 });
-      const phone = this.ctx.getWebSockets("phone")[0];
+      const phone = this.phone();
       if (!phone) return new Response("phone offline\n", { status: 404 });
       const id = crypto.randomUUID();
       this.ctx.acceptWebSocket(server, ["mac:" + id]);
       server.serializeAttachment({ role: "mac", id });
       this.pending.set(id, []);
-      try { phone.send(JSON.stringify({ open: id, port })); }
-      catch { return new Response("phone offline\n", { status: 404 }); }
+      // to every live phone socket: one whose network vanished may still look open here for a while
+      let sent = 0;
+      for (const p of this.phones()) {
+        try { p.send(JSON.stringify({ open: id, port })); sent++; }
+        catch { try { p.close(1011, "stale"); } catch {} }   // the phone notices and reconnects
+      }
+      if (!sent) return new Response("phone offline\n", { status: 404 });
     } else {
       const id = u.searchParams.get("id") || "";
       if (!this.ctx.getWebSockets("mac:" + id)[0]) return new Response("gone\n", { status: 404 });
@@ -85,14 +101,23 @@ export class Room extends DurableObject {
 
   async webSocketMessage(ws, msg) {
     const a = ws.deserializeAttachment();
-    if (!a) return;
+    if (!a || a.role === "old") return;
     if (a.role === "phone") {
       if (typeof msg !== "string" || msg.length > 2000) return;
+      // keep-alive answered here, not by the runtime's auto-response: proves this is the socket the relay
+      // actually uses. A replaced or broken one is closed, so the phone reconnects at once.
+      if (msg === "alive?") {
+        if (this.phone()?.deserializeAttachment().t === a.t) { try { ws.send("alive"); } catch {} }
+        else { try { ws.serializeAttachment({ role: "old" }); ws.close(4000, "replaced"); } catch {} }
+        return;
+      }
       try {
         const o = JSON.parse(msg);
         if (Array.isArray(o.addrs)) {
           const addrs = o.addrs.filter((x) => typeof x === "string" && /^[0-9a-f:]{2,39}$/i.test(x)).slice(0, 8);
           await this.ctx.storage.put("addrs", addrs);
+          const lan = (Array.isArray(o.lan) ? o.lan : []).filter((x) => typeof x === "string" && /^[0-9.]{7,15}$/.test(x)).slice(0, 4);
+          await this.ctx.storage.put("lan", lan);
         }
       } catch {}
       return;

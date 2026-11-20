@@ -72,6 +72,7 @@ object Relay {
     @Volatile private var lastAddrs = ""
     /** Bumped by every start: an old loop that's still sleeping ends instead of running twice. */
     @Volatile private var generation = 0
+    @Volatile private var lastAlive = 0L
 
     fun room(c: Context): String {
         val h = MessageDigest.getInstance("SHA-256").digest(("phonecast-relay:" + Prefs.token(c)).toByteArray())
@@ -142,13 +143,22 @@ object Relay {
             .distinct().take(4)
     } catch (_: Exception) { emptyList() }
 
+    /** Private IPv4 addresses (home Wi-Fi): lets a computer see the phone isn't on its network and use the relay first. */
+    fun lanIPv4(): List<String> = try {
+        NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback && !it.name.startsWith("tun") && !it.name.startsWith("rmnet") }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<java.net.Inet4Address>().filter { it.isSiteLocalAddress }
+            .map { it.hostAddress!! }.distinct().take(4)
+    } catch (_: Exception) { emptyList() }
+
     private fun sendAddrs(force: Boolean = false) {
         val ws = control ?: return
-        val a = publicIPv6()
-        val sig = a.joinToString(",")
+        val a = publicIPv6(); val lan = lanIPv4()
+        val sig = a.joinToString(",") + "|" + lan.joinToString(",")
         if (!force && sig == lastAddrs) return
         lastAddrs = sig
-        try { ws.sendText(JSONObject().put("addrs", JSONArray(a)).toString()) } catch (_: Exception) {}
+        try { ws.sendText(JSONObject().put("addrs", JSONArray(a)).put("lan", JSONArray(lan)).toString()) } catch (_: Exception) {}
     }
 
     private fun base(c: Context) = Prefs.relayUrl(c).ifEmpty { DEFAULT_BASE }
@@ -167,12 +177,25 @@ object Relay {
                 delay = 2_000L
                 Log.i(TAG, "online")
                 sendAddrs(force = true)
+                // keep-alive answered by the relay's own code (not the runtime): no "alive" within 15 s means
+                // the relay doesn't use this socket any more (network gone, replaced), so reconnect
+                lastAlive = System.currentTimeMillis()
                 val pinger = Thread({
-                    try { while (running && control === ws) { Thread.sleep(30_000); ws.sendText("ping") } } catch (_: Exception) {}
+                    try {
+                        while (running && control === ws) {
+                            val sent = System.currentTimeMillis()
+                            ws.sendText("alive?")
+                            Thread.sleep(15_000)
+                            if (control !== ws) break
+                            if (lastAlive < sent) { Log.w(TAG, "the relay stopped answering, reconnecting"); ws.close(); break }
+                            Thread.sleep(30_000)
+                        }
+                    } catch (_: Exception) {}
                 }, "pc-relay-ping").apply { isDaemon = true; start() }
-                ws.soTimeout = 75_000   // a ping goes out every 30 s and the relay answers "pong"
+                ws.soTimeout = 90_000
                 while (running && gen == generation) {
                     val m = ws.read() ?: break
+                    if (m.text == "alive") { lastAlive = System.currentTimeMillis(); continue }
                     if (m.text == null || m.text == "pong") continue
                     val o = try { JSONObject(m.text) } catch (_: Exception) { continue }
                     val id = o.optString("open"); val port = o.optInt("port")

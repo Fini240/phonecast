@@ -54,6 +54,9 @@ final class Relay {
     /// The ones that answered a quick test connection (mobile networks usually block incoming ones),
     /// so a blocked address doesn't cost a 5 s timeout before the relay.
     private(set) var reachable: [String] = []
+    /// The relay says the phone is online and none of its Wi-Fi addresses is on this Mac's network: it's away,
+    /// so the internet ways go first instead of after ~20 s of home addresses that can't answer.
+    private(set) var phoneAway = false
     private var lastCheck: CFTimeInterval = 0
 
     private let q = DispatchQueue(label: "phonecast.relay")
@@ -96,9 +99,12 @@ final class Relay {
                 } else if code == 200, let data, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
                     let online = o["online"] as? Bool ?? false
                     self.phoneAddrs = (o["addrs"] as? [String]) ?? []
+                    let lan = (o["lan"] as? [String]) ?? []
+                    self.phoneAway = online && o["lan"] != nil && !lan.contains { Self.onMyNetwork($0) }
                     self.probe(self.phoneAddrs)
                     self.status = online ? "The phone is online at the relay" + (self.phoneAddrs.isEmpty ? "" : " (public IPv6 too)")
                                          : "The phone isn't connected to the relay (off, no internet, or relay turned off on it)"
+                    if !online { self.phoneAway = false }
                     if !online { self.offlineUntil = max(self.offlineUntil, CACurrentMediaTime() + 20) }
                     else if self.offlineUntil < CACurrentMediaTime() + 600 { self.offlineUntil = 0 }
                 } else {
@@ -140,6 +146,24 @@ final class Relay {
             self?.reachable = addrs.filter { ok.contains($0) }
             if !ok.isEmpty { NSLog("relay: the phone answers directly on \(ok.joined(separator: ", "))") }
         }
+    }
+
+    /// Is this IPv4 address in one of this Mac's own subnets?
+    static func onMyNetwork(_ ip: String) -> Bool {
+        var target = in_addr()
+        guard inet_pton(AF_INET, ip, &target) == 1 else { return false }
+        var ifa: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifa) == 0 else { return false }
+        defer { freeifaddrs(ifa) }
+        var p = ifa
+        while let i = p {
+            defer { p = i.pointee.ifa_next }
+            guard let sa = i.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET), let nm = i.pointee.ifa_netmask else { continue }
+            let a = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
+            let m = nm.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
+            if m != 0, a & m == target.s_addr & m, a != UInt32(0x0100007f) { return true }
+        }
+        return false
     }
 
     /// A routable (2000::/3) IPv6 address on this Mac, not a Tailscale one.

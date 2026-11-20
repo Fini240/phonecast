@@ -755,8 +755,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
         // from any network, see Relay.swift: the phone's public IPv6 directly, then the relay
         if Relay.forced { out = []; seen = [] }
+        let local = out
+        if Relay.shared.phoneAway { out = []; seen = [] }   // the phone is somewhere else: internet first
         for (ep, l) in Relay.shared.directEndpoints(27183) { add(ep, l) }
         if let r = Relay.shared.endpoint(27183) { add(r, Relay.label) }
+        if Relay.shared.phoneAway { for (ep, l) in local { add(ep, l) } }
         return out
     }
 
@@ -1101,13 +1104,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         updateStats()
     }
 
-    private var transport: String { viaUSB ? "USB" : udpActive ? "Wi-Fi UDP" : "Wi-Fi" }
+    private var transport: String {
+        viaUSB ? "USB" : deviceLabel == Relay.label ? "relay" : Relay.isRemote(deviceLabel) ? (udpActive ? "IPv6 UDP" : "IPv6") : udpActive ? "Wi-Fi UDP" : "Wi-Fi"
+    }
 
+    static let logStats = ProcessInfo.processInfo.environment["PHONECAST_LOG_STATS"] != nil
+    private var lastStatsLog: CFTimeInterval = 0
     private func updateTitle() {
         var parts = [Recorder.shared.recording ? "● REC" : "PhoneCast"]
         if !deviceLabel.isEmpty { parts.append(deviceLabel) }
         if stateText == "Connected" {
             parts.append("\(Int(view.videoSize.width))×\(Int(view.videoSize.height)) · \(fps) fps · \(transport) \(Int(rttMs)) ms · decode \(String(format: "%.1f", view.video.decodeMs)) ms · skipped \(resyncs)")
+            // PHONECAST_LOG_STATS=1: the same numbers in the log every 5 s (tests without looking at the screen)
+            if Self.logStats, CACurrentMediaTime() - lastStatsLog > 5 { lastStatsLog = CACurrentMediaTime(); NSLog("stats: \(deviceLabel) · \(parts.last ?? "")") }
             if !view.controlAvailable { parts.append("view only — turn on mouse & keyboard in the phone app") }
         } else {
             parts.append(tr(stateText))
