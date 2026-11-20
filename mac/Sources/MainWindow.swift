@@ -40,10 +40,12 @@ final class MainWindowController {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 660),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
             w.title = "PhoneCast"
-            w.titleVisibility = .hidden              // each page has its own big title
-            w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: MainView().environmentObject(Store.shared).environmentObject(nav))
+            // The page title and its actions live in the window's unified toolbar (like Mail or Music),
+            // not as a big heading inside each page.
+            w.toolbarStyle = .unified
+            w.contentViewController = NSHostingController(rootView: MainView().environmentObject(Store.shared).environmentObject(nav))
+            w.setContentSize(NSSize(width: 980, height: 660))
             w.setFrameAutosaveName("PhoneCastMain")
             if !w.setFrameUsingName("PhoneCastMain") { w.center() }
             w.minSize = NSSize(width: 760, height: 480)
@@ -91,6 +93,7 @@ struct MainView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle(tr(nav.section.rawValue))
         }
     }
 
@@ -183,7 +186,6 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Overview").font(.largeTitle.bold())
                 UpdateBanner()
                 HStack(alignment: .top, spacing: 16) {
                     Panel(title: store.phoneName, symbol: "smartphone") {
@@ -258,7 +260,7 @@ struct OverviewView: View {
                     Text("Time to open a connection, every 5 s. Edit the list in Settings.").font(.caption).foregroundStyle(.tertiary)
                 }
             }
-            .padding(24)
+            .padding(20)
         }
     }
 }

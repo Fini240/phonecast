@@ -112,6 +112,9 @@ struct PcView: View {
                 if sub != "control" {
                     Button { PcWeb.shared.reload(sub) } label: { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless).help("Reload this page")
+                } else if !d.base.isEmpty {
+                    Button { NSWorkspace.shared.open(URL(string: d.base)!) } label: { Label("Full dashboard", systemImage: "safari") }
+                        .help("The whole dashboard in the browser")
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -129,12 +132,6 @@ struct PcControlView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("PC").font(.largeTitle.bold())
-                    Spacer()
-                    Button { NSWorkspace.shared.open(URL(string: d.base)!) } label: { Label("Full dashboard", systemImage: "safari") }
-                        .help("The whole dashboard in the browser")
-                }
                 if !d.reachable {
                     Text("Dashboard not reachable at \(d.base) (\(d.lastError ?? "…")). Is the dashboard running, and Tailscale on?")
                         .foregroundStyle(.orange)
@@ -147,7 +144,7 @@ struct PcControlView: View {
                     HStack { Image(systemName: "info.circle"); Text(m) }.font(.callout).foregroundStyle(.secondary)
                 }
             }
-            .padding(24)
+            .padding(20)
         }
         .onAppear { d.watch(true) }
         .onDisappear { d.watch(false) }
