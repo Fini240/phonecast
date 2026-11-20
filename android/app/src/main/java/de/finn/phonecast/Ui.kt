@@ -121,6 +121,11 @@ class Ui(private val a: Activity) {
     fun primary(s: String, onClick: () -> Unit) = baseButton(s, accent, onAccent, onClick)
     /** Secondary actions. */
     fun tonal(s: String, onClick: () -> Unit) = baseButton(s, tonalBg, onTonal, onClick)
+    /** Switch a button between the card's main action and a secondary one (one primary per screen). */
+    fun emphasize(b: Button, primary: Boolean) {
+        b.setTextColor(if (primary) onAccent else onTonal)
+        b.background = ripple(rounded(if (primary) accent else tonalBg, 24), 24)
+    }
     /** Destructive or rare actions: text only. */
     fun quiet(s: String, color: Int = accent, onClick: () -> Unit) = baseButton(s, Color.TRANSPARENT, color, onClick)
 

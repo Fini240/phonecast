@@ -20,6 +20,7 @@ import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -235,6 +236,19 @@ class MainActivity : Activity() {
             )
             val missing = steps.filter { !it.second }
             u.gone(setupCard, missing.isEmpty())
+            // Order of work: until a computer is paired, setting up comes first and is the one main button;
+            // "Cast this phone" waits as a secondary button (it can't reach anything yet).
+            val unpaired = !steps[0].second
+            u.emphasize(castBtn, !unpaired || sharing)
+            val col = setupCard.parent as? ViewGroup
+            val statusCard = castBtn.parent as? View
+            if (col != null && statusCard != null && statusCard.parent === col) {
+                val want = if (unpaired) col.indexOfChild(statusCard) else col.indexOfChild(statusCard) + 1
+                val have = col.indexOfChild(setupCard)
+                if (unpaired && have > col.indexOfChild(statusCard) || !unpaired && have < col.indexOfChild(statusCard)) {
+                    col.removeView(setupCard); col.addView(setupCard, if (unpaired) want else want - 1)
+                }
+            }
             setupRows.set(steps.map { (n, ok, _) -> Ui.Row(n, if (ok) "done" else "to do", if (ok) u.green else u.orange) })
             val sig = missing.joinToString { it.first }
             if (sig != setupSig) {
