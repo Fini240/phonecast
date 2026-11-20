@@ -42,7 +42,7 @@ object Updates {
                     .firstOrNull { it.optString("name").endsWith(".apk") }?.optString("browser_download_url")
                 app.getSharedPreferences("ui", Context.MODE_PRIVATE).edit()
                     .putLong("updChecked", now).putString("updLatest", v).putString("updUrl", page).putString("updApk", apk).apply()
-                if (newer(v, current(app))) { latest = v; url = page; apkUrl = apk; tr("PhoneCast {0} is out — see Home", v) }
+                if (newer(v, current(app))) { latest = v; url = page; apkUrl = apk; tr("PhoneCast {0} is out", v) }
                 else { latest = null; tr("Up to date ({0})", current(app)) }
             } catch (e: Exception) { tr("Couldn't reach GitHub ({0})", e.message) }
             finally { checking = false }

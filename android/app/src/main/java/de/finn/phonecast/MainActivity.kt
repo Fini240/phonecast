@@ -651,6 +651,21 @@ class MainActivity : Activity() {
             catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
         }
         val locBtn = u.tonal("Allow location (show phone on the Mac's map)") { requestLocation() }
+        // install straight from here: same download + Android installer as the Home card
+        val updInstall = u.primary("Install update") {
+            if (Updates.apkUrl != null) Updates.install(this)
+            else Updates.url?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
+            tick()
+        }.apply { visibility = View.GONE }
+        updaters += {
+            val v = Updates.latest
+            u.gone(updInstall, v == null)
+            if (v != null) {
+                updMsg.text = Updates.installing ?: tr("PhoneCast {0} is out (you have {1}). It installs over this app; your pairing stays.", v, Updates.current(this))
+                updInstall.isEnabled = Updates.installing == null
+                updInstall.alpha = if (Updates.installing == null) 1f else 0.5f
+            }
+        }
         updaters += {
             pinView.text = Prefs.pin(this)
             addrRows.set(addressRows(), "No network. Connect to Wi-Fi.")
@@ -726,6 +741,7 @@ class MainActivity : Activity() {
             u.card(u.title("PC dashboard (optional)"), dashView,
                 u.tonal("Set the dashboard address…") { askDashboard() }),
             u.card(u.title("Updates"), updMsg.apply { text = tr("PhoneCast {0}", Updates.current(this@MainActivity)) },
+                updInstall,
                 u.tonal("Check for updates") {
                     updMsg.text = tr("Checking…")
                     Updates.check(this, force = true) { m -> updMsg.text = m; tick() }

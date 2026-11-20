@@ -8,7 +8,7 @@
     <key>CFBundleIdentifier</key><string>de.finn.phonecast.mac.share</string>
     <key>CFBundleExecutable</key><string>PhoneCastShare</string>
     <key>CFBundlePackageType</key><string>XPC!</string>
-    <key>CFBundleShortVersionString</key><string>0.8.2</string>
+    <key>CFBundleShortVersionString</key><string>0.8.4</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSExtension</key>
