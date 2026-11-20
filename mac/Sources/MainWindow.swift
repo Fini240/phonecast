@@ -260,11 +260,27 @@ struct OverviewView: View {
 struct PhoneActions: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var nav: MainWindowController.Nav
+    @State private var asking = ProcessInfo.processInfo.environment["PHONECAST_TEST_ASKING"] != nil  // UI test: show the waiting state
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button { Hub.shared.mirror() } label: {
-                Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle").frame(maxWidth: .infinity)
+            // The one bit of delight: after the click the button says what happens next (tap Start on the phone)
+            // until the picture arrives, then turns into "Show mirror". Feedback, not decoration.
+            Button {
+                if !store.phoneCasting { asking = true; DispatchQueue.main.asyncAfter(deadline: .now() + 20) { asking = false } }
+                Hub.shared.mirror()
+            } label: {
+                Group {
+                    if asking && !store.phoneCasting {
+                        Label { Text(tr("Tap “Start now” on the phone")) } icon: { ProgressView().controlSize(.small) }
+                    } else {
+                        Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: 0.2), value: asking)
             }
+            .onChange(of: store.phoneCasting) { _, on in if on { asking = false } }
             .buttonStyle(.borderedProminent).controlSize(.large)
             .keyboardShortcut("m", modifiers: [.command, .shift])
             .help(store.phoneCasting ? "Show mirror (⇧⌘M)" : "Mirror phone (⇧⌘M)")
