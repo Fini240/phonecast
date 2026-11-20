@@ -14,3 +14,7 @@ tools/unstick/cls/
 art/out/
 art/__pycache__/
 art/options/
+
+# Cloudflare deploy cache (holds account info)
+relay/.wrangler/
+relay/node_modules/

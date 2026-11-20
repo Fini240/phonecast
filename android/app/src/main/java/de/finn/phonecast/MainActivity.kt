@@ -213,7 +213,7 @@ class MainActivity : Activity() {
             when {
                 hub == null -> status.set(u.grey, "Starting…", "")
                 !hub.connected -> status.set(u.grey, "No computer connected",
-                    "Open PhoneCast on the Mac. Same Wi-Fi or Tailscale; pair once in Settings.")
+                    "Open PhoneCast on the Mac. Same Wi-Fi or any network; pair once in Settings.")
                 else -> status.set(u.green, hub.macName ?: "Mac", listOfNotNull(
                     st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: tr("Connected"),
                     if (sharing) tr("screen shared") else null,
@@ -580,6 +580,7 @@ class MainActivity : Activity() {
             when {
                 svc == null -> status.set(u.grey, "Not sharing", "Faster next time: the “Cast to Mac” Quick Settings tile.")
                 svc.clientAddress != null && UsbBridge.active && svc.clientAddress == "127.0.0.1" -> status.set(u.green, "Shown on the Mac", "over the USB cable")
+                svc.clientAddress == "127.0.0.1" && Relay.tunnels > 0 -> status.set(u.green, "Shown on a computer", "over the internet relay")
                 svc.clientAddress != null -> status.set(u.green, "Shown on a computer", svc.clientAddress ?: "")
                 else -> status.set(u.orange, "Sharing", "Waiting for the Mac or PC to connect…")
             }
@@ -640,6 +641,7 @@ class MainActivity : Activity() {
         val notif = u.Status(16f)
         val notifBtn = u.tonal("Allow notification access") { openNotificationAccess() }
         val clip = u.SwitchRow("Copy to the Mac automatically", { Prefs.autoClip(this) }) { on -> Prefs.setAutoClip(this, on); tick() }
+        val relay = u.SwitchRow("Reachable away from home", { Prefs.relay(this) }) { on -> Prefs.setRelay(this, on); Relay.restart(this); tick() }
         val shots = u.SwitchRow("Send new screenshots to the Mac", { Prefs.autoShots(this) }) { on -> Prefs.setAutoShots(this, on); tick() }
         val featRows = u.Rows()
         val dashView = u.label("", 14f, secondary = true)
@@ -655,6 +657,11 @@ class MainActivity : Activity() {
             if (NotifListener.instance != null) notif.set(u.green, "Notifications go to the Mac", "")
             else notif.set(u.grey, "Notifications stay on the phone", "")
             u.gone(notifBtn, NotifListener.instance != null)
+            relay.refresh(when {
+                !Prefs.relay(this) -> "Only on the same Wi-Fi, by cable or over Tailscale"
+                Relay.online -> "Online: paired computers reach this phone from any network, no Tailscale needed"
+                else -> "Connecting to the PhoneCast relay…"
+            })
             shots.refresh("They land in Downloads/PhoneCast and on the Mac's clipboard")
             clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs mouse & keyboard turned on (Cast tab)" else "Copy here, paste on the Mac")
             val p = HubService.instance?.let { try { it.features.perms() } catch (_: Exception) { null } }
@@ -710,10 +717,10 @@ class MainActivity : Activity() {
                     u.quiet("New PIN", u.red) {
                         AlertDialog.Builder(this).setTitle(tr("Make a new PIN?"))
                             .setMessage(tr("Computers paired with the PIN have to enter the new one. QR-paired computers stay paired."))
-                            .setPositiveButton(tr("New PIN")) { _, _ -> Prefs.newPin(this); toast("New PIN made"); tick() }
+                            .setPositiveButton(tr("New PIN")) { _, _ -> Prefs.newPin(this); Relay.restart(this); toast("New PIN made"); tick() }
                             .setNegativeButton(tr("Cancel"), null).show()
                     })),
-            u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view, shots.view),
+            u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view, shots.view, relay.view),
             u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn, locBtn,
                 u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
             u.card(u.title("PC dashboard (optional)"), dashView,

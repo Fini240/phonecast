@@ -200,6 +200,7 @@ class HubService : Service() {
             features.startCallWatch()
             extras = Extras(this, this)
             extras.start()
+            Relay.start(this)
         }
         when (intent?.action) {
             ACTION_SEND_FILES -> {
@@ -222,6 +223,7 @@ class HubService : Service() {
         running = false
         instance = null
         if (::features.isInitialized) features.stopCallWatch()
+        Relay.stop()
         try { serverSocket?.close() } catch (_: Exception) {}
         clients.forEach { it.close() }
         nsdListener?.let { try { getSystemService(NsdManager::class.java).unregisterService(it) } catch (_: Exception) {} }

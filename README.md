@@ -79,9 +79,16 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
 - **Wi-Fi:** put both on the same trusted network, open PhoneCast on the Mac, pick the phone, and (if
   you didn't pair with the QR code) enter the PIN shown in the phone app.
 - **Other networks:** the phone gets a new IP on every Wi-Fi, so the Mac doesn't rely on the saved one: it
-  tries the phone it finds on the current network first, then the saved IP. Where the network keeps devices
-  apart (some school or hotel Wi-Fi), install [Tailscale](https://tailscale.com) on both and enter the
-  phone's Tailscale address in the Connect dialog (⌘K); PhoneCast falls back to it when nothing else answers.
+  tries the phone it finds on the current network first, then the saved IP, then the optional Tailscale
+  address, and last the **internet relay**.
+- **Away from home (no Tailscale needed):** when the phone isn't on the Mac's network (school Wi-Fi that keeps
+  devices apart, mobile data, two different places), both apps connect out to the PhoneCast relay, a small
+  Cloudflare Worker in [`relay/`](relay/) that only passes bytes along. Pair once at home first: the relay
+  room comes from the key the phone hands over when pairing. It's on by default; turn it off in the phone's
+  Settings ("Reachable away from home") or the Mac's Settings ("Away from home"). It's slower than Wi-Fi
+  (about 30 Mbit/s and +40 ms here), so a lower mirror quality works better. When the phone shows up on the
+  same Wi-Fi again, the link moves back to it by itself. To run your own relay: `cd relay && npx wrangler
+  deploy`, then `defaults write de.finn.phonecast.mac relayURL wss://…` (the phone's URL is in `Relay.kt`).
 
 ## The PhoneCast window
 
@@ -234,7 +241,7 @@ When `homeNetworkPrefix` is set and the Mac isn't on that network, the menu stre
 The Mac app watches the Claude Code and Codex chats on the Mac (read-only: their transcripts in
 `~/.claude` and `~/.codex`, and Codex's local status socket) and shows them on the phone's **Agents** tab,
 with subagents grouped under their chat. Everything goes over the PhoneCast link, so it works wherever the
-link works (Wi-Fi, Tailscale); there is no server and no cloud push.
+link works (Wi-Fi, the internet relay, Tailscale); there is no push service.
 
 To answer a chat from the phone, it has to run in a terminal PhoneCast can type into. Turn on
 **Agents → Terminal integration** on the Mac: it adds a small block to `~/.zshrc`, and from then on
@@ -308,7 +315,8 @@ for five minutes; "Sign out all browsers" on the Mac revokes every sign-in.
   the Mac's Settings once. Failed QR logins don't use up the PIN tries. The mirror proves itself with a 256-bit key it received
   over that link, so the PIN isn't sent in the clear, and 5 wrong PINs lock both for 5 minutes.
   **The mirror's video and touches are not encrypted**, to keep game latency as low as possible: on the
-  cable that's local anyway; away from home use Tailscale, which encrypts everything.
+  cable that's local anyway. Through the relay each hop is TLS (wss), but the relay itself passes the
+  mirror's bytes in the clear; the link stays end-to-end encrypted and the relay can't log in either way.
 - **Wi-Fi (mirror):** someone on the same network could watch the unencrypted picture while you share.
   Use networks you trust (or the cable / Tailscale) and stop sharing when you're done.
 - **Permissions & Play Protect:** the phone features ask for messages, calls, contacts, photos and all-files

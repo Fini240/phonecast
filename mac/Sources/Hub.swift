@@ -175,6 +175,9 @@ final class Hub: NSObject, NSMenuDelegate {
     private var found: [String: NWEndpoint] = [:]
     private var browser: NWBrowser?
     private var candidateIndex = 0
+    /// Linked through the internet relay: allow more delay, and move back to Wi-Fi when the phone shows up here.
+    private var viaRelay = false
+    private var lastWifiTry: CFTimeInterval = 0
     private var lastPong: CFTimeInterval = 0
     private var retryWork: DispatchWorkItem?
     private var statusItem: NSStatusItem!
@@ -242,6 +245,8 @@ final class Hub: NSObject, NSMenuDelegate {
             out.append((.hostPort(host: NWEndpoint.Host(h), port: 27185), h))
         }
         if let ts = d.string(forKey: "tailnetHost"), !ts.isEmpty { out.append((.hostPort(host: NWEndpoint.Host(ts), port: 27185), "\(ts) (Tailscale)")) }
+        // last: over the internet, from any network (see Relay.swift)
+        if let r = Relay.shared.endpoint(27185) { out.append((r, Relay.label)) }
         return out
     }
 
@@ -304,7 +309,8 @@ final class Hub: NSObject, NSMenuDelegate {
             DispatchQueue.main.async {
                 guard let self, let l, self.link === l else { return }
                 NSLog("hub: connected via \(label)")
-                if case .hostPort(let h, _) = ep, label != "test phone" { UserDefaults.standard.set("\(h)", forKey: "lastHubHost") }
+                self.viaRelay = label == Relay.label
+                if case .hostPort(let h, _) = ep, label != "test phone", !self.viaRelay { UserDefaults.standard.set("\(h)", forKey: "lastHubHost") }
                 if UserDefaults.standard.string(forKey: "phoneKey") == nil, let fp = l.certFingerprint {
                     UserDefaults.standard.set(fp, forKey: "phoneKey")   // pinned now that the PIN was right
                 }
@@ -424,7 +430,15 @@ final class Hub: NSObject, NSMenuDelegate {
 
     private func tick() {
         guard let l = link, connected else { return }
-        if CACurrentMediaTime() - lastPong > 5 { l.close("the phone stopped answering"); return }
+        if CACurrentMediaTime() - lastPong > (viaRelay ? 12 : 5) { l.close("the phone stopped answering"); return }
+        // back on the same Wi-Fi as the phone: drop the relay for the direct way (at most every 5 min,
+        // in case this Wi-Fi keeps devices apart and only the relay works)
+        if viaRelay, !found.isEmpty, CACurrentMediaTime() - lastWifiTry > 300 {
+            lastWifiTry = CACurrentMediaTime()
+            NSLog("hub: the phone is on this Wi-Fi now, leaving the relay")
+            candidateIndex = 0
+            l.close("switching to Wi-Fi"); return
+        }
         var t = CACurrentMediaTime().bitPattern.bigEndian
         l.send(HT.ping, Data(bytes: &t, count: 8))
     }

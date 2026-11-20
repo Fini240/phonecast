@@ -102,7 +102,7 @@
 "Phone IP address (optional, found automatically on the same Wi-Fi)" = "IP-Adresse des Handys (optional, im selben WLAN automatisch gefunden)";
 "Phone Tailscale address (optional, for other networks)" = "Tailscale-Adresse des Handys (optional, für andere Netzwerke)";
 "Save and connect" = "Speichern und verbinden"; "Security" = "Sicherheit";
-"The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted to keep it as fast as possible; away from home, Tailscale encrypts it." = "Die Verbindung (Mitteilungen, Nachrichten, Dateien, Zwischenablage) ist mit TLS 1.3 verschlüsselt. Vergleiche diesen Schlüssel einmal mit dem in der Handy-App. Das Spiegeln weist sich mit einem Schlüssel aus, der über diese Verbindung kam, daher geht die PIN nie im Klartext übers Netz. Das Spiegel-Video ist für maximale Geschwindigkeit nicht verschlüsselt; unterwegs verschlüsselt Tailscale es.";
+"The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted on the home Wi-Fi to keep it as fast as possible; through the relay or Tailscale, each hop is encrypted." = "Die Verbindung (Mitteilungen, Nachrichten, Dateien, Zwischenablage) ist mit TLS 1.3 verschlüsselt. Vergleiche diesen Schlüssel einmal mit dem in der Handy-App. Das Spiegeln weist sich mit einem Schlüssel aus, der über diese Verbindung kam, daher geht die PIN nie im Klartext übers Netz. Das Spiegel-Video ist im Heim-WLAN für maximale Geschwindigkeit nicht verschlüsselt; über das Relay oder Tailscale ist jede Teilstrecke verschlüsselt.";
 "Forget phone key (after reinstalling PhoneCast on the phone)" = "Handy-Schlüssel vergessen (nach Neuinstallation von PhoneCast auf dem Handy)";
 "Show banners" = "Banner zeigen"; "Play a sound" = "Ton abspielen";
 "Quiet while the phone is on Do Not Disturb" = "Still, solange das Handy auf „Nicht stören“ steht";
@@ -175,7 +175,7 @@
 "Connect" = "Verbinden"; "Phone:" = "Handy:"; "IP address:" = "IP-Adresse:"; "PIN:" = "PIN:"; "Tailscale address of the phone:" = "Tailscale-Adresse des Handys:";
 "Connecting over the USB cable…\n(If the phone asks to open PhoneCast for this USB device, tap OK / Always.)" = "Verbinde über das USB-Kabel…\n(Fragt das Handy, ob PhoneCast für dieses USB-Gerät geöffnet werden soll, tippe auf OK / Immer.)";
 "Wrong PIN" = "Falsche PIN"; "Wrong PIN — check the PIN in the phone app" = "Falsche PIN – prüfe die PIN in der Handy-App"; "Disconnected" = "Getrennt";
-"Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over Tailscale." = "Öffne PhoneCast auf dem Handy. Es verbindet sich im selben WLAN oder über Tailscale von selbst.";
+"Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over the internet." = "Öffne PhoneCast auf dem Handy. Es verbindet sich im selben WLAN oder übers Internet von selbst.";
 
 /* v0.3.1: dashboard pages in the PC page */
 "Chat" = "Chat"; "Builder" = "Builder"; "Studio" = "Studio"; "Reload this page" = "Seite neu laden";
@@ -295,3 +295,7 @@
 "wireless debugging" = "kabelloses Debugging";
 "%@ didn't start" = "%@ ist nicht gestartet";
 "MOBA mode: right mouse walks toward the cursor" = "MOBA-Modus: rechte Maustaste läuft zum Mauszeiger";
+
+"Away from home" = "Unterwegs";
+"Connect over the internet when the phone isn't on this Wi-Fi" = "Übers Internet verbinden, wenn das Handy nicht in diesem WLAN ist";
+"No Tailscale needed: phone and Mac both connect to the PhoneCast relay (a small Cloudflare server), which passes the data through. Works on school Wi-Fi and mobile data. Pair once at home first. The relay can't read the link (it stays TLS-encrypted end to end) and can't log in. It's slower than Wi-Fi, so pick a lower mirror quality there." = "Kein Tailscale nötig: Handy und Mac verbinden sich beide mit dem PhoneCast-Relay (ein kleiner Cloudflare-Server), das die Daten durchreicht. Klappt im Schul-WLAN und mit mobilen Daten. Vorher einmal zu Hause koppeln. Das Relay kann die Verbindung nicht lesen (sie bleibt Ende-zu-Ende TLS-verschlüsselt) und sich nicht anmelden. Es ist langsamer als WLAN, wähle dort also eine niedrigere Spiegel-Qualität.";

@@ -744,6 +744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         if let ts = d.string(forKey: "tailnetHost"), !ts.isEmpty {
             add(.hostPort(host: NWEndpoint.Host(ts), port: 27183), "\(ts) (Tailscale)")
         }
+        if let r = Relay.shared.endpoint(27183) { add(r, Relay.label) }   // from any network, see Relay.swift
         return out
     }
 

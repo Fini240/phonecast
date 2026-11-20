@@ -154,7 +154,7 @@ struct Gate<Content: View>: View {
     var body: some View {
         if !store.connected {
             Placeholder(symbol: "antenna.radiowaves.left.and.right.slash", title: "Phone not connected",
-                        text: tr("Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over Tailscale.") + "\n" + tr(store.linkState))
+                        text: tr("Open PhoneCast on the phone. It connects by itself on the same Wi-Fi or over the internet.") + "\n" + tr(store.linkState))
         } else if let perm, store.perms[perm] == false || store.errors[section] == "permission" {
             Placeholder(symbol: "lock", title: "Allow \(what) on the phone",
                         text: "In the PhoneCast app on the phone, tap “\(perm == "files" ? "Allow browsing phone files from the Mac" : "Allow messages, calls, contacts & photos")”.")
@@ -945,6 +945,7 @@ struct SettingsView: View {
     @State private var pin = UserDefaults.standard.string(forKey: "pin") ?? ""
     @State private var host = UserDefaults.standard.string(forKey: "host") ?? ""
     @State private var tailnet = UserDefaults.standard.string(forKey: "tailnetHost") ?? ""
+    @State private var relayOn = Relay.enabled
     @State private var devices = Hub.shared.probes.config
     @State private var dashURL = PcDashboard.shared.base
     @State private var qr = Pairing.qrImage(size: 360)
@@ -992,11 +993,17 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section("Away from home") {
+                Toggle("Connect over the internet when the phone isn't on this Wi-Fi", isOn: $relayOn)
+                    .onChange(of: relayOn) { _, on in UserDefaults.standard.set(on, forKey: "relayOn"); Hub.shared.pairingChanged() }
+                Text("No Tailscale needed: phone and Mac both connect to the PhoneCast relay (a small Cloudflare server), which passes the data through. Works on school Wi-Fi and mobile data. Pair once at home first. The relay can't read the link (it stays TLS-encrypted end to end) and can't log in. It's slower than Wi-Fi, so pick a lower mirror quality there.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Security") {
                 LabeledContent("Phone's link key") {
                     Text(phoneKeyShort).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                 }
-                Text("The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted to keep it as fast as possible; away from home, Tailscale encrypts it.")
+                Text("The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted on the home Wi-Fi to keep it as fast as possible; through the relay or Tailscale, each hop is encrypted.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Forget phone key (after reinstalling PhoneCast on the phone)") {
                     UserDefaults.standard.removeObject(forKey: "phoneKey"); UserDefaults.standard.removeObject(forKey: "mirrorKey")

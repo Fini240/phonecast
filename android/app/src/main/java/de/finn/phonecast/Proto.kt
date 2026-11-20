@@ -97,6 +97,10 @@ object Prefs {
         return t
     }
 
+    /** Reachable over the internet relay when away from home (Relay.kt). */
+    fun relay(c: Context): Boolean = p(c).getBoolean("relay", true)
+    fun setRelay(c: Context, v: Boolean) = p(c).edit().putBoolean("relay", v).apply()
+
     /** Copy on the phone -> Mac clipboard automatically (needs the accessibility service). */
     fun autoClip(c: Context): Boolean = p(c).getBoolean("autoClip", true)
     fun setAutoClip(c: Context, v: Boolean) = p(c).edit().putBoolean("autoClip", v).apply()
