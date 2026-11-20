@@ -175,6 +175,7 @@ final class Hub: NSObject, NSMenuDelegate {
     private var found: [String: NWEndpoint] = [:]
     private var browser: NWBrowser?
     private var candidateIndex = 0
+    private var restartCandidates = false
     /// Linked through the internet relay: allow more delay, and move back to Wi-Fi when the phone shows up here.
     private var viaRelay = false
     private var lastWifiTry: CFTimeInterval = 0
@@ -230,6 +231,16 @@ final class Hub: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.sendStatus() }
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.watchClipboard() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.connect() }
+        // the relay says the phone left this network: stop waiting on a home address, start over internet-first
+        Relay.shared.onAway = { [weak self] in
+            guard let self, !self.store.connected else { return }
+            if let l = self.link, !l.ready, !self.asking {
+                self.restartCandidates = true     // onClose starts over at the first (internet) way
+                l.close("the phone is away")
+            } else if self.link == nil {
+                self.candidateIndex = 0; self.connect()
+            }
+        }
     }
 
     // MARK: connection
@@ -348,6 +359,8 @@ final class Hub: NSObject, NSMenuDelegate {
             DispatchQueue.main.async {
                 guard let self, let l, self.link === l else { return }
                 NSLog("hub: \(label) closed (\(why))")
+                // a home way failed: ask the relay now whether the phone has left (instead of within 20 s)
+                if !Relay.isRemote(label) { Relay.shared.check(force: true) }
                 let wasConnected = self.store.connected
                 self.link = nil
                 AgentHub.shared.phoneConnected = false
@@ -388,7 +401,12 @@ final class Hub: NSObject, NSMenuDelegate {
                     self.store.linkState = "The phone is locked for a few minutes after wrong PINs — trying again…"
                     self.scheduleRetry(30); return
                 }
-                if !wasConnected { self.candidateIndex += 1 }
+                if self.restartCandidates { self.restartCandidates = false; self.candidateIndex = 0 }
+                else if !wasConnected {
+                    // the list can change between tries (the relay check reorders it, addresses come and go):
+                    // go on after the way that just failed, not by position
+                    if let i = self.candidates().firstIndex(where: { $0.1 == label }) { self.candidateIndex = i + 1 }
+                }
                 self.scheduleRetry(wasConnected ? 1 : (self.candidateIndex < self.candidates().count ? 0.3 : 4))
             }
         }

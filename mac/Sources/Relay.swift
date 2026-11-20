@@ -57,6 +57,8 @@ final class Relay {
     /// The relay says the phone is online and none of its Wi-Fi addresses is on this Mac's network: it's away,
     /// so the internet ways go first instead of after ~20 s of home addresses that can't answer.
     private(set) var phoneAway = false
+    /// Called when phoneAway turns on, so a connection attempt to a home address can stop at once.
+    var onAway: (() -> Void)?
     private var lastCheck: CFTimeInterval = 0
 
     private let q = DispatchQueue(label: "phonecast.relay")
@@ -84,8 +86,9 @@ final class Relay {
     }
 
     /// Asks the relay whether the phone is online and for its addresses (at most every 20 s, in the background).
+    /// `force`: a link just dropped or a home address failed, so ask now (at most every 2 s).
     func check(force: Bool = false) {
-        guard let room = Self.room, force || CACurrentMediaTime() - lastCheck > 20 else { return }
+        guard let room = Self.room, CACurrentMediaTime() - lastCheck > (force ? 2 : 20) else { return }
         lastCheck = CACurrentMediaTime()
         let http = Self.base.replacingOccurrences(of: "wss://", with: "https://").replacingOccurrences(of: "ws://", with: "http://")
         guard let url = URL(string: "\(http)/v1/\(room)/addrs") else { return }
@@ -99,8 +102,11 @@ final class Relay {
                 } else if code == 200, let data, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
                     let online = o["online"] as? Bool ?? false
                     self.phoneAddrs = (o["addrs"] as? [String]) ?? []
+                    self.reachable = self.reachable.filter { self.phoneAddrs.contains($0) }   // gone = not worth a try
                     let lan = (o["lan"] as? [String]) ?? []
+                    let wasAway = self.phoneAway
                     self.phoneAway = online && o["lan"] != nil && !lan.contains { Self.onMyNetwork($0) }
+                    if self.phoneAway && !wasAway { NSLog("relay: the phone is away from this network"); self.onAway?() }
                     self.probe(self.phoneAddrs)
                     self.status = online ? "The phone is online at the relay" + (self.phoneAddrs.isEmpty ? "" : " (public IPv6 too)")
                                          : "The phone isn't connected to the relay (off, no internet, or relay turned off on it)"
