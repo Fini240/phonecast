@@ -304,3 +304,7 @@
 "The phone is online at the relay" = "Das Handy ist am Relay online";
 "The phone is online at the relay (public IPv6 too)" = "Das Handy ist am Relay online (auch mit öffentlichem IPv6)";
 "The phone isn't connected to the relay (off, no internet, or relay turned off on it)" = "Das Handy ist nicht mit dem Relay verbunden (aus, kein Internet oder Relay am Handy ausgeschaltet)";
+
+/* UI polish (sidebar groups, folded settings) */
+"Communication" = "Kommunikation"; "Files & media" = "Dateien & Medien"; "Computers" = "Computer";
+"Paired phone" = "Gekoppeltes Handy"; "How it works" = "So funktioniert's"; "Reload" = "Neu laden";

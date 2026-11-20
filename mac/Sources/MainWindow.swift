@@ -69,11 +69,12 @@ struct MainView: View {
         NavigationSplitView {
             List(selection: Binding(get: { nav.section }, set: { if let s = $0 { nav.section = s } })) {
                 PhoneHeader()
-                ForEach(Pane.allCases.filter { $0 != .pc || hasPc }) { s in
-                    Label(tr(s.rawValue), systemImage: s.symbol)
-                        .badge(badge(s))
-                        .tag(s)
-                }
+                // grouped by what you do: the phone itself, talking, its files, your computers; Settings last
+                Section { rows([.overview, .mirror]) }
+                Section(tr("Communication")) { rows([.notifications, .messages, .calls, .contacts]) }
+                Section(tr("Files & media")) { rows([.photos, .files, .apps, .transfers]) }
+                Section(tr("Computers")) { rows(hasPc ? [.agents, .pc] : [.agents]) }
+                Section { rows([.settings]) }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
@@ -96,6 +97,14 @@ struct MainView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(tr(nav.section.rawValue))
+        }
+    }
+
+    private func rows(_ panes: [Pane]) -> some View {
+        ForEach(panes) { s in
+            Label(tr(s.rawValue), systemImage: s.symbol)
+                .badge(badge(s))
+                .tag(s)
         }
     }
 
