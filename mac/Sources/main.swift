@@ -876,6 +876,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
+    /// phonecast://send?f=<path>&f=… and phonecast://link?u=<url>, from the Share extension (Finder's Share menu).
+    /// When the share launched PhoneCast, wait up to 15 s for the phone link before giving up.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for u in urls where u.scheme == "phonecast" {
+            let q = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let files = q.filter { $0.name == "f" }.compactMap { $0.value }.map { URL(fileURLWithPath: $0) }
+            let link = q.first { $0.name == "u" }?.value
+            func go(_ tries: Int) {
+                let hub = Hub.shared
+                if !hub.connected && tries > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { go(tries - 1) }; return
+                }
+                if u.host == "send", !files.isEmpty {
+                    hub.sendFiles(files)
+                } else if u.host == "link", let link {
+                    guard hub.connected else { Banners.shared.info("Phone not connected", ""); return }
+                    hub.request("url.open", ["url": link]) { r in
+                        if case .failure(let e) = r { Banners.shared.info("Couldn't open the link on the phone", e.message) }
+                    }
+                }
+            }
+            go(30)
+        }
+    }
+
     func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop(); Advanced.stopAll() }
 
     private func connect(_ ep: NWEndpoint, label: String, pin: String) {

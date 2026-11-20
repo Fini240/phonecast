@@ -9,7 +9,7 @@
     <key>CFBundleIdentifier</key><string>de.finn.phonecast.mac</string>
     <key>CFBundleExecutable</key><string>PhoneCast</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.8.1</string>
+    <key>CFBundleShortVersionString</key><string>0.8.2</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -21,6 +21,11 @@
     <key>NSAppleEventsUsageDescription</key><string>PhoneCast reads the address of your browser's open tab to open it on the phone.</string>
     <key>NSMicrophoneUsageDescription</key><string>Voice chat with the PC dashboard's assistant.</string>
     <key>NSLocalNetworkUsageDescription</key><string>PhoneCast finds your phone on the local network and receives its screen.</string>
+    <!-- phonecast://send?f=<path>… and phonecast://link?u=<url>, used by the Share extension -->
+    <key>CFBundleURLTypes</key><array><dict>
+        <key>CFBundleURLName</key><string>de.finn.phonecast.mac</string>
+        <key>CFBundleURLSchemes</key><array><string>phonecast</string></array>
+    </dict></array>
     <key>NSBonjourServices</key><array><string>_phonecast._tcp</string><string>_phonecasthub._tcp</string></array>
 </dict>
 </plist>

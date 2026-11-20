@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleName</key><string>PhoneCast</string>
+    <key>CFBundleDisplayName</key><string>PhoneCast</string>
+    <key>CFBundleIdentifier</key><string>de.finn.phonecast.mac.share</string>
+    <key>CFBundleExecutable</key><string>PhoneCastShare</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleShortVersionString</key><string>0.8.2</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key><string>com.apple.share-services</string>
+        <key>NSExtensionPrincipalClass</key><string>PhoneCastShare.ShareViewController</string>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>NSExtensionActivationRule</key>
+            <dict>
+                <key>NSExtensionActivationSupportsFileWithMaxCount</key><integer>200</integer>
+                <key>NSExtensionActivationSupportsImageWithMaxCount</key><integer>200</integer>
+                <key>NSExtensionActivationSupportsMovieWithMaxCount</key><integer>200</integer>
+                <key>NSExtensionActivationSupportsWebURLWithMaxCount</key><integer>1</integer>
+            </dict>
+        </dict>
+    </dict>
+</dict>
+</plist>

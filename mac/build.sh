@@ -18,9 +18,22 @@ swiftc -O -swift-version 5 -target arm64-apple-macos14.0 \
   Sources/*.swift -o "$APP/Contents/MacOS/PhoneCast"
 cp Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/ "$APP/Contents/Resources/"   # icons: AppIcon.icns, Dock on/off, menu bar glyph
+# Share extension: Finder's Share menu → PhoneCast (hands the files to the app via phonecast://)
+EXT="$APP/Contents/PlugIns/PhoneCastShare.appex"
+mkdir -p "$EXT/Contents/MacOS"
+swiftc -O -swift-version 5 -target arm64-apple-macos14.0 -module-name PhoneCastShare -parse-as-library \
+  -application-extension -Xlinker -e -Xlinker _NSExtensionMain -framework AppKit -framework UniformTypeIdentifiers \
+  ShareExt/ShareViewController.swift -o "$EXT/Contents/MacOS/PhoneCastShare"
+cp ShareExt/Info.plist "$EXT/Contents/Info.plist"
 SIGN_ID=${PHONECAST_SIGN_ID:-$(cat .sign-id 2>/dev/null)}
-codesign --force --deep -s "${SIGN_ID:--}" "$APP" 2>/dev/null || codesign --force --deep -s - "$APP"
+# sign the extension first (it must be sandboxed), then the app; no --deep, it would strip the entitlements
+codesign --force --options runtime --entitlements ShareExt/ShareExt.entitlements -s "${SIGN_ID:--}" "$EXT" 2>/dev/null \
+  || codesign --force --entitlements ShareExt/ShareExt.entitlements -s - "$EXT"
+codesign --force -s "${SIGN_ID:--}" "$APP" 2>/dev/null || codesign --force -s - "$APP"
 if [ -n "$NO_INSTALL" ]; then echo "Built $APP"; exit 0; fi
 rm -rf /Applications/PhoneCast.app
 cp -R "$APP" /Applications/
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R /Applications/PhoneCast.app
+pluginkit -a /Applications/PhoneCast.app/Contents/PlugIns/PhoneCastShare.appex 2>/dev/null
+pluginkit -e use -i de.finn.phonecast.mac.share 2>/dev/null
 echo "Installed /Applications/PhoneCast.app"

@@ -17,6 +17,7 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Drop an app on the mirror**: an `.apk` dropped on the phone's picture opens Android's installer.
 - **Dim while shown**: the phone goes dark while the Mac shows it (battery, heat, privacy); the Mac's picture stays bright.
 - **Phone in Finder**: the phone's storage as a drive in Finder (Files → Open in Finder, or the menu bar).
+- **Share menu**: Share → **PhoneCast** in Finder (or any app's Share menu) sends files to the phone's Downloads; a shared web link opens on the phone. Turn it on under System Settings → General → Login Items & Extensions → Sharing if it doesn't show.
 - **Phone in a browser**: notifications and text messages at `http://<Mac>:27190/phone` (iPad, school laptop).
 - **Advanced (USB debugging)**: phone apps in their own Mac windows, the phone's camera in a window, the phone's
   microphone on the Mac, and the phone's screen really off while mirrored (uses scrcpy, see below).
