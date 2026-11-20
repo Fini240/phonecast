@@ -984,16 +984,13 @@ struct SettingsView: View {
     @State private var login = Hub.loginEnabled
     @State private var axOK = AXIsProcessTrusted()
     @State private var screenOK = CGPreflightScreenCaptureAccess()
-    private var phoneKeyShort: String {
-        guard let k = UserDefaults.standard.string(forKey: "phoneKey") else { return "not paired yet" }
-        return stride(from: 0, to: min(32, k.count), by: 4).map { i -> String in
-            let a = k.index(k.startIndex, offsetBy: i); return String(k[a..<k.index(a, offsetBy: 4)])
-        }.joined(separator: " ")
-    }
+    @State private var pairOpen = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil  // = unpaired
+    private let unpaired = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil
 
-    var body: some View {
-        Form {
-            Section("Pair a phone") {
+    private var pairSection: some View {
+        Section("Pair a phone") {
+            // Paired already? Pairing is a one-time job, so it starts folded away.
+            DisclosureGroup(isExpanded: $pairOpen) {
                 HStack(alignment: .top, spacing: 18) {
                     Image(nsImage: qr).interpolation(.none).resizable().frame(width: 180, height: 180)
                         .padding(8).background(Color.white, in: RoundedRectangle(cornerRadius: 8))
@@ -1008,8 +1005,7 @@ struct SettingsView: View {
                         .controlSize(.small)
                     }
                 }
-            }
-            Section("Or pair with the PIN") {
+                Text("Or pair with the PIN").font(.headline).padding(.top, 8)
                 TextField("PIN (shown in the phone app)", text: $pin)
                 TextField("Phone IP address (optional, found automatically on the same Wi-Fi)", text: $host)
                 TextField("Phone Tailscale address (optional, for other networks)", text: $tailnet)
@@ -1024,25 +1020,22 @@ struct SettingsView: View {
                         Hub.shared.pairingChanged()
                     }
                 }
+            } label: {
+                LabeledContent(tr("Paired phone"), value: store.phoneName)
             }
-            Section("Away from home") {
-                Toggle("Connect over the internet when the phone isn't on this Wi-Fi", isOn: $relayOn)
-                    .onChange(of: relayOn) { _, on in UserDefaults.standard.set(on, forKey: "relayOn"); Hub.shared.pairingChanged() }
-                if relayOn { Text(tr(Relay.shared.status)).font(.caption).foregroundStyle(Relay.shared.status.hasPrefix("The phone is online") ? .green : .secondary) }
-                Text("No Tailscale needed: phone and Mac both connect to the PhoneCast relay (a small Cloudflare server), which passes the data through. Works on school Wi-Fi and mobile data. Pair once at home first. Everything is encrypted end to end, so the relay can't see the picture or the link, and it can't log in. Where both have public IPv6, the Mac connects directly instead. Over the internet the mirror uses a lighter quality (8 Mbit/s, 1600 px); the cable stays the fastest.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Security") {
-                LabeledContent("Phone's link key") {
-                    Text(phoneKeyShort).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
-                }
-                Text("The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted on the home Wi-Fi to keep it as fast as possible; through the relay or Tailscale, each hop is encrypted.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Forget phone key (after reinstalling PhoneCast on the phone)") {
-                    UserDefaults.standard.removeObject(forKey: "phoneKey"); UserDefaults.standard.removeObject(forKey: "mirrorKey")
-                    Hub.shared.reconnect()
-                }
-            }
+        }
+    }
+
+    private var phoneKeyShort: String {
+        guard let k = UserDefaults.standard.string(forKey: "phoneKey") else { return "not paired yet" }
+        return stride(from: 0, to: min(32, k.count), by: 4).map { i -> String in
+            let a = k.index(k.startIndex, offsetBy: i); return String(k[a..<k.index(a, offsetBy: 4)])
+        }.joined(separator: " ")
+    }
+
+    var body: some View {
+        Form {
+            if unpaired { pairSection }   // a new Mac starts here
             Section("Notifications") {
                 Toggle("Show banners", isOn: Binding(get: { !store.muteAll }, set: { store.muteAll = !$0 }))
                 Toggle("Play a sound", isOn: $store.notifSound)
@@ -1069,27 +1062,6 @@ struct SettingsView: View {
                 Text("From the phone: Share → “PhoneCast to Mac”, or the “Clipboard to Mac” Quick Settings tile. Android doesn't let apps read the clipboard in the background.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Lock this Mac when the phone leaves") {
-                Toggle("Lock the Mac when the phone is gone and nobody is using the Mac", isOn: $store.autoLock)
-                Picker("After", selection: $store.autoLockMinutes) {
-                    ForEach([1, 2, 5, 10], id: \.self) { Text("\($0) min").tag($0) }
-                }
-                .disabled(!store.autoLock)
-                Text("Locks only when the phone's link has been gone that long AND the Mac's keyboard and mouse haven't been touched for that long, so it never locks while you work. Needs Accessibility (below).")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("PC (Hermes dashboard)") {
-                TextField("Dashboard address, e.g. http://100.x.y.z:8765 (empty = no PC page)", text: $dashURL)
-                HStack {
-                    Text("Use its Tailscale address: the dashboard only accepts controls from Tailscale devices. The phone gets it too.").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Save") { PcDashboard.shared.base = dashURL.trimmingCharacters(in: .whitespaces); PcDashboard.shared.objectWillChange.send() }
-                }
-            }
-            Section("Devices to watch") {
-                TextEditor(text: $devices).font(.system(.body, design: .monospaced)).frame(height: 90)
-                HStack { Text("One per line: name, then host:port").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save") { Hub.shared.probes.config = devices } }
-            }
             Section("This Mac") {
                 Toggle("Open PhoneCast at login", isOn: Binding(get: { login }, set: { Hub.loginEnabled = $0; login = Hub.loginEnabled }))
                 Perm(ok: screenOK, title: "Screen Recording", why: "lets the phone see this Mac") {
@@ -1110,6 +1082,50 @@ struct SettingsView: View {
                     }
                 }
                 Text("Missing ones are allowed in the PhoneCast app on the phone.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Away from home") {
+                Toggle("Connect over the internet when the phone isn't on this Wi-Fi", isOn: $relayOn)
+                    .onChange(of: relayOn) { _, on in UserDefaults.standard.set(on, forKey: "relayOn"); Hub.shared.pairingChanged() }
+                if relayOn { Text(tr(Relay.shared.status)).font(.caption).foregroundStyle(Relay.shared.status.hasPrefix("The phone is online") ? .green : .secondary) }
+                DisclosureGroup("How it works") {
+                Text("No Tailscale needed: phone and Mac both connect to the PhoneCast relay (a small Cloudflare server), which passes the data through. Works on school Wi-Fi and mobile data. Pair once at home first. Everything is encrypted end to end, so the relay can't see the picture or the link, and it can't log in. Where both have public IPv6, the Mac connects directly instead. Over the internet the mirror uses a lighter quality (8 Mbit/s, 1600 px); the cable stays the fastest.")
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if !unpaired { pairSection }
+            Section("Security") {
+                LabeledContent("Phone's link key") {
+                    Text(phoneKeyShort).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                }
+                DisclosureGroup("How it works") {
+                Text("The link (notifications, messages, files, clipboard) is encrypted with TLS 1.3. Compare this key with the one in the phone app once. The mirror proves itself with a key it got over that link, so the PIN isn't sent in the clear. Mirror video isn't encrypted on the home Wi-Fi to keep it as fast as possible; through the relay or Tailscale, each hop is encrypted.")
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Forget phone key (after reinstalling PhoneCast on the phone)") {
+                    UserDefaults.standard.removeObject(forKey: "phoneKey"); UserDefaults.standard.removeObject(forKey: "mirrorKey")
+                    Hub.shared.reconnect()
+                }
+            }
+            Section("Lock this Mac when the phone leaves") {
+                Toggle("Lock the Mac when the phone is gone and nobody is using the Mac", isOn: $store.autoLock)
+                Picker("After", selection: $store.autoLockMinutes) {
+                    ForEach([1, 2, 5, 10], id: \.self) { Text("\($0) min").tag($0) }
+                }
+                .disabled(!store.autoLock)
+                Text("Locks only when the phone's link has been gone that long AND the Mac's keyboard and mouse haven't been touched for that long, so it never locks while you work. Needs Accessibility (below).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("PC (Hermes dashboard)") {
+                TextField("Dashboard address, e.g. http://100.x.y.z:8765 (empty = no PC page)", text: $dashURL)
+                HStack {
+                    Text("Use its Tailscale address: the dashboard only accepts controls from Tailscale devices. The phone gets it too.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Save") { PcDashboard.shared.base = dashURL.trimmingCharacters(in: .whitespaces); PcDashboard.shared.objectWillChange.send() }
+                }
+            }
+            Section("Devices to watch") {
+                TextEditor(text: $devices).font(.system(.body, design: .monospaced)).frame(height: 90)
+                HStack { Text("One per line: name, then host:port").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Save") { Hub.shared.probes.config = devices } }
             }
             AdvancedSection()
         }
