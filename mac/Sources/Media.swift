@@ -199,6 +199,10 @@ final class AudioSink {
     init() {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: fmt)
+        // switching speakers/headphones stops the engine; start again on the next chunk
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+            self?.started = false
+        }
     }
 
     func push(_ d: Data) {
@@ -234,9 +238,10 @@ final class AudioSink {
         if !started {
             lock.lock(); let q2 = queued; lock.unlock()
             if q2 >= 48_000 * 4 / 100 { // 40 ms pre-roll
-                try? engine.start()
-                player.play()
-                started = true
+                // play() throws an Objective-C exception (crash) when the engine isn't running,
+                // e.g. no output device for a moment: then just try again with the next chunk
+                if !engine.isRunning { try? engine.start() }
+                if engine.isRunning { player.play(); started = true }
             }
         }
     }

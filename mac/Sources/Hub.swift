@@ -700,7 +700,10 @@ final class Hub: NSObject, NSMenuDelegate {
                 if let dir { begin["dir"] = dir }
                 if clip { begin["clip"] = true }
                 l.send(HT.fileBegin, try! JSONSerialization.data(withJSONObject: begin))
-                let window = DispatchSemaphore(value: 4)   // at most 4 chunks (1 MB) queued
+                // at most 4 chunks (1 MB) queued. Start at 0 and signal 4 times: libdispatch traps when a
+                // semaphore is freed below its starting value, which happens while sends are still in flight.
+                let window = DispatchSemaphore(value: 0)
+                for _ in 0..<4 { window.signal() }
                 var sent = 0, lastPct = -1, ok = true
                 while true {
                     guard let chunk = try? fh.read(upToCount: 256 * 1024), !chunk.isEmpty else { break }
