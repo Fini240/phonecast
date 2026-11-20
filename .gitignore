@@ -18,3 +18,4 @@ art/options/
 # Cloudflare deploy cache (holds account info)
 relay/.wrangler/
 relay/node_modules/
+relay/.allowed

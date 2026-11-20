@@ -25,6 +25,8 @@ sealed unsafe partial class App
         if (!string.IsNullOrWhiteSpace(host)) Add(host, 27183, host);
         var ts = Settings.Str("tailnetHost");
         if (!string.IsNullOrWhiteSpace(ts)) Add(ts, 27183, ts + " (Tailscale)");
+        // last: over the internet from any network, through the PhoneCast relay (Relay.cs)
+        if (Relay.LocalPort(27183) is int rp) Add("127.0.0.1", rp, Relay.Label);
         return outL;
     }
 
@@ -378,7 +380,14 @@ sealed unsafe partial class App
         int maxSize = Settings.Int("resolution", 0);
         if (maxSize == 0 && Sdl.SDL_GetDisplayBounds(Math.Max(0, Sdl.SDL_GetWindowDisplayIndex(win)), out var b) == 0) maxSize = Math.Max(b.w, b.h);
         maxSize = Math.Min(maxSize, 65535);
-        link?.Send(CT.Settings, new[] { (byte)(maxSize >> 8), (byte)maxSize, (byte)Bitrate });
+        int rate = Bitrate;
+        // through the relay the phone's upload (mobile data) is the limit: a lighter picture stays smooth
+        if (deviceLabel == Relay.Label)
+        {
+            rate = Math.Min(rate, Settings.Int("remoteBitrate", 8));
+            maxSize = Math.Min(maxSize, Settings.Int("remoteResolution", 1600));
+        }
+        link?.Send(CT.Settings, new[] { (byte)(maxSize >> 8), (byte)maxSize, (byte)Math.Min(255, rate) });
     }
 
     void Ping()
@@ -501,6 +510,7 @@ sealed unsafe partial class App
         if (d.ShowDialog(Owner) != DialogResult.OK) return;
         Settings.Set("pin", d.Pin);
         Settings.Set("tailnetHost", d.Tailnet);
+        Settings.Set("relayOn", d.RelayOn);
         wifiIndex = 0;
         if (d.Service != null) { Settings.Set("service", d.Service); Settings.Remove("host"); }
         else { Settings.Set("host", d.Host); Settings.Remove("service"); }

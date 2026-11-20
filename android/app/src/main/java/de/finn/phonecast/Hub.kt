@@ -407,6 +407,11 @@ class HubService : Service() {
                 s.close(); return
             }
             s.soTimeout = 8_000  // the Mac pings every second
+            // a computer with its own relay hands its address over (only from a logged-in computer)
+            val relay = hello.optString("relay")
+            if (relay.startsWith("wss://") && relay.length < 200 && relay != Prefs.relayUrl(this)) {
+                Prefs.setRelayUrl(this, relay); Relay.restart(this)
+            }
             val cl = Client(s, hello.optString("name", qr?.name ?: "Mac"), hello.optString("os", "mac"))
             c = cl
             // the same computer reconnecting replaces its old connection; other computers stay

@@ -27,6 +27,7 @@ private val DE = mapOf(
     "Only on the same Wi-Fi, by cable or over Tailscale" to "Nur im gleichen WLAN, per Kabel oder über Tailscale",
     "Online: paired computers reach this phone from any network, no Tailscale needed" to "Online: Gekoppelte Computer erreichen das Handy aus jedem Netz, ohne Tailscale",
     "Connecting to the PhoneCast relay…" to "Verbinde mit dem PhoneCast-Relay…",
+    "The relay refused this phone (on the Mac: relay/allow.sh)" to "Das Relay lehnt dieses Handy ab (am Mac: relay/allow.sh)",
     "over the internet relay" to "übers Internet-Relay",
     "Connected" to "Verbunden",
     "Connected · {0} ms" to "Verbunden · {0} ms",

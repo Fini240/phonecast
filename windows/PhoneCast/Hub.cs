@@ -34,7 +34,8 @@ sealed class HubLink
     public bool UsedQr { get; private set; }
     public string PhoneName { get; private set; } = "phone";
 
-    public HubLink(string host) { this.host = host; }
+    readonly int port;
+    public HubLink(string host, int port = Port) { this.host = host; this.port = port; }
 
     public static string Fingerprint(X509Certificate c) => Convert.ToHexString(SHA256.HashData(c.GetRawCertData()));
 
@@ -46,7 +47,7 @@ sealed class HubLink
         {
             tcp = new TcpClient(AddressFamily.InterNetworkV6) { NoDelay = true };
             tcp.Client.DualMode = true;
-            var t = tcp.ConnectAsync(host, Port);
+            var t = tcp.ConnectAsync(host, port);
             if (!t.Wait(5000) || t.IsFaulted) { Finish("unreachable"); return; }
             string pinned = Settings.Str("phoneKey");
             ssl = new SslStream(tcp.GetStream(), false, (_, cert, _, _) =>
@@ -88,6 +89,8 @@ sealed class HubLink
                 {
                     var o = JsonNode.Parse(Encoding.UTF8.GetString(p)) as JsonObject ?? new JsonObject();
                     PhoneName = (string)o["name"] ?? "phone";
+                    // the mirror key: also the internet relay's room and tunnel key (Relay.cs)
+                    if (o["mirrorKey"] is JsonNode mk && (string)mk is string k && k != "" && k != Settings.Str("mirrorKey")) Settings.Set("mirrorKey", k);
                     if (UsedQr && o["proof"] is not null)
                     {
                         var want = Hex(Hmac(login.PairKey, nonce, A("phonecast-hub-phone"), A(seenFp)));

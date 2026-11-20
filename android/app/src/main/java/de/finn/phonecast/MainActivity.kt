@@ -674,6 +674,7 @@ class MainActivity : Activity() {
             u.gone(notifBtn, NotifListener.instance != null)
             relay.refresh(when {
                 !Prefs.relay(this) -> "Only on the same Wi-Fi, by cable or over Tailscale"
+                System.currentTimeMillis() < Relay.refusedUntil -> "The relay refused this phone (on the Mac: relay/allow.sh)"
                 Relay.online -> "Online: paired computers reach this phone from any network, no Tailscale needed"
                 else -> "Connecting to the PhoneCast relay…"
             })

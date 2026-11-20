@@ -43,9 +43,15 @@ sealed unsafe partial class App
         if (c.Count == 0) return;
         if (hubIndex >= c.Count) hubIndex = 0;
         var host = c[hubIndex].host;
+        int hubPort = HubLink.Port;
+        if (c[hubIndex].label == Relay.Label)
+        {
+            if (Relay.LocalPort(HubLink.Port) is not int rp) { hubIndex++; return; }
+            hubPort = rp;
+        }
         hubConnecting = true;
         var (pid, pkey) = PairIdentity();
-        var h = new HubLink(host);
+        var h = new HubLink(host, hubPort);
         hub = h;
         h.OnLogin = (ok, why) => Post(() =>
         {

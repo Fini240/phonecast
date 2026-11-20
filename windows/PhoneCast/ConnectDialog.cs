@@ -9,7 +9,9 @@ sealed class ConnectDialog : Form
     readonly TextBox host = new() { Width = 340, PlaceholderText = "e.g. 192.168.1.57 (shown in the phone app)" };
     readonly TextBox pin = new() { Width = 340, PlaceholderText = "6-digit PIN from the phone app (not needed after QR pairing)" };
     readonly TextBox tail = new() { Width = 340, PlaceholderText = "optional, e.g. 100.64.0.10 — used when Wi-Fi can't reach it" };
+    readonly CheckBox relay = new() { Text = "Connect over the internet when the phone isn't on this Wi-Fi (PhoneCast relay,\nno Tailscale needed, end-to-end encrypted; link once on the same Wi-Fi first)", AutoSize = true, Margin = new Padding(0, 10, 0, 0) };
     const string ByIp = "IP address below";
+    public bool RelayOn => relay.Checked;
 
     public string Pin => pin.Text.Trim();
     public string Host => host.Text.Trim();
@@ -39,6 +41,7 @@ sealed class ConnectDialog : Form
         flow.Controls.Add(L("IP address:")); host.Text = Settings.Str("host") ?? ""; flow.Controls.Add(host);
         flow.Controls.Add(L("PIN:")); pin.Text = Settings.Str("pin") ?? ""; flow.Controls.Add(pin);
         flow.Controls.Add(L("Tailscale address of the phone:")); tail.Text = Settings.Str("tailnetHost") ?? ""; flow.Controls.Add(tail);
+        relay.Checked = Settings.Bool("relayOn", true); flow.Controls.Add(relay);
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Width = 340, Margin = new Padding(0, 14, 0, 0) };
         var ok = new Button { Text = "Connect", DialogResult = DialogResult.OK, AutoSize = true };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };

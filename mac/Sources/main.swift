@@ -416,7 +416,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             maxSize = Int(max(sc.frame.width, sc.frame.height) * sc.backingScaleFactor)
         }
         maxSize = min(maxSize, 65535)
-        link?.send(CT.settings, Data([UInt8(maxSize >> 8), UInt8(maxSize & 0xff), UInt8(bitrate)]))
+        var rate = bitrate
+        // over the internet (relay or direct IPv6) the upload of a phone on mobile data is the limit:
+        // a lighter picture keeps it smooth (defaults remoteBitrate / remoteResolution to change it)
+        if Relay.isRemote(deviceLabel) {
+            let d = UserDefaults.standard
+            let rb = d.integer(forKey: "remoteBitrate"), rr = d.integer(forKey: "remoteResolution")
+            rate = min(rate, rb > 0 ? rb : 8)
+            maxSize = min(maxSize, rr > 0 ? rr : 1600)
+        }
+        link?.send(CT.settings, Data([UInt8(maxSize >> 8), UInt8(maxSize & 0xff), UInt8(min(255, rate))]))
     }
 
     private var lastPong: CFTimeInterval = 0
@@ -744,7 +753,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         if let ts = d.string(forKey: "tailnetHost"), !ts.isEmpty {
             add(.hostPort(host: NWEndpoint.Host(ts), port: 27183), "\(ts) (Tailscale)")
         }
-        if let r = Relay.shared.endpoint(27183) { add(r, Relay.label) }   // from any network, see Relay.swift
+        // from any network, see Relay.swift: the phone's public IPv6 directly, then the relay
+        if Relay.forced { out = []; seen = [] }
+        for (ep, l) in Relay.shared.directEndpoints(27183) { add(ep, l) }
+        if let r = Relay.shared.endpoint(27183) { add(r, Relay.label) }
         return out
     }
 

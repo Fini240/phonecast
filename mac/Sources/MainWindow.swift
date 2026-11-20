@@ -996,7 +996,8 @@ struct SettingsView: View {
             Section("Away from home") {
                 Toggle("Connect over the internet when the phone isn't on this Wi-Fi", isOn: $relayOn)
                     .onChange(of: relayOn) { _, on in UserDefaults.standard.set(on, forKey: "relayOn"); Hub.shared.pairingChanged() }
-                Text("No Tailscale needed: phone and Mac both connect to the PhoneCast relay (a small Cloudflare server), which passes the data through. Works on school Wi-Fi and mobile data. Pair once at home first. The relay can't read the link (it stays TLS-encrypted end to end) and can't log in. It's slower than Wi-Fi, so pick a lower mirror quality there.")
+                if relayOn { Text(tr(Relay.shared.status)).font(.caption).foregroundStyle(Relay.shared.status.hasPrefix("The phone is online") ? .green : .secondary) }
+                Text("No Tailscale needed: phone and Mac both connect to the PhoneCast relay (a small Cloudflare server), which passes the data through. Works on school Wi-Fi and mobile data. Pair once at home first. Everything is encrypted end to end, so the relay can't see the picture or the link, and it can't log in. Where both have public IPv6, the Mac connects directly instead. Over the internet the mirror uses a lighter quality (8 Mbit/s, 1600 px); the cable stays the fastest.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Security") {

@@ -81,14 +81,24 @@ Download both files from the [latest release](https://github.com/Fini240/phoneca
 - **Other networks:** the phone gets a new IP on every Wi-Fi, so the Mac doesn't rely on the saved one: it
   tries the phone it finds on the current network first, then the saved IP, then the optional Tailscale
   address, and last the **internet relay**.
-- **Away from home (no Tailscale needed):** when the phone isn't on the Mac's network (school Wi-Fi that keeps
-  devices apart, mobile data, two different places), both apps connect out to the PhoneCast relay, a small
-  Cloudflare Worker in [`relay/`](relay/) that only passes bytes along. Pair once at home first: the relay
-  room comes from the key the phone hands over when pairing. It's on by default; turn it off in the phone's
-  Settings ("Reachable away from home") or the Mac's Settings ("Away from home"). It's slower than Wi-Fi
-  (about 30 Mbit/s and +40 ms here), so a lower mirror quality works better. When the phone shows up on the
-  same Wi-Fi again, the link moves back to it by itself. To run your own relay: `cd relay && npx wrangler
-  deploy`, then `defaults write de.finn.phonecast.mac relayURL wss://…` (the phone's URL is in `Relay.kt`).
+- **Away from home (no Tailscale needed):** when the phone isn't on the computer's network (school Wi-Fi
+  that keeps devices apart, mobile data, two different places), the Mac or PC first tries the phone's public
+  IPv6 addresses directly (it tests them in the background, so a blocked one costs nothing; most mobile
+  networks block them), then the **PhoneCast relay**: a small Cloudflare Worker in [`relay/`](relay/) that both
+  apps dial out to and that only passes bytes along. Pair once at home first: the relay room and the tunnel
+  keys come from the key the phone hands over when linking. Every tunnel is encrypted end to end
+  (AES-256-GCM, a fresh key per connection), on top of the link's TLS, so the relay sees neither the picture
+  nor the link and can't log in. Over the internet the mirror switches to a lighter picture by itself
+  (8 Mbit/s, 1600 px; `defaults write de.finn.phonecast.mac remoteBitrate 16` / `remoteResolution` to
+  change it); Wi-Fi and the cable keep your settings and stay the low-latency way. When the phone shows up on
+  the same Wi-Fi again, the link moves back to it by itself. The phone reconnects to the relay as soon as
+  its screen turns on or it changes networks. On by default; switch it off in the phone's Settings
+  ("Reachable away from home"), the Mac's Settings ("Away from home") or the PC's Connect dialog.
+- **Own relay / who may use it:** the relay only serves the phones on its list. `relay/allow.sh` adds the
+  room of the phone paired with this Mac (run it again after "New PIN" on the phone and one Wi-Fi
+  connection); `relay/allow.sh --open` lets anyone use it. To run your own: `cd relay && npx wrangler deploy`,
+  then `defaults write de.finn.phonecast.mac relayURL wss://…` (or `relayURL` in the PC's settings.json); the
+  phone learns the address from the computer the next time they link.
 
 ## The PhoneCast window
 
@@ -315,8 +325,7 @@ for five minutes; "Sign out all browsers" on the Mac revokes every sign-in.
   the Mac's Settings once. Failed QR logins don't use up the PIN tries. The mirror proves itself with a 256-bit key it received
   over that link, so the PIN isn't sent in the clear, and 5 wrong PINs lock both for 5 minutes.
   **The mirror's video and touches are not encrypted**, to keep game latency as low as possible: on the
-  cable that's local anyway. Through the relay each hop is TLS (wss), but the relay itself passes the
-  mirror's bytes in the clear; the link stays end-to-end encrypted and the relay can't log in either way.
+  cable that's local anyway. Through the internet relay everything is encrypted end to end (see above).
 - **Wi-Fi (mirror):** someone on the same network could watch the unencrypted picture while you share.
   Use networks you trust (or the cable / Tailscale) and stop sharing when you're done.
 - **Permissions & Play Protect:** the phone features ask for messages, calls, contacts, photos and all-files
