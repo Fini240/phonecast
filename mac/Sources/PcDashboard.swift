@@ -99,8 +99,13 @@ struct PcView: View {
     @AppStorage("pcSub") private var sub = "control"
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
+        Group {
+            if sub == "control" || d.base.isEmpty { PcControlView() }
+            else { PcWebView(kind: sub, base: d.base) }
+        }
+        .toolbar {
+            // the four PC pages switch in the toolbar, next to the page title
+            ToolbarItem(placement: .principal) {
                 Picker("", selection: $sub) {
                     Text("Control").tag("control")
                     Text("Chat").tag("chat")
@@ -108,19 +113,16 @@ struct PcView: View {
                     Text("Studio").tag("studio")
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
-                Spacer()
+            }
+            ToolbarItem {
                 if sub != "control" {
-                    Button { PcWeb.shared.reload(sub) } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless).help("Reload this page")
+                    Button { PcWeb.shared.reload(sub) } label: { Label("Reload", systemImage: "arrow.clockwise") }
+                        .help("Reload this page")
                 } else if !d.base.isEmpty {
                     Button { NSWorkspace.shared.open(URL(string: d.base)!) } label: { Label("Full dashboard", systemImage: "safari") }
-                        .help("The whole dashboard in the browser")
+                        .labelStyle(.titleAndIcon).help("The whole dashboard in the browser")
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            Divider()
-            if sub == "control" || d.base.isEmpty { PcControlView() }
-            else { PcWebView(kind: sub, base: d.base) }
         }
     }
 }

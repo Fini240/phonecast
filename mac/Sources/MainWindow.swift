@@ -44,7 +44,9 @@ final class MainWindowController {
             // The page title and its actions live in the window's unified toolbar (like Mail or Music),
             // not as a big heading inside each page.
             w.toolbarStyle = .unified
-            w.contentViewController = NSHostingController(rootView: MainView().environmentObject(Store.shared).environmentObject(nav))
+            let host = NSHostingController(rootView: MainView().environmentObject(Store.shared).environmentObject(nav))
+            host.sceneBridgingOptions = [.title, .toolbars]
+            w.contentViewController = host
             w.setContentSize(NSSize(width: 980, height: 660))
             w.setFrameAutosaveName("PhoneCastMain")
             if !w.setFrameUsingName("PhoneCastMain") { w.center() }
@@ -188,80 +190,90 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 16) {
                 UpdateBanner()
                 HStack(alignment: .top, spacing: 16) {
-                    Panel(title: store.phoneName, symbol: "smartphone") {
-                        if store.connected {
-                            let s = store.phoneStatus
-                            Row("Link", store.rttMs >= 0 ? "\(Int(store.rttMs.rounded())) ms round trip" : "—")
-                            if let b = s["battery"] as? Int {
-                                BarRow("Battery", Double(b) / 100, "\(b) %" + ((s["charging"] as? Bool ?? false) ? " · charging" : ""),
+                    // the phone, and everything you can do with it
+                    VStack(alignment: .leading, spacing: 16) {
+                        Panel(title: store.phoneName, symbol: "smartphone") {
+                            if store.connected {
+                                let s = store.phoneStatus
+                                Row("Link", store.rttMs >= 0 ? "\(Int(store.rttMs.rounded())) ms round trip" : "—")
+                                if let b = s["battery"] as? Int {
+                                    BarRow("Battery", Double(b) / 100, "\(b) %" + ((s["charging"] as? Bool ?? false) ? " · charging" : ""),
+                                           tint: b <= 15 ? .red : b <= 30 ? .orange : .green)
+                                } else { Row("Battery", "—") }
+                                Row("Temperature", (s["batteryTemp"] as? Double).map { String(format: "%.1f °C", $0) } ?? "—")
+                                let heat = min(6, max(0, s["thermal"] as? Int ?? 0))
+                                BarRow("Heat", Double(heat + 1) / 7, ["normal", "warm", "hot", "throttling", "very hot", "emergency", "shutdown"][heat],
+                                       tint: heat == 0 ? .green : heat <= 2 ? .orange : .red)
+                                Row("Network", (s["net"] as? String ?? "—") + ((s["rssi"] as? Int).map { " · \($0) dBm" } ?? ""))
+                                Row("Free storage", (s["freeGB"] as? Double).map { String(format: "%.0f GB", $0) } ?? "—")
+                                Row("Screen", store.phoneCasting ? "shared with this Mac" : "not shared")
+                            } else {
+                                Text(tr(store.linkState)).foregroundStyle(.secondary)
+                            }
+                            Divider().padding(.vertical, 4)
+                            PhoneActions()
+                        }
+                        if store.connected, let np = store.nowPlaying { NowPlayingCard(np: np) }
+                    }
+                    // this Mac and the other machines
+                    VStack(alignment: .leading, spacing: 16) {
+                        Panel(title: Host.current().localizedName ?? "This Mac", symbol: "laptopcomputer") {
+                            let m = store.macStats
+                            if let b = m["battery"] as? Int {
+                                BarRow("Battery", Double(b) / 100, "\(b) %" + ((m["charging"] as? Bool ?? false) ? " · on power" : ""),
                                        tint: b <= 15 ? .red : b <= 30 ? .orange : .green)
                             } else { Row("Battery", "—") }
-                            Row("Temperature", (s["batteryTemp"] as? Double).map { String(format: "%.1f °C", $0) } ?? "—")
-                            let heat = min(6, max(0, s["thermal"] as? Int ?? 0))
-                            BarRow("Heat", Double(heat + 1) / 7, ["normal", "warm", "hot", "throttling", "very hot", "emergency", "shutdown"][heat],
-                                   tint: heat == 0 ? .green : heat <= 2 ? .orange : .red)
-                            Row("Network", (s["net"] as? String ?? "—") + ((s["rssi"] as? Int).map { " · \($0) dBm" } ?? ""))
-                            Row("Free storage", (s["freeGB"] as? Double).map { String(format: "%.0f GB", $0) } ?? "—")
-                            Row("Screen", store.phoneCasting ? "shared with this Mac" : "not shared")
-                        } else {
-                            Text(tr(store.linkState)).foregroundStyle(.secondary)
+                            if let c = m["cpu"] as? Int { BarRow("CPU", Double(c) / 100, "\(c) %", tint: c > 85 ? .orange : .accentColor) } else { Row("CPU", "—") }
+                            if let c = m["mem"] as? Int { BarRow("Memory", Double(c) / 100, "\(c) %", tint: c > 90 ? .orange : .accentColor) } else { Row("Memory", "—") }
+                            Row("Heat", m["thermal"] as? String ?? "—")
+                            Row("Mac screen on the phone", store.phoneControlsMac ? "in use" : "not in use")
+                        }
+                        Panel(title: "Devices", symbol: "point.3.connected.trianglepath.dotted") {
+                            ForEach(store.devices) { d in
+                                HStack {
+                                    Circle().fill(d.ms == nil ? Color.secondary.opacity(0.4) : .green).frame(width: 8, height: 8)
+                                    Text(d.name)
+                                    Spacer()
+                                    Text(d.ms.map { "\(Int($0.rounded())) ms" } ?? "offline").monospacedDigit().foregroundStyle(.secondary)
+                                }
+                            }
+                            Text("Time to open a connection, every 5 s. Edit the list in Settings.").font(.caption).foregroundStyle(.tertiary)
                         }
                     }
-                    Panel(title: Host.current().localizedName ?? "This Mac", symbol: "laptopcomputer") {
-                        let m = store.macStats
-                        if let b = m["battery"] as? Int {
-                            BarRow("Battery", Double(b) / 100, "\(b) %" + ((m["charging"] as? Bool ?? false) ? " · on power" : ""),
-                                   tint: b <= 15 ? .red : b <= 30 ? .orange : .green)
-                        } else { Row("Battery", "—") }
-                        if let c = m["cpu"] as? Int { BarRow("CPU", Double(c) / 100, "\(c) %", tint: c > 85 ? .orange : .accentColor) } else { Row("CPU", "—") }
-                        if let c = m["mem"] as? Int { BarRow("Memory", Double(c) / 100, "\(c) %", tint: c > 90 ? .orange : .accentColor) } else { Row("Memory", "—") }
-                        Row("Heat", m["thermal"] as? String ?? "—")
-                        Row("Mac screen on the phone", store.phoneControlsMac ? "in use" : "not in use")
-                    }
-                }
-                if store.connected, let np = store.nowPlaying { NowPlayingCard(np: np) }
-                HStack(spacing: 10) {
-                    // icons only: the row is too narrow for the words; hovering shows the full name
-                    Button { Hub.shared.mirror() } label: {
-                        Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle").padding(.horizontal, 6)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut("m", modifiers: [.command, .shift])
-                    .help(store.phoneCasting ? "Show mirror (⇧⌘M)" : "Mirror phone (⇧⌘M)")
-                    Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files…", systemImage: "square.and.arrow.up") }
-                        .help("Send files…")
-                    Button { Hub.shared.sendClipboard(nil) } label: { Label("Send clipboard", systemImage: "doc.on.clipboard") }
-                        .help("Send clipboard")
-                    Button { nav.section = .messages } label: { Label("New message", systemImage: "square.and.pencil") }
-                        .help("New message")
-                    Button { Hub.shared.ring(!store.ringing) } label: {
-                        Label(store.ringing ? "Stop ringing" : "Find phone", systemImage: store.ringing ? "bell.slash" : "bell.and.waves.left.and.right")
-                    }
-                    .help(store.ringing ? "Stop ringing" : "Find phone")
-                    Button { Continuity.locatePhone() } label: { Label("Show on map", systemImage: "map") }
-                        .help("Show on map")
-                    Button { Continuity.sendTabToPhone() } label: { Label("Tab to phone", systemImage: "safari") }
-                        .help("Tab to phone")
-                    Button { Continuity.openInFinder() } label: { Label("Phone in Finder", systemImage: "externaldrive.connected.to.line.below") }
-                        .help("Phone in Finder")
-                }
-                .labelStyle(.iconOnly)
-                .controlSize(.large)
-                .disabled(!store.connected)
-                Panel(title: "Devices", symbol: "point.3.connected.trianglepath.dotted") {
-                    ForEach(store.devices) { d in
-                        HStack {
-                            Circle().fill(d.ms == nil ? Color.secondary.opacity(0.4) : .green).frame(width: 8, height: 8)
-                            Text(d.name)
-                            Spacer()
-                            Text(d.ms.map { "\(Int($0.rounded())) ms" } ?? "offline").monospacedDigit().foregroundStyle(.secondary)
-                        }
-                    }
-                    Text("Time to open a connection, every 5 s. Edit the list in Settings.").font(.caption).foregroundStyle(.tertiary)
                 }
             }
             .padding(20)
         }
+    }
+}
+
+/// The phone's quick actions, inside the phone's own panel: mirror first, then sending, then finding it.
+struct PhoneActions: View {
+    @EnvironmentObject var store: Store
+    @EnvironmentObject var nav: MainWindowController.Nav
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { Hub.shared.mirror() } label: {
+                Label(store.phoneCasting ? "Show mirror" : "Mirror phone", systemImage: "rectangle.on.rectangle").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large)
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .help(store.phoneCasting ? "Show mirror (⇧⌘M)" : "Mirror phone (⇧⌘M)")
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                action("Send files…", "square.and.arrow.up") { Hub.shared.chooseFiles(nil) }
+                action("Send clipboard", "doc.on.clipboard") { Hub.shared.sendClipboard(nil) }
+                action("Tab to phone", "safari") { Continuity.sendTabToPhone() }
+                action("New message", "square.and.pencil") { nav.section = .messages }
+                action(store.ringing ? "Stop ringing" : "Find phone", store.ringing ? "bell.slash" : "bell.and.waves.left.and.right") { Hub.shared.ring(!store.ringing) }
+                action("Show on map", "map") { Continuity.locatePhone() }
+                action("Phone in Finder", "externaldrive.connected.to.line.below") { Continuity.openInFinder() }
+            }
+        }
+        .disabled(!store.connected)
+    }
+    private func action(_ title: String, _ symbol: String, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) { Label(tr(title), systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading) }
+            .help(tr(title))
     }
 }
 
@@ -351,14 +363,6 @@ struct NotificationsView: View {
     @State private var text = ""
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Toggle("Mute all", isOn: $store.muteAll).toggleStyle(.switch).controlSize(.small)
-                if store.quietNow { Text("Quiet hours").font(.caption).padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: Capsule()) }
-                Spacer()
-                Button("Clear all") { store.clearAll() }.disabled(store.notifications.isEmpty)
-            }
-            .padding(12)
-            Divider()
             if store.notifications.isEmpty {
                 Placeholder(symbol: "bell.slash", title: "No notifications",
                             text: store.perms["notifications"] == false
@@ -402,6 +406,16 @@ struct NotificationsView: View {
                 }
             }
         }
+        .toolbar {
+            ToolbarItemGroup {
+                if store.quietNow { Text("Quiet hours").font(.caption).foregroundStyle(.secondary) }
+                HStack(spacing: 6) {   // the toolbar hides a toggle's own label, so the words sit beside it
+                    Text(tr("Mute all")).foregroundStyle(.secondary)
+                    Toggle("Mute all", isOn: $store.muteAll).toggleStyle(.switch).controlSize(.small).labelsHidden()
+                }
+                Button("Clear all") { store.clearAll() }.disabled(store.notifications.isEmpty)
+            }
+        }
     }
     private func send(_ n: PhoneNotif) { guard !text.isEmpty else { return }; store.reply(n, text); replyTo = nil; text = "" }
 }
@@ -420,8 +434,6 @@ struct MessagesView: View {
                 VStack(spacing: 0) {
                     HStack {
                         TextField("Search", text: $search).textFieldStyle(.roundedBorder)
-                        Button { composing = true; selected = nil } label: { Image(systemName: "square.and.pencil") }.help("New message")
-                        Button { store.loadThreads() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh")
                     }
                     .padding(8)
                     List(filtered, selection: $selected) { t in
@@ -455,6 +467,12 @@ struct MessagesView: View {
             }
         }
         .onAppear { if store.threads.isEmpty { store.loadThreads() } }
+        .toolbar {
+            ToolbarItemGroup {
+                Button { store.loadThreads() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.help("Refresh")
+                Button { composing = true; selected = nil } label: { Label("New message", systemImage: "square.and.pencil") }.help("New message")
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openThread)) { n in
             if let id = n.object as? Int64 { selected = id; composing = false }
             else if let num = n.object as? String { prefill = num; composing = true; selected = nil }
@@ -597,7 +615,6 @@ struct CallsView: View {
                 HStack {
                     TextField("Number to call", text: $dialNumber).textFieldStyle(.roundedBorder).onSubmit(dial)
                     Button { dial() } label: { Label("Call", systemImage: "phone.fill") }.disabled(dialNumber.isEmpty)
-                    Button { store.loadCalls() } label: { Image(systemName: "arrow.clockwise") }
                 }
                 .padding(12)
                 Text("Calls are placed and answered on the phone; talk with the phone or its headset.").font(.caption).foregroundStyle(.secondary).padding(.bottom, 6)
@@ -619,6 +636,11 @@ struct CallsView: View {
             }
         }
         .onAppear { if store.calls.isEmpty { store.loadCalls() } }
+        .toolbar {
+            ToolbarItemGroup {
+                Button { store.loadCalls() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.help("Refresh")
+            }
+        }
     }
     private func dial() { guard !dialNumber.isEmpty else { return }; store.dial(dialNumber); dialNumber = "" }
 }
@@ -682,16 +704,6 @@ struct PhotosView: View {
     var body: some View {
         Gate(section: "photos", what: "photos", perm: "photos") {
             VStack(spacing: 0) {
-                HStack {
-                    Text("\(store.photos.count) photos and videos\(store.photosDone ? "" : "+")").foregroundStyle(.secondary)
-                    Spacer()
-                    if !selection.isEmpty {
-                        Button("Save \(selection.count) to Downloads") { save(Array(selection)) }
-                    }
-                    Button { store.loadPhotos() } label: { Image(systemName: "arrow.clockwise") }
-                }
-                .padding(12)
-                Divider()
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 4)], spacing: 4) {
                         ForEach(store.photos) { p in
@@ -732,6 +744,15 @@ struct PhotosView: View {
             }
         }
         .onAppear { if store.photos.isEmpty { store.loadPhotos() } }
+        .toolbar {
+            ToolbarItemGroup {
+                Text("\(store.photos.count) photos and videos\(store.photosDone ? "" : "+")").foregroundStyle(.secondary)
+                if !selection.isEmpty {
+                    Button("Save \(selection.count) to Downloads") { save(Array(selection)) }
+                }
+                Button { store.loadPhotos() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.help("Refresh")
+            }
+        }
     }
 
     private func preview(_ p: PhonePhoto) {
@@ -781,10 +802,6 @@ struct FilesView: View {
                         }
                     }
                     Spacer()
-                    Button { Continuity.openInFinder() } label: { Label("Open in Finder", systemImage: "externaldrive.connected.to.line.below") }
-                        .help("Mount the phone's storage as a drive in Finder")
-                    Button { Hub.shared.choose(dir: store.filePath) { refresh() } } label: { Label("Upload here…", systemImage: "square.and.arrow.up") }
-                    Button { refresh() } label: { Image(systemName: "arrow.clockwise") }
                 }
                 .padding(12)
                 Divider()
@@ -822,6 +839,15 @@ struct FilesView: View {
             }
         }
         .onAppear { if store.files.isEmpty { store.loadFiles(store.filePath) } }
+        .toolbar {
+            ToolbarItemGroup {
+                Button { refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.help("Refresh")
+                Button { Continuity.openInFinder() } label: { Label("Open in Finder", systemImage: "externaldrive.connected.to.line.below") }
+                    .help("Mount the phone's storage as a drive in Finder")
+                Button { Hub.shared.choose(dir: store.filePath) { refresh() } } label: { Label("Upload here…", systemImage: "square.and.arrow.up") }
+                    .labelStyle(.titleAndIcon).disabled(!store.connected)
+            }
+        }
     }
     private var crumbs: [String] { store.filePath.split(separator: "/").map(String.init) }
     private func join(_ n: String) -> String { store.filePath.isEmpty ? n : store.filePath + "/" + n }
@@ -861,7 +887,6 @@ struct AppsView: View {
             VStack(spacing: 0) {
                 HStack {
                     TextField("Search apps", text: $search).textFieldStyle(.roundedBorder)
-                    Button { store.loadApps() } label: { Image(systemName: "arrow.clockwise") }
                 }
                 .padding(12)
                 Text("Click an app to open it on the phone and show it here. Right-click: open it in its own window (needs USB debugging, see Settings → Advanced).").font(.caption).foregroundStyle(.secondary)
@@ -888,6 +913,11 @@ struct AppsView: View {
             }
         }
         .onAppear { if store.apps.isEmpty { store.loadApps() } }
+        .toolbar {
+            ToolbarItemGroup {
+                Button { store.loadApps() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.help("Refresh")
+            }
+        }
     }
     private var filtered: [PhoneApp] { search.isEmpty ? store.apps : store.apps.filter { $0.name.localizedCaseInsensitiveContains(search) } }
 }
@@ -899,15 +929,6 @@ struct TransfersView: View {
     @State private var dropping = false
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files or folders…", systemImage: "square.and.arrow.up") }.disabled(!store.connected)
-                Spacer()
-                Button("Open Downloads") {
-                    NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
-                }
-            }
-            .padding(12)
-            Divider()
             if store.transfers.isEmpty {
                 Placeholder(symbol: "arrow.up.arrow.down", title: "Drop files here",
                             text: "They go to the phone's Downloads/PhoneCast folder. From the phone: Share → “PhoneCast to Mac”; files land in ~/Downloads.")
@@ -936,6 +957,15 @@ struct TransfersView: View {
             for p in providers { g.enter(); _ = p.loadObject(ofClass: URL.self) { u, _ in if let u { urls.append(u) }; g.leave() } }
             g.notify(queue: .main) { Hub.shared.sendFiles(urls) }
             return true
+        }
+        .toolbar {
+            ToolbarItemGroup {
+                Button("Open Downloads") {
+                    NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
+                }
+                Button { Hub.shared.chooseFiles(nil) } label: { Label("Send files or folders…", systemImage: "square.and.arrow.up") }
+                    .labelStyle(.titleAndIcon).disabled(!store.connected)
+            }
         }
     }
 }

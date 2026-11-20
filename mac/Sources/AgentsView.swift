@@ -14,17 +14,19 @@ struct AgentsView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !installed || legacy { integrationBanner }
-            HStack(spacing: 10) {
-                Image(systemName: "globe").foregroundStyle(.secondary)
-                Text(tr("Open Agents in a browser (iPad, laptop): ")) + Text(AgentWeb.addresses().first.map { "http://\($0):\(AgentWeb.port)" } ?? "—").bold()
-                    + Text("  ·  " + tr("code ")) + Text(code).bold().monospacedDigit()
-                Spacer()
-                Button(tr("Details")) { showWeb.toggle() }
-                    .popover(isPresented: $showWeb) { webDetails }
-            }
-            .font(.callout).padding(.horizontal, 14).padding(.vertical, 8)
-            Divider()
             AgentsWebView()
+        }
+        .toolbar {
+            // browser access belongs to the page as a whole: address + code in the toolbar, details in a popover
+            ToolbarItem {
+                Button { showWeb.toggle() } label: {
+                    Label { Text(AgentWeb.addresses().first.map { "\($0):\(AgentWeb.port)" } ?? "—") + Text("  ·  " + tr("code ")) + Text(code).monospacedDigit().bold() }
+                        icon: { Image(systemName: "globe") }
+                }
+                .labelStyle(.titleAndIcon)
+                .help(tr("Open Agents in a browser (iPad, laptop): "))
+                .popover(isPresented: $showWeb) { webDetails }
+            }
         }
         .alert(error ?? "", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") {} }
     }
