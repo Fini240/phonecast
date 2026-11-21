@@ -17,6 +17,15 @@ fun tr(s: String, vararg args: Any?): String {
 
 private val DE = mapOf(
     // tabs & pages
+    "How it works" to "So funktioniert's", "Location" to "Standort", "Permissions" to "Berechtigungen", "Allow" to "Erlauben", "Allowed" to "Erlaubt", "Sync" to "Abgleich",
+    "The computer can tap and type on the phone" to "Der Computer kann auf dem Handy tippen und schreiben",
+    "Phone notifications show on the computer" to "Handy-Mitteilungen erscheinen auf dem Computer",
+    "Messages, calls, contacts & photos" to "Nachrichten, Anrufe, Kontakte & Fotos",
+    "Read and answer them on the Mac" to "Auf dem Mac lesen und beantworten",
+    "Phone files" to "Handy-Dateien", "Browse the phone's storage from the Mac" to "Den Handyspeicher vom Mac aus durchsuchen",
+    "Show the phone on the Mac's map" to "Das Handy auf der Karte des Macs zeigen",
+    "Brightness" to "Helligkeit", "Only for “Dim while shown”" to "Nur für „Abdunkeln beim Zeigen“",
+    "Mouse & keyboard uses an Accessibility service to tap for you. Games may treat tap injection like a cheat tool. Test on a throwaway account first." to "Maus & Tastatur tippt über einen Bedienungshilfen-Dienst. Spiele können das wie ein Cheat-Tool behandeln. Erst mit einem Wegwerf-Konto testen.",
     "Screen not shared" to "Bildschirm nicht geteilt", "Mirror quality" to "Spiegel-Qualität",
     "Home" to "Start", "Mac" to "Mac", "PC" to "PC", "Cast" to "Teilen", "Settings" to "Einstellungen", "PhoneCast" to "PhoneCast",
     // home
@@ -163,7 +172,7 @@ private val DE = mapOf(
     "Notifications go to the Mac" to "Mitteilungen gehen an den Mac",
     "Notifications stay on the phone" to "Mitteilungen bleiben auf dem Handy",
     "They land in Downloads/PhoneCast and on the Mac's clipboard" to "Sie landen in Downloads/PhoneCast und in der Zwischenablage des Macs",
-    "Needs mouse & keyboard turned on (Settings)" to "Braucht Maus & Tastatur (Einstellungen)",
+    "Needs Mouse & keyboard (Permissions above)" to "Braucht Maus & Tastatur (Berechtigungen oben)",
     "Copy here, paste on the Mac" to "Hier kopieren, auf dem Mac einfügen",
     "Messages" to "Nachrichten", "Calls" to "Anrufe", "Answer & dial" to "Annehmen & wählen", "Contacts" to "Kontakte", "Photos" to "Fotos",
     "allowed" to "erlaubt", "off" to "aus",

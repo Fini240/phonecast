@@ -281,6 +281,33 @@ class Ui(private val a: Activity) {
     // ---- details ----
 
     /** "Details ▸" row that shows/hides its views. */
+    /** One permission: dot + name + what it's for, and an "Allow" button while it's missing. */
+    inner class PermRow(name: String, why: String, private val ok: () -> Boolean, fix: () -> Unit) {
+        private val dot = View(a)
+        private val btn = baseButton("Allow", tonalBg, onTonal, fix).apply {
+            minHeight = dp(40); minimumHeight = dp(40); setPadding(dp(18), dp(6), dp(18), dp(6))
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) }
+        }
+        private val state = label("", 13f, secondary = true)
+        val view = LinearLayout(a).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(8)); minimumHeight = dp(56)
+            addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(12) })
+            addView(LinearLayout(a).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label(name, 15f)); addView(label(why, 13f, secondary = true))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(state); addView(btn)
+        }
+        fun refresh() {
+            val on = ok()
+            dot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (on) green else orange) }
+            btn.visibility = if (on) View.GONE else View.VISIBLE
+            state.text = if (on) tr("Allowed") else ""
+            state.visibility = if (on) View.VISIBLE else View.GONE
+        }
+    }
+
     fun details(t: String, vararg views: View): View {
         val box = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; views.forEach { addView(it) } }
         val title = tr(t)

@@ -575,8 +575,6 @@ class MainActivity : Activity() {
         val status = u.Status(16f)
         val startBtn = u.primary("") { toggleCast() }
         castStatus = status; castBtn = startBtn
-        val control = u.Status(16f)
-        val controlBtn = u.tonal("") { openAccessibility() }
         val res = u.Segmented("Resolution (long side)", listOf("1280" to 1280, "1920" to 1920, "2560" to 2560, "Native" to 0),
             { Prefs.maxSize(this) }, { v -> Prefs.setMaxSize(this, v); CaptureService.instance?.restartVideo() }) { tr("{0} px, set by the computer", it) }
         val rate = u.Segmented("Bitrate (Mbit/s)", listOf("8" to 8, "16" to 16, "24" to 24, "40" to 40),
@@ -602,13 +600,6 @@ class MainActivity : Activity() {
                 else -> status.set(u.orange, "Sharing", "Waiting for the Mac or PC to connect…")
             }
             startBtn.text = tr(if (svc == null) "Cast this phone" else "Stop sharing")
-            val enabled = accessibilityEnabled(); val connected = InputService.instance != null
-            when {
-                connected -> control.set(u.green, "On", "The Mac or PC can tap and type.")
-                enabled -> control.set(u.orange, "Starting…", "")
-                else -> control.set(u.grey, "Off", "The Mac or PC can only watch.")
-            }
-            controlBtn.text = tr(if (connected) "Accessibility settings" else "Turn on mouse & keyboard")
             res.refresh(); rate.refresh(); audio.refresh()
             val allowed = DisplaySize.hasPermission(this)
             val changed = DisplaySize.changedSize(this)
@@ -635,15 +626,11 @@ class MainActivity : Activity() {
             u.gone(dimBtn, !Dimmer.enabled(this) || Dimmer.canWrite(this))
         }
         castCards = mapOf(
-            "control" to u.card(u.title("Mouse & keyboard"), control.view, controlBtn,
-                u.details("Help",
-                    u.hint("Uses an Accessibility service to tap for you. If Android says \"Restricted setting\": App info → ⋮ → Allow restricted settings, then try again."),
-                    u.hint("Games may treat tap injection like a cheat tool. Test on a throwaway account first."))),
             "quality" to u.card(u.title("Mirror quality"), res.view, rate.view, audio.view,
                 u.hint("A connected Mac or PC sets resolution and bitrate from its own Quality menu.")),
             "shape" to u.card(u.title("Screen shape"), shapeView, grantHelp, shapeNormalBtn, shapeMacBtn),
             "dim" to u.card(u.title("Dim while shown"), dim.view, dimBtn,
-                u.hint("Turns the phone's brightness all the way down while a computer shows it (saves battery and heat, and nobody next to you sees the screen). The computer's picture stays bright. With the adb grant from Screen shape it uses Extra dim too. Brightness comes back when sharing stops.")),
+                u.details("How it works", u.hint("Turns the phone's brightness all the way down while a computer shows it (saves battery and heat, and nobody next to you sees the screen). The computer's picture stays bright. With the adb grant from Screen shape it uses Extra dim too. Brightness comes back when sharing stops."))),
         )
     }
 
@@ -654,19 +641,10 @@ class MainActivity : Activity() {
         val pinView = u.label("", 34f, bold = true).apply { letterSpacing = 0.18f; setTextIsSelectable(true); setPadding(0, dp(4), 0, dp(2)) }
         val addrRows = u.Rows()
         val keyView = u.mono()
-        val notif = u.Status(16f)
-        val notifBtn = u.tonal("Allow notification access") { openNotificationAccess() }
         val clip = u.SwitchRow("Copy to the Mac automatically", { Prefs.autoClip(this) }) { on -> Prefs.setAutoClip(this, on); tick() }
         val relay = u.SwitchRow("Reachable away from home", { Prefs.relay(this) }) { on -> Prefs.setRelay(this, on); Relay.restart(this); tick() }
         val shots = u.SwitchRow("Send new screenshots to the Mac", { Prefs.autoShots(this) }) { on -> Prefs.setAutoShots(this, on); tick() }
-        val featRows = u.Rows()
         val dashView = u.label("", 14f, secondary = true)
-        val featBtn = u.primary("Allow messages, calls, contacts & photos") { requestFeatures() }
-        val filesBtn = u.tonal("Allow browsing phone files") {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
-            catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
-        }
-        val locBtn = u.tonal("Allow location (show phone on the Mac's map)") { requestLocation() }
         // install straight from here: same download + Android installer as the Home card
         val updInstall = u.primary("Install update") {
             if (Updates.apkUrl != null) Updates.install(this)
@@ -685,9 +663,6 @@ class MainActivity : Activity() {
         updaters += {
             pinView.text = Prefs.pin(this)
             addrRows.set(addressRows(), "No network. Connect to Wi-Fi.")
-            if (NotifListener.instance != null) notif.set(u.green, "Notifications go to the Mac", "")
-            else notif.set(u.grey, "Notifications stay on the phone", "")
-            u.gone(notifBtn, NotifListener.instance != null)
             relay.refresh(when {
                 !Prefs.relay(this) -> "Only on the same Wi-Fi, by cable or over Tailscale"
                 System.currentTimeMillis() < Relay.refusedUntil -> "The relay refused this phone (on the Mac: relay/allow.sh)"
@@ -695,18 +670,28 @@ class MainActivity : Activity() {
                 else -> "Connecting to the PhoneCast relay…"
             })
             shots.refresh("They land in Downloads/PhoneCast and on the Mac's clipboard")
-            clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs mouse & keyboard turned on (Settings)" else "Copy here, paste on the Mac")
-            val p = HubService.instance?.let { try { it.features.perms() } catch (_: Exception) { null } }
-            if (p != null) {
-                val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer & dial", "contacts" to "Contacts",
-                    "photos" to "Photos", "files" to "Files", "notifications" to "Notifications", "control" to "Mouse & keyboard",
-                    "location" to "Location (find phone)")
-                featRows.set(names.map { (k, v) -> val ok = p.optBoolean(k); Ui.Row(v, if (ok) "allowed" else "off", if (ok) u.green else u.grey) })
-                u.gone(featBtn, listOf("sms", "calls", "callControl", "contacts", "photos").all { p.optBoolean(it) })
-                u.gone(filesBtn, p.optBoolean("files"))
-                u.gone(locBtn, p.optBoolean("location"))
-            } else featRows.set(emptyList(), "Starting…")
+            clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs Mouse & keyboard (Permissions above)" else "Copy here, paste on the Mac")
         }
+        // every permission in one list, each with its own "Allow" (was spread over Cast and two Settings cards)
+        fun perm(k: String) = HubService.instance?.let { try { it.features.perms().optBoolean(k) } catch (_: Exception) { null } } ?: false
+        val openFiles = {
+            try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
+            catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+        }
+        val perms = listOf(
+            u.PermRow("Mouse & keyboard", "The computer can tap and type on the phone", { InputService.instance != null }) { openAccessibility() },
+            u.PermRow("Notifications", "Phone notifications show on the computer", { NotifListener.instance != null }) { openNotificationAccess() },
+            u.PermRow("Messages, calls, contacts & photos", "Read and answer them on the Mac",
+                { listOf("sms", "calls", "callControl", "contacts", "photos").all { perm(it) } }) { requestFeatures() },
+            u.PermRow("Phone files", "Browse the phone's storage from the Mac", { perm("files") }) { openFiles() },
+            u.PermRow("Location", "Show the phone on the Mac's map", { perm("location") }) { requestLocation() },
+            u.PermRow("Brightness", "Only for “Dim while shown”", { Dimmer.canWrite(this) }) { openWriteSettings() },
+        )
+        updaters += { perms.forEach { it.refresh() } }
+        val permCard = u.card(u.title("Permissions"), *perms.map { it.view }.toTypedArray(),
+            u.details("Help",
+                u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings."),
+                u.hint("Mouse & keyboard uses an Accessibility service to tap for you. Games may treat tap injection like a cheat tool. Test on a throwaway account first.")))
         keyView.text = Auth.fingerprint()
         updaters += {
             dashView.text = if (Dashboard.base.isEmpty()) tr("Not set. With a Hermes-style dashboard, the PC tab shows your PC and its controls.")
@@ -752,10 +737,8 @@ class MainActivity : Activity() {
                             .setPositiveButton(tr("New PIN")) { _, _ -> Prefs.newPin(this); Relay.restart(this); toast("New PIN made"); tick() }
                             .setNegativeButton(tr("Cancel"), null).show()
                     })),
-            u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view, shots.view, relay.view),
-            u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn, locBtn,
-                u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
-            castCards.getValue("control"),
+            permCard,
+            u.card(u.title("Sync"), clip.view, shots.view, relay.view),
             castCards.getValue("quality"),
             castCards.getValue("dim"),
             castCards.getValue("shape"),
