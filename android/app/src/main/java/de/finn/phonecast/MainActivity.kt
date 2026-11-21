@@ -130,7 +130,7 @@ class MainActivity : Activity() {
 
         val bar = LinearLayout(this).apply {
             orientation = if (rail) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            setBackgroundColor(u.barBg)
+            setBackgroundColor(if (rail) u.bg else u.barBg)   // M3: the rail sits on the page colour
             if (rail) gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, dp(if (rail) 24 else 10), 0, dp(10))
         }
@@ -432,6 +432,7 @@ class MainActivity : Activity() {
         val stats = u.Rows()
         val ai = u.Rows()
         val tokens = u.Rows()
+        val tokensCard = u.card(u.title("Hermes tokens"), tokens.view)
         val engines = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var enginesSig = ""
         val msg = u.label("", 13f, secondary = true)
@@ -502,6 +503,7 @@ class MainActivity : Activity() {
                 engines.addView(u.grid(2, *items.toTypedArray()))
             }
             val t = st?.optJSONObject("tokens")
+            u.gone(tokensCard, t == null)   // no empty card while the dashboard is unreachable
             tokens.set(if (t == null) emptyList() else buildList {
                 fun m(v: Double) = if (v >= 1e6) "%.1f M".format(v / 1e6) else "%.0f k".format(v / 1e3)
                 add(Ui.Row("In", m(t.optDouble("in", 0.0)) + tr(" · {0} cached", m(t.optDouble("cache_read", 0.0)))))
@@ -531,7 +533,7 @@ class MainActivity : Activity() {
                 off = { act("rgb", j("color" to "off")) },
             ), u.tonal("Lights follow the PC's load") { act("rgbauto", j("on" to true)) }),
             u.card(u.title("AI"), ai.view, engines, u.hint("Switching engines works while the PC runs Linux. Strata takes about 80 s to load.")),
-            u.card(u.title("Hermes tokens"), tokens.view),
+            tokensCard,
             u.card(u.title("Use the PC"),
                 u.label("Moonlight streams the PC (Sunshine) to this phone with touch, mouse and gamepad.", 14f, secondary = true),
                 u.primary("Open Moonlight") { openMoonlight() },

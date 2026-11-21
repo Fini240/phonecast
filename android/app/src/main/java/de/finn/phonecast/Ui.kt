@@ -169,8 +169,9 @@ class Ui(private val a: Activity) {
         for ((c, f) in items) addView(View(a).apply {
             background = ripple(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c); setStroke(dp(2), divider) }, 22)
             isClickable = true; setOnClickListener { f() }
-        }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(12) })
-        if (off != null) addView(tonal("Off", off).apply { layoutParams = LinearLayout.LayoutParams(-2, -2) })
+        }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
+        // "Off" stays on one line even in a half-width card (unfolded Fold)
+        if (off != null) addView(tonal("Off", off).apply { isSingleLine = true; setPadding(dp(14), dp(8), dp(14), dp(8)); layoutParams = LinearLayout.LayoutParams(-2, -2) })
     }
 
     // ---- switch row ----
@@ -315,7 +316,7 @@ class Ui(private val a: Activity) {
                 orientation = LinearLayout.VERTICAL
                 addView(label(name, 15f)); addView(label(why, 13f, secondary = true))
             }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(state); addView(btn)
+            addView(state, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) }); addView(btn)
         }
         fun refresh() {
             val on = ok()
