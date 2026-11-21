@@ -82,6 +82,24 @@ class Ui(private val a: Activity) {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
     }
 
+    /** Page with a fixed split for wide screens: [left] in the first column, [right] in the second;
+     *  on a phone it's one column, left then right. */
+    fun page2(t: String, left: List<View>, right: List<View>): View {
+        if (!wide) return page(t, *(left + right).toTypedArray())
+        val col = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(20), dp(16), dp(24))
+            addView(label(t, 30f, bold = true).apply { setPadding(dp(4), 0, 0, dp(4)) })
+        }
+        val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+        val l = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; left.forEach { addView(it) } }
+        val r = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; right.forEach { addView(it) } }
+        row.addView(l, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        row.addView(r, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+        col.addView(row)
+        return ScrollView(a).apply { addView(col); isFillViewport = true; setBackgroundColor(bg) }
+    }
+
     /** Page: big title, then the cards (two columns on a wide screen), scrolling. */
     fun page(t: String, vararg cards: View): View {
         val col = LinearLayout(a).apply {

@@ -114,9 +114,10 @@ class MainActivity : Activity() {
 
     private fun buildUi() {
         u = Ui(this)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(u.bg) }
+        // Material 3: a bottom bar on the phone, a navigation rail on the left when the Fold is open (wide)
+        val rail = u.wide
+        val root = LinearLayout(this).apply { orientation = if (rail) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL; setBackgroundColor(u.bg) }
         val content = FrameLayout(this)
-        root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
         castParts()
         pages["home"] = homePage()
@@ -128,9 +129,10 @@ class MainActivity : Activity() {
         pages.values.forEach { content.addView(it, FrameLayout.LayoutParams(-1, -1)) }
 
         val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = if (rail) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             setBackgroundColor(u.barBg)
-            setPadding(0, dp(10), 0, dp(10))
+            if (rail) gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(if (rail) 24 else 10), 0, dp(10))
         }
         for ((id, icon, name) in listOf(
             Triple("home", R.drawable.ic_tab_home, "Home"), Triple("mac", R.drawable.ic_tab_mac, "Mac"),
@@ -151,9 +153,16 @@ class MainActivity : Activity() {
                 addView(TextView(this@MainActivity).apply { text = tr(name); textSize = 12f; gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
             }
             tabViews[id] = tab
-            bar.addView(tab, LinearLayout.LayoutParams(0, -2, 1f))
+            if (rail) bar.addView(tab, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+            else bar.addView(tab, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        root.addView(bar, LinearLayout.LayoutParams(-1, -2))
+        if (rail) {
+            root.addView(bar, LinearLayout.LayoutParams(dp(88), -1))
+            root.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
+        } else {
+            root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+            root.addView(bar, LinearLayout.LayoutParams(-1, -2))
+        }
         setContentView(root)
         window.statusBarColor = u.bg
         window.navigationBarColor = u.barBg
@@ -166,9 +175,13 @@ class MainActivity : Activity() {
             // keyboard up (the chat's composer, a text field): the page ends above it and the tab bar steps aside
             val ime = ins.getInsets(android.view.WindowInsets.Type.ime()).bottom
             val kb = ime > sb.bottom
-            bar.visibility = if (kb) View.GONE else View.VISIBLE
-            v.setPadding(sb.left, sb.top, sb.right, if (kb) ime else 0)
-            bar.setPadding(0, dp(10), 0, dp(10) + sb.bottom)
+            if (!rail) bar.visibility = if (kb) View.GONE else View.VISIBLE
+            if (rail) {   // rail beside the content, both below the status bar and above the gesture area
+                v.setPadding(sb.left, sb.top, sb.right, if (kb) ime else sb.bottom)
+            } else {
+                v.setPadding(sb.left, sb.top, sb.right, if (kb) ime else 0)
+                bar.setPadding(0, dp(10), 0, dp(10) + sb.bottom)
+            }
             ins
         }
         show(current)
@@ -272,19 +285,16 @@ class MainActivity : Activity() {
                 updateBtn.alpha = if (Updates.installing == null) 1f else 0.5f
             }
         }
-        return u.page("PhoneCast",
-            updateCard,
-            u.card(status.view,
+        val connCard = u.card(status.view,
                 u.grid(3,
                     "Mac screen" to { openMacControl() },
                     "Send files" to { pickFiles() },
                     "Clipboard" to { sendClipboard() },
-                ), transfer),
-            // sharing this screen: its own card, status first, then the one button
-            u.card(castStatus.view, castBtn),
-            setupCard,
-            u.card(u.title("Devices"), devices.view),
-        )
+                ), transfer)
+        // wide (Fold open): what you do first on the left, sharing and the other machines on the right
+        return u.page2("PhoneCast",
+            left = listOf(updateCard, setupCard, connCard),
+            right = listOf(u.card(castStatus.view, castBtn), u.card(u.title("Devices"), devices.view)))
     }
 
     private fun deviceRows(st: org.json.JSONObject?, all: Boolean, filter: (String) -> Boolean = { true }): List<Ui.Row> {
