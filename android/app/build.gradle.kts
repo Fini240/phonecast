@@ -10,8 +10,8 @@ android {
         applicationId = "de.finn.phonecast"
         minSdk = 30
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.8.6"
+        versionCode = 32
+        versionName = "0.8.7"
     }
     buildTypes {
         release {
