@@ -95,6 +95,7 @@ object Agents {
                     byId.clear(); list.forEach { byId[it.optString("id")] = it }
                     fire("sessions")
                     AgentsLive.update(ctx)
+                    ReelShare.flush(ctx)  // links shared while the Mac was away
                 }
             }
             "msgs" -> main.post {
