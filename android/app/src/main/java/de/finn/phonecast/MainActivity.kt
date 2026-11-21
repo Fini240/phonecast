@@ -260,7 +260,11 @@ class MainActivity : Activity() {
                     col.removeView(setupCard); col.addView(setupCard, if (unpaired) want else want - 1)
                 }
             }
-            setupRows.set(steps.map { (n, ok, _) -> Ui.Row(n, if (ok) "done" else "to do", if (ok) u.green else u.orange) })
+            setupRows.set(steps.map { (n, ok, _) -> Ui.Row(n, if (ok) "done" else "Set up ›", if (ok) u.green else u.orange) })
+            // each open step is a shortcut straight to where it's fixed
+            steps.forEachIndexed { i, (_, ok, fix) ->
+                setupRows.view.getChildAt(i)?.apply { if (ok) { setOnClickListener(null); isClickable = false } else setOnClickListener { fix() } }
+            }
             val sig = missing.joinToString { it.first }
             if (sig != setupSig) {
                 setupSig = sig
