@@ -336,8 +336,11 @@ class MainActivity : Activity() {
             if (names.joinToString("\n") != shownShortcuts) {      // rebuild only when the list changed
                 shownShortcuts = names.joinToString("\n")
                 shortcutsBox.removeAllViews()
-                if (names.isEmpty()) shortcutsBox.addView(u.hint("None yet. Make one in the Shortcuts app on the Mac."))
-                else shortcutsBox.addView(u.grid(2, *names.map { n -> n to { macAction("shortcut:$n") } }.toTypedArray()))
+                if (names.isEmpty()) shortcutsBox.addView(u.hint("None yet. Shortcuts you make in the Mac's Shortcuts app show up here."))
+                else {
+                    shortcutsBox.addView(u.grid(2, *names.map { n -> n to { macAction("shortcut:$n") } }.toTypedArray()))
+                    shortcutsBox.addView(u.hint("Tap one to run it on the Mac."))
+                }
             }
             if (hub?.connected == true) status.set(u.green, hub.macName ?: "Mac",
                 st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: "Connected")
@@ -349,23 +352,30 @@ class MainActivity : Activity() {
                 add(Ui.Row("Heat", st.optString("thermal", "—")))
             })
         }
-        return u.page("Mac",
-            u.card(status.view, stats.view),
-            u.card(
-                u.title("Control the Mac"),
-                u.label("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll.", 14f, secondary = true),
-                u.primary("Open the Mac's screen") { openMacControl() },
-                u.tonal("Trackpad & keyboard only") { openMacControl(trackpad = true) },
-                u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection."),
-                u.tonal("Open the Mac's browser tab here") { macAction("tab") },
+        return u.page2("Mac",
+            left = listOf(
+                u.card(status.view, stats.view),
+                u.card(
+                    u.title("Control the Mac"),
+                    u.primary("Open the Mac's screen") { openMacControl() },
+                    u.tonal("Trackpad & keyboard only") { openMacControl(trackpad = true) },
+                    u.details("How it works",
+                        u.hint("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll."),
+                        u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection.")),
+                ),
             ),
-            u.card(u.title("Keys"), u.grid(3,
-                "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
-                "⏮" to { macAction("prev") }, "⏯" to { macAction("play") }, "⏭" to { macAction("next") },
-                "Lock" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") }, "Screenshot" to { macAction("screenshot") },
-            )),
-            u.card(u.title("Mac Shortcuts"), shortcutsBox,
-                u.hint("Your Shortcuts from the Mac's Shortcuts app. Tap one to run it on the Mac.")),
+            right = listOf(
+                // what plays on the Mac, then the Mac itself
+                u.card(u.title("Sound & media"), u.grid(3,
+                    "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
+                    "⏮" to { macAction("prev") }, "⏯" to { macAction("play") }, "⏭" to { macAction("next") },
+                )),
+                u.card(u.title("On the Mac"), u.grid(2,
+                    "Lock" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") },
+                    "Screenshot" to { macAction("screenshot") }, "Browser tab here" to { macAction("tab") },
+                )),
+                u.card(u.title("Mac Shortcuts"), shortcutsBox),
+            ),
         )
     }
 
