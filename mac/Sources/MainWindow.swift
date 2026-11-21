@@ -74,7 +74,21 @@ struct MainView: View {
                 Section(tr("Communication")) { rows([.notifications, .messages, .calls, .contacts]) }
                 Section(tr("Files & media")) { rows([.photos, .files, .apps, .transfers]) }
                 Section(tr("Computers")) { rows(hasPc ? [.agents, .pc] : [.agents]) }
-                Section { rows([.settings]) }
+            }
+            // Settings is pinned to the bottom-left corner of the sidebar, like in most Mac apps
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button { nav.section = .settings } label: {
+                    Label(tr(Pane.settings.rawValue), systemImage: Pane.settings.symbol)
+                        .font(.system(size: 15)).imageScale(.large)   // same size as the list rows above
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .background(nav.section == .settings ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(",", modifiers: .command)
+                .help(tr("Settings") + " (⌘,)")
+                .padding(.horizontal, 10).padding(.vertical, 10)
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
@@ -1009,8 +1023,8 @@ struct SettingsView: View {
     @State private var login = Hub.loginEnabled
     @State private var axOK = AXIsProcessTrusted()
     @State private var screenOK = CGPreflightScreenCaptureAccess()
-    @State private var pairOpen = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil  // = unpaired
-    private let unpaired = UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil
+    @State private var pairOpen = (UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil) || ProcessInfo.processInfo.environment["PHONECAST_TEST_UNPAIRED"] != nil  // = unpaired
+    private let unpaired = (UserDefaults.standard.string(forKey: "pin") == nil && UserDefaults.standard.string(forKey: "phoneKey") == nil) || ProcessInfo.processInfo.environment["PHONECAST_TEST_UNPAIRED"] != nil
 
     private var pairSection: some View {
         Section("Pair a phone") {
@@ -1030,7 +1044,7 @@ struct SettingsView: View {
                         .controlSize(.small)
                     }
                 }
-                Text("Or pair with the PIN").font(.headline).padding(.top, 8)
+                Text("Or pair with the PIN").font(.headline).padding(.top, 8).frame(maxWidth: .infinity, alignment: .leading)
                 TextField("PIN (shown in the phone app)", text: $pin)
                 TextField("Phone IP address (optional, found automatically on the same Wi-Fi)", text: $host)
                 TextField("Phone Tailscale address (optional, for other networks)", text: $tailnet)
@@ -1046,7 +1060,8 @@ struct SettingsView: View {
                     }
                 }
             } label: {
-                LabeledContent(tr("Paired phone"), value: store.phoneName)
+                if unpaired { Text(tr("Scan the QR code, or enter the PIN")) }
+                else { LabeledContent(tr("Paired phone"), value: store.phoneName) }
             }
         }
     }
