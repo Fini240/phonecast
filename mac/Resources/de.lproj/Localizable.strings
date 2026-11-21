@@ -310,3 +310,33 @@
 "Paired phone" = "Gekoppeltes Handy"; "How it works" = "So funktioniert's"; "Reload" = "Neu laden";
 "Tap “Start now” on the phone" = "Auf dem Handy „Jetzt starten“ tippen";
 "Scan the QR code, or enter the PIN" = "QR-Code scannen oder PIN eingeben";
+
+/* Stay awake with lid closed (LidAwake.swift) */
+"Stay awake with lid closed" = "Wach bleiben bei zugeklapptem Deckel";
+"Off: the Mac sleeps when the lid closes" = "Aus: der Mac schläft beim Zuklappen";
+"On until %@" = "An bis %@";
+"On until %@." = "An bis %@.";
+"On until you turn it off" = "An, bis du es ausschaltest";
+"On until you turn it off." = "An, bis du es ausschaltest.";
+"For 1 hour" = "Für 1 Stunde";
+"For 2 hours" = "Für 2 Stunden";
+"For 8 hours" = "Für 8 Stunden";
+"Until I turn it off" = "Bis ich es ausschalte";
+"Off" = "Aus";
+"Turn off" = "Ausschalten";
+"1 hour" = "1 Stunde";
+"2 hours" = "2 Stunden";
+"8 hours" = "8 Stunden";
+"Turn off on battery below" = "Ausschalten im Akkubetrieb unter";
+"Remove the permission" = "Berechtigung entfernen";
+"The Mac sleeps normally again" = "Der Mac schläft wieder normal";
+"The time you set is up." = "Die eingestellte Zeit ist um.";
+"The battery is down to %d %%." = "Der Akku ist bei %d %%.";
+"Not turned on: the battery is at %d %% (limit %d %%)." = "Nicht eingeschaltet: der Akku ist bei %d %% (Grenze %d %%).";
+"The Mac got too hot." = "Der Mac wurde zu heiß.";
+"The Mac stayed too hot for 5 minutes." = "Der Mac war 5 Minuten lang zu heiß.";
+"Setup failed." = "Einrichtung fehlgeschlagen.";
+"Setup was cancelled." = "Einrichtung abgebrochen.";
+"Can't set it up for this user name." = "Für diesen Benutzernamen nicht einrichtbar.";
+"pmset failed: %@" = "pmset fehlgeschlagen: %@";
+"A MacBook always sleeps when you close the lid, so the phone can't reach it. This switches that off (pmset disablesleep) so PhoneCast, Tailscale and the agents stay reachable from the phone. The first time, macOS asks for your password once to allow exactly that one command. It turns itself off on battery below the limit, when the time is up, when the Mac gets too hot, and when PhoneCast quits or crashes. ☕︎ in the menu bar means it's on. Don't leave it on in a closed bag for long: the Mac can't cool down well there. You can also switch it from the phone's Mac tab." = "Ein MacBook schläft beim Zuklappen immer ein, dann erreicht das Handy ihn nicht. Das hier schaltet das ab (pmset disablesleep), damit PhoneCast, Tailscale und die Agenten vom Handy erreichbar bleiben. Beim ersten Mal fragt macOS einmal nach deinem Passwort, um genau diesen einen Befehl zu erlauben. Es schaltet sich selbst aus: im Akkubetrieb unter der Grenze, wenn die Zeit um ist, wenn der Mac zu heiß wird und wenn PhoneCast beendet wird oder abstürzt. ☕︎ in der Menüleiste heißt: an. Nicht lange zugeklappt in der Tasche lassen, dort kann der Mac sich schlecht kühlen. Du kannst es auch im Mac-Tab auf dem Handy schalten.";

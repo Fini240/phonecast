@@ -77,6 +77,11 @@ private val DE = mapOf(
     "Trackpad mode shows no picture: it saves battery and works on a slow connection." to
         "Der Trackpad-Modus zeigt kein Bild: Er spart Akku und läuft auch bei langsamer Verbindung.",
     "Keys" to "Tasten", "Vol −" to "Leiser", "Mute" to "Stumm", "Vol +" to "Lauter",
+    "Lid closed" to "Deckel zu", "Stays awake with the lid closed" to "Bleibt bei zugeklapptem Deckel wach",
+    "Until {0}" to "Bis {0}", "Until you turn it off" to "Bis du es ausschaltest", "Until off" to "Bis aus",
+    "Sleeps when the lid closes" to "Schläft beim Zuklappen", "Normal" to "Normal",
+    "The first time, macOS asks for the password on the Mac. Tap a time while you're at the Mac." to "Beim ersten Mal fragt macOS am Mac nach dem Passwort. Tippe eine Zeit, während du am Mac bist.",
+    "Turns itself off on battery below {0} %, when the Mac gets too hot, and when PhoneCast quits." to "Schaltet sich selbst aus: im Akkubetrieb unter {0} %, wenn der Mac zu heiß wird und wenn PhoneCast beendet wird.",
     "Lock" to "Sperren", "Screen off" to "Bildschirm aus", "Screenshot" to "Bildschirmfoto",
     "Send to the Mac" to "An den Mac senden", "Files" to "Dateien",
     // pc tab

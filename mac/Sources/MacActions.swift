@@ -8,6 +8,7 @@ enum MacActions {
     static func run(_ a: String) {
         if let k = keys[a] { mediaKey(k); return }
         if a.hasPrefix("shortcut:") { Continuity.runShortcut(String(a.dropFirst(9))); return }
+        if a.hasPrefix("lidawake:") { LidAwake.shared.action(String(a.dropFirst(9))); return }
         if a == "tab" { Continuity.sendTabToPhone(); return }
         switch a {
         case "lock":

@@ -333,6 +333,31 @@ class MainActivity : Activity() {
         val stats = u.Rows()
         val shortcutsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var shownShortcuts: String? = null
+        // stay awake with the lid closed (Mac LidAwake.swift): status line + buttons, hint until it's set up on the Mac
+        val lidStatus = u.Status()
+        val lidHint = u.hint("")
+        val lidButtons = u.grid(3,
+            "1 h" to { macAction("lidawake:60") }, "2 h" to { macAction("lidawake:120") }, "8 h" to { macAction("lidawake:480") },
+            "Until off" to { macAction("lidawake:0") }, "Off" to { macAction("lidawake:off") })
+        updaters += {
+            val la = HubService.instance?.macStatus?.optJSONObject("lidAwake")
+            val connected = HubService.instance?.connected == true
+            when {
+                !connected || la == null -> lidStatus.set(u.grey, "Lid closed", "Mac not connected")
+                la.optBoolean("on") -> lidStatus.set(u.orange, "Stays awake with the lid closed",
+                    la.optLong("until", 0).takeIf { it > 0 }?.let {
+                        tr("Until {0}", android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(it * 1000)))
+                    } ?: tr("Until you turn it off"))
+                else -> lidStatus.set(u.grey, "Sleeps when the lid closes", "Normal")
+            }
+            val note = la?.optString("note", "").orEmpty()
+            lidHint.text = when {
+                la != null && !la.optBoolean("ready") -> tr("The first time, macOS asks for the password on the Mac. Tap a time while you're at the Mac.")
+                note.isNotEmpty() -> note
+                else -> tr("Turns itself off on battery below {0} %, when the Mac gets too hot, and when PhoneCast quits.", la?.optInt("min", 20) ?: 20)
+            }
+            lidButtons.alpha = if (connected) 1f else 0.5f
+        }
         updaters += {
             val hub = HubService.instance
             val st = hub?.macStatus
@@ -367,6 +392,7 @@ class MainActivity : Activity() {
                         u.hint("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll."),
                         u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection.")),
                 ),
+                u.card(u.title("Lid closed"), lidStatus.view, lidButtons, lidHint),
             ),
             right = listOf(
                 // what plays on the Mac, then the Mac itself

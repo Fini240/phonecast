@@ -110,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         AgentWeb.shared.start()
         UpdateCheck.shared.start()
         AutoLock.shared.start()
+        LidAwake.shared.start()
         view.onDropFiles = { urls in Hub.shared.sendFiles(urls) }
         Recorder.shared.onState = { [weak self] _ in self?.refreshMenu(); self?.updateTitle() }
         Gamepad.shared.view = view
@@ -917,7 +918,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
-    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop(); Advanced.stopAll() }
+    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop(); Advanced.stopAll(); LidAwake.shared.stopOnQuit() }
 
     private func connect(_ ep: NWEndpoint, label: String, pin: String) {
         link?.onState = nil; link?.onPacket = nil

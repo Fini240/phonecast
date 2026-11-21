@@ -782,6 +782,9 @@ final class Hub: NSObject, NSMenuDelegate {
 
     // MARK: status to the phone
 
+    /// Sends the Mac status now instead of at the next 2 s tick.
+    func pushStatus() { sendStatus() }
+
     private func sendStatus() {
         var o = stats.sample()
         store.macStats = o
@@ -796,6 +799,7 @@ final class Hub: NSObject, NSMenuDelegate {
         if !PcDashboard.shared.base.isEmpty { o["dashboard"] = PcDashboard.shared.base }
         let sc = Continuity.shortcuts
         if !sc.isEmpty { o["shortcuts"] = sc }   // the phone's PC tab uses it too
+        o["lidAwake"] = LidAwake.shared.statusForPhone
         if let t = store.transfers.first(where: { $0.state == .running }) { o["transfer"] = "\(t.outgoing ? "Sending" : "Receiving") \(t.name) \(Int(t.progress * 100)) %" }
         if let d = try? JSONSerialization.data(withJSONObject: o) { l.send(HT.status, d) }
     }
@@ -811,7 +815,9 @@ final class Hub: NSObject, NSMenuDelegate {
             b.title = ""
             b.appearsDisabled = true
         }
-        b.toolTip = connected ? "\(store.phoneName) connected" : "Phone not connected"
+        // ☕︎ = the Mac won't sleep, not even with the lid closed
+        if LidAwake.shared.on { b.title = " ☕︎" + b.title; b.appearsDisabled = false }
+        b.toolTip = (connected ? "\(store.phoneName) connected" : "Phone not connected") + (LidAwake.shared.on ? " · " + LidAwake.shared.summary : "")
         // Dock + menu bar icon: the phone's screen is lit while it's connected, dark when not
         if dockShowsConnected != connected {
             dockShowsConnected = connected
@@ -866,6 +872,16 @@ final class Hub: NSObject, NSMenuDelegate {
             adv.addItem(i)
         }
         let advItem = NSMenuItem(title: tr("Advanced (USB debugging)"), action: nil, keyEquivalent: ""); advItem.submenu = adv; m.addItem(advItem)
+        let lid = NSMenu(), la = LidAwake.shared
+        let lidInfo = NSMenuItem(title: la.summary, action: nil, keyEquivalent: ""); lidInfo.isEnabled = false; lid.addItem(lidInfo)
+        lid.addItem(.separator())
+        for (t, mins) in [("For 1 hour", 60), ("For 2 hours", 120), ("For 8 hours", 480), ("Until I turn it off", 0)] {
+            let i = NSMenuItem(title: tr(t), action: #selector(lidAwakeOn(_:)), keyEquivalent: ""); i.target = self; i.representedObject = mins; lid.addItem(i)
+        }
+        let off = NSMenuItem(title: tr("Off"), action: la.on ? #selector(lidAwakeOff(_:)) : nil, keyEquivalent: ""); off.target = self
+        off.state = la.on ? .off : .on; lid.addItem(off)
+        let lidItem = NSMenuItem(title: tr("Stay awake with lid closed"), action: nil, keyEquivalent: "")
+        lidItem.state = la.on ? .on : .off; lidItem.submenu = lid; m.addItem(lidItem)
         m.addItem(.separator())
         for r in store.devices { info(r.name + "   " + (r.ms.map { "● \(Int($0.rounded())) ms" } ?? "○ offline")) }
         m.addItem(.separator())
@@ -873,6 +889,8 @@ final class Hub: NSObject, NSMenuDelegate {
     }
 
     @objc func openMain(_ s: Any?) { onOpenMain?() }
+    @objc func lidAwakeOn(_ s: Any?) { LidAwake.shared.enable(minutes: (s as? NSMenuItem)?.representedObject as? Int ?? 0) }
+    @objc func lidAwakeOff(_ s: Any?) { LidAwake.shared.disable() }
     @objc func toggleMute(_ s: Any?) { store.muteAll.toggle() }
 
     // MARK: v0.3: media control + find my phone

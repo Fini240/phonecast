@@ -14,6 +14,7 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
 - **Browser tab to the phone**: the page open in Safari, Chrome, Arc, Brave or Edge opens on the phone (menu bar,
   Overview, or from the phone's Mac tab).
 - **Mac Shortcuts on the phone**: your Shortcuts from the Mac's Shortcuts app as buttons on the phone's Mac tab.
+- **Stay awake with lid closed**: keeps a MacBook reachable from the phone with the lid shut (`pmset disablesleep`, one password prompt to allow just that command). Turns itself off on low battery, after the chosen time, when the Mac gets too hot, and if PhoneCast quits or crashes. Switch it from the menu bar, Settings or the phone's Mac tab; ☕︎ in the menu bar while it's on.
 - **Drop an app on the mirror**: an `.apk` dropped on the phone's picture opens Android's installer.
 - **Dim while shown**: the phone goes dark while the Mac shows it (battery, heat, privacy); the Mac's picture stays bright.
 - **Phone in Finder**: the phone's storage as a drive in Finder (Files → Open in Finder, or the menu bar).

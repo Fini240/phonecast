@@ -1113,6 +1113,7 @@ struct SettingsView: View {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
                 }
             }
+            LidAwakeSection()
             Section("Phone") {
                 ForEach([("notifications", "Notifications"), ("sms", "Messages"), ("calls", "Calls"), ("callControl", "Answer & dial"),
                          ("contacts", "Contacts"), ("photos", "Photos"), ("files", "Files"), ("control", "Mouse & keyboard (mirror)")], id: \.0) { k, name in
@@ -1172,6 +1173,37 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             axOK = AXIsProcessTrusted(); screenOK = CGPreflightScreenCaptureAccess()
+        }
+    }
+}
+
+/// Settings → Stay awake with lid closed (LidAwake.swift).
+struct LidAwakeSection: View {
+    @ObservedObject private var la = LidAwake.shared
+
+    var body: some View {
+        Section("Stay awake with lid closed") {
+            HStack {
+                Image(systemName: la.on ? "cup.and.saucer.fill" : "moon.zzz").foregroundStyle(la.on ? .orange : .secondary)
+                Text(la.summary)
+                Spacer()
+                if la.on { Button("Turn off") { la.disable() } }
+            }
+            HStack {
+                Button("1 hour") { la.enable(minutes: 60) }
+                Button("2 hours") { la.enable(minutes: 120) }
+                Button("8 hours") { la.enable(minutes: 480) }
+                Button("Until I turn it off") { la.enable(minutes: 0) }
+            }
+            Picker("Turn off on battery below", selection: $la.minBattery) {
+                ForEach([10, 20, 30, 50], id: \.self) { Text("\($0) %").tag($0) }
+            }
+            if !la.lastNote.isEmpty { Text(la.lastNote).font(.caption).foregroundStyle(.secondary) }
+            DisclosureGroup("How it works") {
+                Text("A MacBook always sleeps when you close the lid, so the phone can't reach it. This switches that off (pmset disablesleep) so PhoneCast, Tailscale and the agents stay reachable from the phone. The first time, macOS asks for your password once to allow exactly that one command. It turns itself off on battery below the limit, when the time is up, when the Mac gets too hot, and when PhoneCast quits or crashes. ☕︎ in the menu bar means it's on. Don't leave it on in a closed bag for long: the Mac can't cool down well there. You can also switch it from the phone's Mac tab.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if la.ready { Button("Remove the permission") { la.removeRule() } }
         }
     }
 }
