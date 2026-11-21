@@ -17,6 +17,7 @@ fun tr(s: String, vararg args: Any?): String {
 
 private val DE = mapOf(
     // tabs & pages
+    "Screen not shared" to "Bildschirm nicht geteilt", "Mirror quality" to "Spiegel-Qualität",
     "Home" to "Start", "Mac" to "Mac", "PC" to "PC", "Cast" to "Teilen", "Settings" to "Einstellungen", "PhoneCast" to "PhoneCast",
     // home
     "Finish setting up" to "Einrichtung abschließen",
@@ -162,7 +163,7 @@ private val DE = mapOf(
     "Notifications go to the Mac" to "Mitteilungen gehen an den Mac",
     "Notifications stay on the phone" to "Mitteilungen bleiben auf dem Handy",
     "They land in Downloads/PhoneCast and on the Mac's clipboard" to "Sie landen in Downloads/PhoneCast und in der Zwischenablage des Macs",
-    "Needs mouse & keyboard turned on (Cast tab)" to "Braucht Maus & Tastatur (Tab „Teilen“)",
+    "Needs mouse & keyboard turned on (Settings)" to "Braucht Maus & Tastatur (Einstellungen)",
     "Copy here, paste on the Mac" to "Hier kopieren, auf dem Mac einfügen",
     "Messages" to "Nachrichten", "Calls" to "Anrufe", "Answer & dial" to "Annehmen & wählen", "Contacts" to "Kontakte", "Photos" to "Fotos",
     "allowed" to "erlaubt", "off" to "aus",

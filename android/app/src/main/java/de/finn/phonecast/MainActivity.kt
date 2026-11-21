@@ -118,12 +118,12 @@ class MainActivity : Activity() {
         val content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
+        castParts()
         pages["home"] = homePage()
         pages["mac"] = macPage()
         pages["pc"] = pcContainer()
         agents = AgentsPage(this, u)
         pages["agents"] = agents!!.view
-        pages["cast"] = castPage()
         pages["settings"] = settingsPage()
         pages.values.forEach { content.addView(it, FrameLayout.LayoutParams(-1, -1)) }
 
@@ -135,7 +135,6 @@ class MainActivity : Activity() {
         for ((id, icon, name) in listOf(
             Triple("home", R.drawable.ic_tab_home, "Home"), Triple("mac", R.drawable.ic_tab_mac, "Mac"),
             Triple("pc", R.drawable.ic_tab_pc, "PC"), Triple("agents", R.drawable.ic_tab_agents, "Agents"),
-            Triple("cast", R.drawable.ic_tab_cast, "Cast"),
             Triple("settings", R.drawable.ic_tab_settings, "Settings"),
         )) {
             val tab = LinearLayout(this).apply {
@@ -175,7 +174,8 @@ class MainActivity : Activity() {
         show(current)
     }
 
-    private fun show(id: String) {
+    private fun show(target: String) {
+        val id = if (target in pages) target else "home"   // e.g. the old Cast tab
         current = id
         getSharedPreferences("ui", MODE_PRIVATE).edit().putString("tab", id).apply()
         pages.forEach { (k, v) -> v.visibility = if (k == id) View.VISIBLE else View.GONE }
@@ -197,7 +197,6 @@ class MainActivity : Activity() {
 
     private fun homePage(): View {
         val status = u.Status()
-        lateinit var castBtn: Button
         val transfer = u.label("", 13f, secondary = true)
         val devices = u.Rows()
 
@@ -221,7 +220,6 @@ class MainActivity : Activity() {
                     tr(if (NotifListener.instance != null) "notifications on" else "notifications off"),
                 ).joinToString(" · "))
             }
-            castBtn.text = tr(if (sharing) "Stop casting" else "Cast this phone")
             transfer.text = hub?.transfer ?: ""
             u.gone(transfer, hub?.transfer == null)
             devices.set(deviceRows(st, all = true), "Shown once the Mac is connected.")
@@ -241,7 +239,7 @@ class MainActivity : Activity() {
             val unpaired = !steps[0].second
             u.emphasize(castBtn, !unpaired || sharing)
             val col = setupCard.parent as? ViewGroup
-            val statusCard = castBtn.parent as? View
+            val statusCard = status.view.parent as? View
             if (col != null && statusCard != null && statusCard.parent === col) {
                 val want = if (unpaired) col.indexOfChild(statusCard) else col.indexOfChild(statusCard) + 1
                 val have = col.indexOfChild(setupCard)
@@ -277,12 +275,13 @@ class MainActivity : Activity() {
         return u.page("PhoneCast",
             updateCard,
             u.card(status.view,
-                u.primary("Cast this phone") { toggleCast() }.also { castBtn = it },
                 u.grid(3,
                     "Mac screen" to { openMacControl() },
                     "Send files" to { pickFiles() },
                     "Clipboard" to { sendClipboard() },
                 ), transfer),
+            // sharing this screen: its own card, status first, then the one button
+            u.card(castStatus.view, castBtn),
             setupCard,
             u.card(u.title("Devices"), devices.view),
         )
@@ -348,16 +347,13 @@ class MainActivity : Activity() {
                 u.primary("Open the Mac's screen") { openMacControl() },
                 u.tonal("Trackpad & keyboard only") { openMacControl(trackpad = true) },
                 u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection."),
+                u.tonal("Open the Mac's browser tab here") { macAction("tab") },
             ),
             u.card(u.title("Keys"), u.grid(3,
                 "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
                 "⏮" to { macAction("prev") }, "⏯" to { macAction("play") }, "⏭" to { macAction("next") },
                 "Lock" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") }, "Screenshot" to { macAction("screenshot") },
             )),
-            u.card(u.title("Send to the Mac"), u.grid(2,
-                "Files" to { pickFiles() },
-                "Clipboard" to { sendClipboard() },
-            ), u.tonal("Open the Mac's browser tab here") { macAction("tab") }),
             u.card(u.title("Mac Shortcuts"), shortcutsBox,
                 u.hint("Your Shortcuts from the Mac's Shortcuts app. Tap one to run it on the Mac.")),
         )
@@ -569,9 +565,16 @@ class MainActivity : Activity() {
 
     // ---- Cast (this phone's screen) ----
 
-    private fun castPage(): View {
-        val status = u.Status()
+    /** Sharing this screen: the live status + button go on Home, the options (mouse & keyboard, quality,
+     *  screen shape, dimming) into Settings. Built once, placed by homePage()/settingsPage(). */
+    private lateinit var castStatus: Ui.Status
+    private lateinit var castBtn: Button
+    private lateinit var castCards: Map<String, View>
+
+    private fun castParts() {
+        val status = u.Status(16f)
         val startBtn = u.primary("") { toggleCast() }
+        castStatus = status; castBtn = startBtn
         val control = u.Status(16f)
         val controlBtn = u.tonal("") { openAccessibility() }
         val res = u.Segmented("Resolution (long side)", listOf("1280" to 1280, "1920" to 1920, "2560" to 2560, "Native" to 0),
@@ -592,7 +595,7 @@ class MainActivity : Activity() {
         updaters += {
             val svc = CaptureService.instance
             when {
-                svc == null -> status.set(u.grey, "Not sharing", "Faster next time: the “Cast to Mac” Quick Settings tile.")
+                svc == null -> status.set(u.grey, "Screen not shared", "Faster next time: the “Cast to Mac” Quick Settings tile.")
                 svc.clientAddress != null && UsbBridge.active && svc.clientAddress == "127.0.0.1" -> status.set(u.green, "Shown on the Mac", "over the USB cable")
                 svc.clientAddress == "127.0.0.1" && Relay.tunnels > 0 -> status.set(u.green, "Shown on a computer", "over the internet relay")
                 svc.clientAddress != null -> status.set(u.green, "Shown on a computer", svc.clientAddress ?: "")
@@ -631,16 +634,15 @@ class MainActivity : Activity() {
             dim.refresh(if (Dimmer.enabled(this) && !Dimmer.canWrite(this)) "Needs \"Modify system settings\" for PhoneCast" else "Off by default")
             u.gone(dimBtn, !Dimmer.enabled(this) || Dimmer.canWrite(this))
         }
-        return u.page("Cast",
-            u.card(status.view, startBtn),
-            u.card(u.title("Mouse & keyboard"), control.view, controlBtn,
+        castCards = mapOf(
+            "control" to u.card(u.title("Mouse & keyboard"), control.view, controlBtn,
                 u.details("Help",
                     u.hint("Uses an Accessibility service to tap for you. If Android says \"Restricted setting\": App info → ⋮ → Allow restricted settings, then try again."),
                     u.hint("Games may treat tap injection like a cheat tool. Test on a throwaway account first."))),
-            u.card(u.title("Quality"), res.view, rate.view, audio.view,
+            "quality" to u.card(u.title("Mirror quality"), res.view, rate.view, audio.view,
                 u.hint("A connected Mac or PC sets resolution and bitrate from its own Quality menu.")),
-            u.card(u.title("Screen shape"), shapeView, grantHelp, shapeNormalBtn, shapeMacBtn),
-            u.card(u.title("Dim while shown"), dim.view, dimBtn,
+            "shape" to u.card(u.title("Screen shape"), shapeView, grantHelp, shapeNormalBtn, shapeMacBtn),
+            "dim" to u.card(u.title("Dim while shown"), dim.view, dimBtn,
                 u.hint("Turns the phone's brightness all the way down while a computer shows it (saves battery and heat, and nobody next to you sees the screen). The computer's picture stays bright. With the adb grant from Screen shape it uses Extra dim too. Brightness comes back when sharing stops.")),
         )
     }
@@ -693,7 +695,7 @@ class MainActivity : Activity() {
                 else -> "Connecting to the PhoneCast relay…"
             })
             shots.refresh("They land in Downloads/PhoneCast and on the Mac's clipboard")
-            clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs mouse & keyboard turned on (Cast tab)" else "Copy here, paste on the Mac")
+            clip.refresh(if (Prefs.autoClip(this) && InputService.instance == null) "Needs mouse & keyboard turned on (Settings)" else "Copy here, paste on the Mac")
             val p = HubService.instance?.let { try { it.features.perms() } catch (_: Exception) { null } }
             if (p != null) {
                 val names = mapOf("sms" to "Messages", "calls" to "Calls", "callControl" to "Answer & dial", "contacts" to "Contacts",
@@ -753,6 +755,10 @@ class MainActivity : Activity() {
             u.card(u.title("On the Mac"), notif.view, notifBtn, clip.view, shots.view, relay.view),
             u.card(u.title("Phone features on the Mac"), featRows.view, featBtn, filesBtn, locBtn,
                 u.hint("Sideloaded apps may first need App info → ⋮ → Allow restricted settings.")),
+            castCards.getValue("control"),
+            castCards.getValue("quality"),
+            castCards.getValue("dim"),
+            castCards.getValue("shape"),
             u.card(u.title("PC dashboard (optional)"), dashView,
                 u.tonal("Set the dashboard address…") { askDashboard() }),
             u.card(u.title("Updates"), updMsg.apply { text = tr("PhoneCast {0}", Updates.current(this@MainActivity)) },
