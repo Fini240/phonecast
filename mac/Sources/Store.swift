@@ -124,6 +124,12 @@ final class Store: ObservableObject {
         if want("sms") { loadThreads() }
         if want("calls") { loadCalls() }
         if want("contacts") { loadContacts() }
+        // pages opened before the link was up show "isn't connected": load them again now
+        let stale = errors.filter { $0.value == "The phone isn't connected." }.map(\.key)
+        for k in stale { errors[k] = nil }
+        if stale.contains("photos") { loadPhotos() }
+        if stale.contains("files") { loadFiles(filePath) }
+        if stale.contains("apps") { loadApps() }
     }
 
     // MARK: notifications
