@@ -77,6 +77,7 @@ private val DE = mapOf(
     "Trackpad mode shows no picture: it saves battery and works on a slow connection." to
         "Der Trackpad-Modus zeigt kein Bild: Er spart Akku und läuft auch bei langsamer Verbindung.",
     "Keys" to "Tasten", "Vol −" to "Leiser", "Mute" to "Stumm", "Vol +" to "Lauter",
+    "Couldn't check: {0}. Try again later." to "Prüfen ging nicht: {0}. Später nochmal versuchen.", "GitHub answered {0}" to "GitHub antwortete {0}",
     "Lid closed" to "Deckel zu", "Stays awake with the lid closed" to "Bleibt bei zugeklapptem Deckel wach",
     "Until {0}" to "Bis {0}", "Until you turn it off" to "Bis du es ausschaltest", "Until off" to "Bis aus",
     "Sleeps when the lid closes" to "Schläft beim Zuklappen", "Normal" to "Normal",

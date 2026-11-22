@@ -17,7 +17,7 @@ object Updates {
     @Volatile private var checking = false
 
     /**
-     * Ask GitHub for the latest release. On its own at most once an hour (the API allows 60 calls an hour);
+     * Ask GitHub for the latest release. On its own at most once an hour;
      * [force] (the Settings button) asks now. [done] gets a short result on the main thread.
      */
     fun check(c: Context, force: Boolean = false, done: ((String) -> Unit)? = null) {
@@ -31,20 +31,25 @@ object Updates {
         val main = android.os.Handler(android.os.Looper.getMainLooper())
         Thread {
             val msg = try {
-                val con = URL("https://api.github.com/repos/Fini240/phonecast/releases/latest").openConnection() as HttpURLConnection
+                // GitHub's normal release page, not its API: the API allows only 60 checks an hour per internet
+                // address, and on mobile data many people share one address, so it said "no" (403) a lot.
+                // releases/latest answers with a redirect to /releases/tag/v<version>; that's all we need.
+                val con = URL("https://github.com/Fini240/phonecast/releases/latest").openConnection() as HttpURLConnection
+                con.instanceFollowRedirects = false
                 con.connectTimeout = 10_000; con.readTimeout = 10_000
-                con.setRequestProperty("Accept", "application/vnd.github+json")
-                val j = org.json.JSONObject(con.inputStream.bufferedReader().readText())
-                val v = j.optString("tag_name").trimStart('v', 'V')
-                val page = j.optString("html_url")
-                val assets = j.optJSONArray("assets")
-                val apk = (0 until (assets?.length() ?: 0)).map { assets!!.getJSONObject(it) }
-                    .firstOrNull { it.optString("name").endsWith(".apk") }?.optString("browser_download_url")
+                val code = con.responseCode
+                val loc = con.getHeaderField("Location") ?: ""
+                con.disconnect()
+                if (code !in 300..399 || !loc.contains("/releases/tag/")) throw java.io.IOException(tr("GitHub answered {0}", code))
+                val tag = loc.substringAfterLast("/releases/tag/").substringBefore('?')
+                val v = tag.trimStart('v', 'V')
+                val page = "https://github.com/Fini240/phonecast/releases/tag/$tag"
+                val apk = "https://github.com/Fini240/phonecast/releases/download/$tag/PhoneCast.apk"
                 app.getSharedPreferences("ui", Context.MODE_PRIVATE).edit()
                     .putLong("updChecked", now).putString("updLatest", v).putString("updUrl", page).putString("updApk", apk).apply()
                 if (newer(v, current(app))) { latest = v; url = page; apkUrl = apk; tr("PhoneCast {0} is out", v) }
                 else { latest = null; tr("Up to date ({0})", current(app)) }
-            } catch (e: Exception) { tr("Couldn't reach GitHub ({0})", e.message) }
+            } catch (e: Exception) { tr("Couldn't check: {0}. Try again later.", e.message ?: e.javaClass.simpleName) }
             finally { checking = false }
             done?.let { d -> main.post { d(msg) } }
         }.start()
