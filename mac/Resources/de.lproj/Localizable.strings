@@ -340,3 +340,11 @@
 "Can't set it up for this user name." = "Für diesen Benutzernamen nicht einrichtbar.";
 "pmset failed: %@" = "pmset fehlgeschlagen: %@";
 "A MacBook always sleeps when you close the lid, so the phone can't reach it. This switches that off (pmset disablesleep) so PhoneCast, Tailscale and the agents stay reachable from the phone. The first time, macOS asks for your password once to allow exactly that one command. It turns itself off on battery below the limit, when the time is up, when the Mac gets too hot, and when PhoneCast quits or crashes. ☕︎ in the menu bar means it's on. Don't leave it on in a closed bag for long: the Mac can't cool down well there. You can also switch it from the phone's Mac tab." = "Ein MacBook schläft beim Zuklappen immer ein, dann erreicht das Handy ihn nicht. Das hier schaltet das ab (pmset disablesleep), damit PhoneCast, Tailscale und die Agenten vom Handy erreichbar bleiben. Beim ersten Mal fragt macOS einmal nach deinem Passwort, um genau diesen einen Befehl zu erlauben. Es schaltet sich selbst aus: im Akkubetrieb unter der Grenze, wenn die Zeit um ist, wenn der Mac zu heiß wird und wenn PhoneCast beendet wird oder abstürzt. ☕︎ in der Menüleiste heißt: an. Nicht lange zugeklappt in der Tasche lassen, dort kann der Mac sich schlecht kühlen. Du kannst es auch im Mac-Tab auf dem Handy schalten.";
+
+/* Continue the phone's website on the Mac */
+"Open on Mac" = "Auf dem Mac öffnen";
+"Open on Mac: %@" = "Auf dem Mac öffnen: %@";
+"Open on the phone now · %@" = "Gerade auf dem Handy offen · %@";
+"%@ · %@" = "%@ · %@";
+"No website open on the phone right now" = "Gerade keine Website auf dem Handy offen";
+"Allow “Mouse & keyboard” on the phone to see its open website" = "„Maus & Tastatur“ auf dem Handy erlauben, um die offene Website zu sehen";

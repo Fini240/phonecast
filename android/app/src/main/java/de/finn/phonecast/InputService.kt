@@ -129,8 +129,10 @@ class InputService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val e = event ?: return
         if (e.packageName == packageName) return
+        try { WebNow.onEvent(this, e) } catch (_: Exception) {}   // "continue on the Mac": the browser's current page
         val hub = HubService.instance ?: return
         if (!hub.connected || !Prefs.autoClip(this)) return
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         val copied = when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> isCopyWord(e.contentDescription) || e.text.any { isCopyWord(it) }
             AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED ->   // toasts

@@ -641,6 +641,7 @@ class HubService : Service() {
         o.put("dnd", filter != NotificationManager.INTERRUPTION_FILTER_ALL && filter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN)
         o.put("perms", features.perms())
         transfer?.let { o.put("transfer", it) }
+        WebNow.status(pm.isInteractive)?.let { o.put("web", it) }          // the browser's page, for "Open on Mac"
         sendJson(HubProto.STATUS, o)
     }
 

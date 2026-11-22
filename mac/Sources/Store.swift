@@ -76,6 +76,23 @@ final class Store: ObservableObject {
     /// Phone on Do Not Disturb -> no phone banners on the Mac either (they still land in the list).
     @Published var followPhoneDnd = UserDefaults.standard.object(forKey: "followPhoneDnd") as? Bool ?? true { didSet { UserDefaults.standard.set(followPhoneDnd, forKey: "followPhoneDnd") } }
     var phoneDnd: Bool { phoneStatus["dnd"] as? Bool ?? false }
+    /// The website the phone's browser shows (front = open right now) or showed last; "Open on Mac" continues it.
+    struct PhoneWeb { let url: URL; let app: String; let front: Bool; let at: Date
+        var short: String {
+            var s = (url.host ?? url.absoluteString).replacingOccurrences(of: "www.", with: "")
+            let rest = url.path + (url.query.map { "?" + $0 } ?? "")
+            if rest.count > 1 { s += rest }
+            return s
+        }
+    }
+    /// The phone's Accessibility service (mouse & keyboard) is on; it reads the browser's address.
+    var phoneControl: Bool { phoneStatus["control"] as? Bool ?? false }
+    var phoneWeb: PhoneWeb? {
+        guard connected, let w = phoneStatus["web"] as? [String: Any], let s = w["url"] as? String,
+              let u = URL(string: s), u.scheme == "https" || u.scheme == "http" else { return nil }
+        return PhoneWeb(url: u, app: w["app"] as? String ?? "", front: w["front"] as? Bool ?? false,
+                        at: Date(timeIntervalSince1970: (w["at"] as? Double) ?? Date().timeIntervalSince1970))
+    }
     @Published var quietHours = UserDefaults.standard.bool(forKey: "quietHours") { didSet { UserDefaults.standard.set(quietHours, forKey: "quietHours") } }
     @Published var quietFrom = UserDefaults.standard.object(forKey: "quietFrom") as? Int ?? 22 { didSet { UserDefaults.standard.set(quietFrom, forKey: "quietFrom") } }
     @Published var quietTo = UserDefaults.standard.object(forKey: "quietTo") as? Int ?? 7 { didSet { UserDefaults.standard.set(quietTo, forKey: "quietTo") } }

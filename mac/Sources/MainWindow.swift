@@ -307,12 +307,38 @@ struct PhoneActions: View {
                 action("Show on map", "map") { Continuity.locatePhone() }
                 action("Phone in Finder", "externaldrive.connected.to.line.below") { Continuity.openInFinder() }
             }
+            PhoneWebRow()
         }
         .disabled(!store.connected)
     }
     private func action(_ title: String, _ symbol: String, _ run: @escaping () -> Void) -> some View {
         Button(action: run) { Label(tr(title), systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading) }
             .help(tr(title))
+    }
+}
+
+/// "Continue on the Mac": the website the phone's browser has open, with a button to open it here.
+struct PhoneWebRow: View {
+    @EnvironmentObject var store: Store
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "globe").foregroundStyle(store.phoneWeb?.front == true ? Color.accentColor : .secondary)
+            if let w = store.phoneWeb {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(w.short).lineLimit(1).truncationMode(.middle).help(w.url.absoluteString)
+                    Text(w.front ? tr("Open on the phone now · %@", w.app)
+                                 : tr("%@ · %@", w.app, RelativeDateTimeFormatter().localizedString(for: w.at, relativeTo: Date())))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Open on Mac") { NSWorkspace.shared.open(w.url) }.keyboardShortcut("o", modifiers: [.command, .shift])
+            } else {
+                Text(store.phoneControl ? "No website open on the phone right now" : "Allow “Mouse & keyboard” on the phone to see its open website")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.top, 4)
     }
 }
 

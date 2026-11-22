@@ -856,6 +856,11 @@ final class Hub: NSObject, NSMenuDelegate {
             m.addItem(.separator())
         }
         _ = act(store.phoneCasting ? "Show phone screen" : "Mirror phone", #selector(castPhone(_:)))
+        if let w = store.phoneWeb {
+            let i = NSMenuItem(title: tr("Open on Mac: %@", w.short.count > 50 ? String(w.short.prefix(50)) + "…" : w.short),
+                               action: #selector(openPhoneWeb(_:)), keyEquivalent: "")
+            i.target = self; i.toolTip = w.url.absoluteString; m.addItem(i)
+        }
         _ = act("Send files to phone…", #selector(chooseFiles(_:)))
         _ = act("Send clipboard to phone", #selector(sendClipboard(_:)))
         act("Mute notifications", #selector(toggleMute(_:))).state = store.muteAll ? .on : .off
@@ -889,6 +894,7 @@ final class Hub: NSObject, NSMenuDelegate {
     }
 
     @objc func openMain(_ s: Any?) { onOpenMain?() }
+    @objc func openPhoneWeb(_ s: Any?) { if let w = store.phoneWeb { NSWorkspace.shared.open(w.url) } }
     @objc func lidAwakeOn(_ s: Any?) { LidAwake.shared.enable(minutes: (s as? NSMenuItem)?.representedObject as? Int ?? 0) }
     @objc func lidAwakeOff(_ s: Any?) { LidAwake.shared.disable() }
     @objc func toggleMute(_ s: Any?) { store.muteAll.toggle() }
