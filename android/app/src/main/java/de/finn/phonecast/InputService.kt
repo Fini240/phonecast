@@ -104,6 +104,15 @@ class InputService : AccessibilityService() {
         else registerReceiver(unlockReceiver, unlock)
         main.postDelayed(watchdog, 200)
         onControlChanged?.invoke(true)
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {   // debug builds: `am broadcast -a de.finn.phonecast.WEBTEST` runs "Open on Mac"'s address read
+            val f = android.content.IntentFilter("de.finn.phonecast.WEBTEST")
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
+                    Thread { android.util.Log.i("PhoneCastWeb", "fullUrl=" + WebNow.fullUrl(this@InputService, i?.getBooleanExtra("force", false) == true) + " last=" + WebNow.last?.url) }.start()
+                }
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(r, f, RECEIVER_EXPORTED) else registerReceiver(r, f)
+        }
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {

@@ -331,7 +331,7 @@ struct PhoneWebRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Open on Mac") { NSWorkspace.shared.open(w.url) }.keyboardShortcut("o", modifiers: [.command, .shift])
+                Button("Open on Mac") { Hub.shared.openPhoneWebNow() }.keyboardShortcut("o", modifiers: [.command, .shift])
             } else {
                 Text(store.phoneControl ? "No website open on the phone right now" : "Allow “Mouse & keyboard” on the phone to see its open website")
                     .foregroundStyle(.secondary)

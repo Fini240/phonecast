@@ -894,7 +894,21 @@ final class Hub: NSObject, NSMenuDelegate {
     }
 
     @objc func openMain(_ s: Any?) { onOpenMain?() }
-    @objc func openPhoneWeb(_ s: Any?) { if let w = store.phoneWeb { NSWorkspace.shared.open(w.url) } }
+    @objc func openPhoneWeb(_ s: Any?) { openPhoneWebNow() }
+
+    /// "Open on Mac": ask the phone for the full address first (Samsung Internet shows only the domain, the phone
+    /// reads the whole one from the address bar), else open what the status had.
+    func openPhoneWebNow() {
+        guard let w = store.phoneWeb else { return }
+        guard w.front else { NSWorkspace.shared.open(w.url); return }
+        request("web.url", timeout: 4) { r in
+            if case .success(let v) = r, let s = v as? String, let u = URL(string: s), u.scheme == "https" || u.scheme == "http" {
+                NSWorkspace.shared.open(u)
+            } else {
+                NSWorkspace.shared.open(w.url)
+            }
+        }
+    }
     @objc func lidAwakeOn(_ s: Any?) { LidAwake.shared.enable(minutes: (s as? NSMenuItem)?.representedObject as? Int ?? 0) }
     @objc func lidAwakeOff(_ s: Any?) { LidAwake.shared.disable() }
     @objc func toggleMute(_ s: Any?) { store.muteAll.toggle() }

@@ -88,6 +88,7 @@ class Features(private val ctx: Context, private val hub: HubService) {
         }
         "webdav.stop" -> { WebDav.stop(); true }
         "url.open" -> openUrl(p.getString("url"))
+        "web.url" -> WebNow.fullUrl(InputService.instance) ?: JSONObject.NULL
         "dnd.set" -> {
             // the notification listener may switch Do Not Disturb without any extra permission
             val nl = NotifListener.instance ?: throw SecurityException("notification access")

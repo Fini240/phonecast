@@ -57,6 +57,8 @@ object WebNow {
         lastRead = now
         val root = try { svc.rootInActiveWindow } catch (_: Exception) { null } ?: return
         if (root.packageName?.toString() != pkg) return
+        // the address bar is being edited (by you, or by "Open on Mac" reading it): its suggestions aren't the page
+        if (root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { it.isEditable && it.packageName == root.packageName } == true) return
         val url = read(root, pkg) ?: return
         val prev = last
         last = Page(url, browsers[pkg] ?: appLabel(svc, pkg), pkg, System.currentTimeMillis())
@@ -160,7 +162,8 @@ object WebNow {
             .maxByOrNull { (_, n) -> n.length }?.first?.url
     }
 
-    private fun read(root: AccessibilityNodeInfo, pkg: String): String? {
+    // read() runs on the main thread, fullUrl() on a request thread: both touch byTitle
+    private fun read(root: AccessibilityNodeInfo, pkg: String): String? = synchronized(byTitle) {
         val bar = barUrl(root, pkg) ?: return null
         val t = title(root)
         val now = SystemClock.uptimeMillis()
@@ -182,23 +185,100 @@ object WebNow {
         }
         if (p != null && now - p.at > 60_000) pending = null
         lastTitle = t
-        return url
+        url
     }
 
-    private fun barUrl(root: AccessibilityNodeInfo, pkg: String): String? {
+    private fun barUrl(root: AccessibilityNodeInfo, pkg: String): String? = barNode(root, pkg)?.let { normalise(it.text?.toString()) }
+
+    /** The address bar (not while you type in it: then it holds your search text, not the page). */
+    private fun barNode(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? {
         for (id in barIds) {
             val nodes = try { root.findAccessibilityNodeInfosByViewId("$pkg:id/$id") } catch (_: Exception) { null } ?: continue
             for (n in nodes) {
-                // while you type in the address bar it holds your search text, not the page
                 if (n.isFocused || n.isShowingHintText) continue
-                normalise(n.text?.toString())?.let { return it }
+                if (normalise(n.text?.toString()) != null) return n
             }
         }
         return scan(root)
     }
 
+    /**
+     * "Open on Mac" pressed: the freshest full address. Samsung Internet shows only the domain, but its address bar
+     * holds the whole address while you edit it. So, only when a browser is in front and its bar shows no path:
+     * tap the bar, read the address, and leave editing again (the page stays, nothing is typed). Runs on a
+     * request thread, never on the main thread.
+     */
+    fun fullUrl(svc: AccessibilityService?, force: Boolean = false): String? {
+        val cached = last?.url
+        if (svc == null || !front) return cached
+        val root = try { svc.rootInActiveWindow } catch (_: Exception) { null } ?: return cached
+        val pkg = root.packageName?.toString() ?: return cached
+        if (!isBrowser(pkg)) return cached
+        val bar = barNode(root, pkg) ?: return cached
+        val shown = normalise(bar.text?.toString()) ?: return cached
+        if (hasPath(shown) && !force) return remember(svc, pkg, root, shown)
+        var clicked = bar
+        var ok = false
+        repeat(3) {                       // the text view itself, or the clickable box around it
+            if (!ok) ok = clicked.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (!ok) clicked = clicked.parent ?: return@repeat
+        }
+        android.util.Log.i("PhoneCastWeb", "reveal: tapped=$ok ${clicked.viewIdResourceName ?: clicked.className}")
+        if (!ok) return cached
+        var full: String? = null
+        var edit: AccessibilityNodeInfo? = null
+        for (i in 0 until 12) {           // up to ~1.2 s for the edit field to open
+            Thread.sleep(100)
+            val r = try { svc.rootInActiveWindow } catch (_: Exception) { null } ?: continue
+            val f = r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: continue
+            if (f.packageName?.toString() != pkg) continue
+            edit = f
+            // the field first still holds the short text; the full address replaces it a moment later
+            val u = if (f.isShowingHintText) null else normalise(f.text?.toString())
+            if (u != null && site(u) == site(shown) && (u != shown || i >= 6)) { full = u; break }
+            // Chrome empties the field and shows the current page as a row underneath it instead
+            if (i >= 3) { val row = pageRow(r, shown); if (row != null) { full = row; break } }
+        }
+        // leave editing: drop the focus; if the field still has it, Back (only while it's focused, so the page never goes back)
+        edit?.performAction(AccessibilityNodeInfo.ACTION_CLEAR_FOCUS)
+        for (i in 0 until 2) {
+            Thread.sleep(200)
+            val r = try { svc.rootInActiveWindow } catch (_: Exception) { null } ?: break
+            val f = r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (f == null || f.packageName?.toString() != pkg || !f.isEditable) break
+            svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+        android.util.Log.i("PhoneCastWeb", "reveal: ${if (full != null) "got the full address" else "nothing found"}")
+        val u = full ?: return cached
+        val r = try { svc.rootInActiveWindow } catch (_: Exception) { null }
+        return if (r != null) remember(svc, pkg, r, u) else u
+    }
+
+    /** While the address bar is open: a row near the top showing an address on the same site with a path. */
+    private fun pageRow(root: AccessibilityNodeInfo, shown: String): String? {
+        val r = android.graphics.Rect(); root.getBoundsInScreen(r)
+        val limit = r.top + r.height() * 45 / 100
+        val q = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        var seen = 0
+        while (q.isNotEmpty() && seen < 400) {
+            val n = q.removeFirst(); seen++
+            n.getBoundsInScreen(r)
+            if (r.top > limit || n.className == "android.webkit.WebView") continue
+            if (!n.isEditable) normalise(n.text?.toString())?.let { if (site(it) == site(shown) && hasPath(it)) return it }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { q.add(it) }
+        }
+        return null
+    }
+
+    private fun remember(svc: AccessibilityService, pkg: String, root: AccessibilityNodeInfo, url: String): String {
+        title(root)?.let { synchronized(byTitle) { byTitle[it] = url } }
+        last = Page(url, browsers[pkg] ?: appLabel(svc, pkg), pkg, System.currentTimeMillis())
+        HubService.instance?.refreshStatus()
+        return url
+    }
+
     /** Unknown browser: the first text near the top of the screen that looks like an address. */
-    private fun scan(root: AccessibilityNodeInfo): String? {
+    private fun scan(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val r = android.graphics.Rect()
         root.getBoundsInScreen(r)
         val limit = r.top + r.height() / 4
@@ -209,8 +289,8 @@ object WebNow {
             n.getBoundsInScreen(r)
             if (r.top > limit) continue
             val cls = n.className?.toString() ?: ""
-            if ((cls.endsWith("EditText") || cls.endsWith("TextView")) && !n.isFocused && !n.isShowingHintText)
-                normalise(n.text?.toString())?.let { return it }
+            if ((cls.endsWith("EditText") || cls.endsWith("TextView")) && !n.isFocused && !n.isShowingHintText &&
+                normalise(n.text?.toString()) != null) return n
             for (i in 0 until n.childCount) n.getChild(i)?.let { queue.add(it) }
         }
         return null
