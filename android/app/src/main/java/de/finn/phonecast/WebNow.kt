@@ -41,6 +41,11 @@ object WebNow {
     fun onEvent(svc: AccessibilityService, e: AccessibilityEvent) {
         val pkg = e.packageName?.toString() ?: return
         val stateChange = e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        if (e.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            // a tapped link carries its full address; the page it opens gets that address (see read())
+            if (isBrowser(pkg)) linkOf(e.source)?.let { pending = Pending(it, SystemClock.uptimeMillis(), lastTitle) }
+            return
+        }
         if (!isBrowser(pkg)) {
             if (stateChange && !isOverlay(pkg) && front) { front = false; HubService.instance?.refreshStatus() }
             return
@@ -67,7 +72,120 @@ object WebNow {
         return JSONObject().put("url", p.url).put("app", p.app).put("front", front && screenOn).put("at", p.at / 1000)
     }
 
+    // Samsung Internet (and Chrome on some setups) shows only the domain in the address bar. The page itself
+    // doesn't expose its address, but a tapped link does (Chromium's "targetUrl"). So: remember the link you
+    // tapped, and when the next page with a new title loads on the same site, that title gets the link's address.
+    // Going back to an earlier page finds it again by its title.
+    private class Pending(val url: String, val at: Long, val titleBefore: String?)
+    private var pending: Pending? = null
+    private var lastTitle: String? = null
+    private val byTitle = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, String>?) = size > 200
+    }
+
+    private fun linkOf(node: AccessibilityNodeInfo?): String? {
+        var n = node
+        repeat(4) {                       // the tap may land on text inside the link
+            val u = n?.extras?.getCharSequence("AccessibilityNodeInfo.targetUrl")?.toString()
+            if (u != null && (u.startsWith("https://") || u.startsWith("http://"))) return u
+            n = n?.parent ?: return null
+        }
+        return null
+    }
+
+    /** The page title: Chromium's web root node ("rootWebArea") has it as its text. */
+    private fun title(root: AccessibilityNodeInfo): String? {
+        val q = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        var seen = 0
+        while (q.isNotEmpty() && seen < 150) {
+            val n = q.removeFirst(); seen++
+            // while a page loads there can be an empty web root next to the real one: keep looking
+            if (n.extras?.getString("AccessibilityNodeInfo.chromeRole") == "rootWebArea" || n.className == "android.webkit.WebView")
+                n.text?.toString()?.takeIf { it.isNotBlank() }?.let { return it }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { q.add(it) }
+        }
+        return null
+    }
+
+    private fun site(u: String): String {
+        val host = try { java.net.URI(u).host ?: "" } catch (_: Exception) { "" }
+        return host.lowercase().split('.').takeLast(2).joinToString(".")
+    }
+    private fun hasPath(u: String): Boolean = try {
+        val x = java.net.URI(u); (x.rawPath ?: "").length > 1 || x.rawQuery != null
+    } catch (_: Exception) { false }
+
+    // Second way (when no tap was reported): once per page, collect its links (text -> address) in the background.
+    // When the next page's title contains a link's text from the page before (a Kleinanzeigen ad, a news story,
+    // a shop item), that link's address is the page's address.
+    private class Link(val text: String, val url: String)
+    @Volatile private var prevLinks: List<Link> = emptyList()
+    @Volatile private var curLinks: List<Link> = emptyList()
+    private var harvestedTitle: String? = null
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private fun norm(t: String) = t.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+    private fun harvest(root: AccessibilityNodeInfo): List<Link> {
+        val out = ArrayList<Link>()
+        val q = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        var seen = 0
+        while (q.isNotEmpty() && seen < 1500 && out.size < 300) {
+            val n = q.removeFirst(); seen++
+            val ex = n.extras
+            val u = ex?.getCharSequence("AccessibilityNodeInfo.targetUrl")?.toString()
+            if (u != null && (u.startsWith("https://") || u.startsWith("http://"))) {
+                val text = (n.contentDescription ?: n.text)?.toString().orEmpty().ifBlank { linkText(n) }
+                if (text.length >= 6) out += Link(text, u)
+            }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { q.add(it) }
+        }
+        return out
+    }
+    private fun linkText(n: AccessibilityNodeInfo): String {
+        val sb = StringBuilder()
+        for (i in 0 until minOf(n.childCount, 6)) n.getChild(i)?.let { c -> (c.text ?: c.contentDescription)?.let { sb.append(it).append(' ') } }
+        return sb.toString().trim()
+    }
+
+    /** The link from the page before whose text best matches this page's title. */
+    private fun matchTitle(title: String, site: String): String? {
+        val t = norm(title)
+        // page titles are usually "<what you opened> | <site>" or "<what> - <site>"
+        val head = norm(title.split(" | ", " – ", " - ", " · ").first())
+        return prevLinks.asSequence()
+            .filter { site(it.url) == site && !it.url.contains('#') }
+            .map { it to norm(it.text) }
+            .filter { (_, n) -> n.length >= 8 && (t.contains(n) || (head.length >= 8 && n.contains(head))) }
+            .maxByOrNull { (_, n) -> n.length }?.first?.url
+    }
+
     private fun read(root: AccessibilityNodeInfo, pkg: String): String? {
+        val bar = barUrl(root, pkg) ?: return null
+        val t = title(root)
+        val now = SystemClock.uptimeMillis()
+        val p = pending
+        var url = if (hasPath(bar)) bar else {
+            // only the domain is shown: use the tapped link once the new page is there
+            if (p != null && t != null && t != p.titleBefore && site(p.url) == site(bar) && now - p.at < 60_000) {
+                byTitle[t] = p.url; pending = null
+            }
+            t?.let { byTitle[it] }?.takeIf { site(it) == site(bar) } ?: bar
+        }
+        if (t != null && hasPath(url)) byTitle[t] = url
+        if (t != null && t != harvestedTitle) {
+            // a new page: if the bar didn't tell us, try the previous page's links; then collect this page's links
+            harvestedTitle = t
+            prevLinks = curLinks
+            if (!hasPath(url)) matchTitle(t, site(bar))?.let { byTitle[t] = it; url = it }
+            worker.execute { curLinks = try { harvest(root) } catch (_: Exception) { emptyList() } }
+        }
+        if (p != null && now - p.at > 60_000) pending = null
+        lastTitle = t
+        return url
+    }
+
+    private fun barUrl(root: AccessibilityNodeInfo, pkg: String): String? {
         for (id in barIds) {
             val nodes = try { root.findAccessibilityNodeInfosByViewId("$pkg:id/$id") } catch (_: Exception) { null } ?: continue
             for (n in nodes) {
