@@ -475,6 +475,8 @@ class HubService : Service() {
                 lastClip = text
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("From the Mac", text))
                 toast("Copied from the Mac")
+                // one shared clipboard: copy on the Mac, paste on the PC (and the other way round)
+                clients.forEach { if (it !== c) it.control(HubProto.CLIP, p) }
             }
             HubProto.NOTIF_ACTION -> NotifListener.instance?.action(JSONObject(String(p)))
             HubProto.CAST_REQUEST -> requestCast()
@@ -483,7 +485,7 @@ class HubService : Service() {
             HubProto.FILE_BEGIN -> {
                 val o = JSONObject(String(p))
                 files[o.getInt("id")] = Incoming(o.optString("name", "file"), o.optLong("size", -1), o.optString("dir").takeIf { it.isNotEmpty() },
-                    clip = o.optBoolean("clip"))
+                    clip = o.optBoolean("clip"), from = c)
             }
             HubProto.FILE_DATA -> {
                 val id = ByteBuffer.wrap(p, 0, 4).int
@@ -519,7 +521,7 @@ class HubService : Service() {
 
     // ---- incoming files -> Download/PhoneCast ----
 
-    private inner class Incoming(val name: String, val size: Long, dir: String?, val clip: Boolean = false) {
+    private inner class Incoming(val name: String, val size: Long, dir: String?, val clip: Boolean = false, val from: Client? = null) {
         private val uri: Uri?
         private val out: OutputStream?
         private var got = 0L
@@ -571,6 +573,12 @@ class HubService : Service() {
                 Prefs.lastClipImage(this@HubService)?.let { old -> if (old != u.toString()) try { contentResolver.delete(Uri.parse(old), null, null) } catch (_: Exception) {} }
                 Prefs.setLastClipImage(this@HubService, u.toString())
                 toast("Picture copied from the Mac")
+                // one shared clipboard: the other linked computer (Mac <-> PC) gets the picture too
+                val others = clients.filter { it !== from }
+                if (others.isNotEmpty()) Thread({
+                    for (o in others) try { sendOne(o, u, 0, "clipimg") } catch (e: Exception) { Log.w(TAG, "clip relay", e) }
+                    transfer = null; updateNotification()
+                }, "hub-clip-relay").start()
                 return
             }
             val apk = name.endsWith(".apk", ignoreCase = true)
