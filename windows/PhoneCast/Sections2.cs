@@ -288,7 +288,7 @@ sealed class AppsSection : Section
         search.TextChanged += (_, _) => Refresh2();
         Controls.Add(host);
         Controls.Add(Header(tr("Apps"), search, Ui.Button(tr("Refresh"), () => S.LoadApps())));
-        var hint = Ui.Label(tr("Click an app to open it on the phone and show it in the mirror."), Ui.Small, Ui.Sub);
+        var hint = Ui.Label(tr("Click an app to open it on the phone and show it in the mirror. Right-click: in its own window (USB debugging)."), Ui.Small, Ui.Sub);
         hint.Dock = DockStyle.Bottom;
         Controls.Add(hint);
         HandleCreated += (_, _) => Win.DarkScroll(grid);
@@ -321,6 +321,11 @@ sealed class AppsSection : Section
             b.FlatAppearance.MouseOverBackColor = Ui.Hover;
             var app = a;
             b.Click += (_, _) => S.OpenApp(app);
+            // right-click: the app in its own window (Advanced, USB debugging + scrcpy)
+            var cm = new ContextMenuStrip();
+            cm.Items.Add(tr("Open on the phone"), null, (_, _) => S.OpenApp(app));
+            cm.Items.Add(tr("Open in its own window (USB debugging)"), null, (_, _) => Advanced.OpenAppWindow(pkg, (string)app["name"]));
+            b.ContextMenuStrip = cm;
             grid.Controls.Add(b);
         }
         grid.ResumeLayout();
@@ -390,7 +395,17 @@ sealed class SettingsSection : Section
     readonly FlowLayoutPanel flow = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Bg };
     readonly Label pairState = Ui.Label("", Ui.Body, null, 520), keyLabel = Ui.Label("", Ui.Small, Ui.Sub, 520), dndState = Ui.Label("", Ui.Small, Ui.Sub);
     readonly CheckedListBox apps = new() { CheckOnClick = true, BorderStyle = BorderStyle.None, IntegralHeight = false };
-    readonly Label awakeState = Ui.Label("", Ui.Body, null, 520), webState = Ui.Label("", Ui.Body, null, 520);
+    readonly Label awakeState = Ui.Label("", Ui.Body, null, 520), webState = Ui.Label("", Ui.Body, null, 520),
+        advState = Ui.Label("", Ui.Body, null, 520), advResult = Ui.Label("", Ui.Small, Ui.Sub, 520);
+    bool advChecking;
+
+    /// adb is slow: ask in the background.
+    void RefreshAdvanced()
+    {
+        if (advChecking) return;
+        advChecking = true;
+        Task.Run(() => { var t = Advanced.Status(); Ui.Post(() => { advState.Text = t; advChecking = false; }); });
+    }
     readonly FlowLayoutPanel perms = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, BackColor = Color.Transparent };
     bool filling;
     const int W = 540;
@@ -462,6 +477,22 @@ sealed class SettingsSection : Section
         web.Controls.Add(Ui.Row(Ui.Button(tr("New code"), () => { PhoneWeb.NewCode(); Fill(); }), Ui.Button(tr("Open it here"), () => Ui.Shell($"http://localhost:{PhoneWeb.Port}/phone"))));
         web.Controls.Add(Note(tr("For an iPad or a school laptop: open the address there and enter the code. It goes through this PC's link, so nothing leaves your network. Windows asks once whether to allow PhoneCast through the firewall: allow it for private networks.")));
 
+        var adv = new CardPanel(tr("Advanced (USB debugging)"), Glyph.Gamepad);
+        adv.Controls.Add(advState);
+        var shapes = new[] { "tall", "wide", "phone" };
+        var shapeBox = Ui.Combo(new[] { tr("Tall (phone app)"), tr("Wide (tablet app)"), tr("The phone's own size") }, Math.Max(0, Array.IndexOf(shapes, Advanced.AppShape)), i => Advanced.AppShape = shapes[i]);
+        shapeBox.Width = LogicalToDeviceUnits(200);
+        adv.Controls.Add(Ui.Row(Ui.Label(tr("App windows:")), shapeBox));
+        adv.Controls.Add(Ui.Row(Ui.Button(tr("Phone camera (back)"), () => Advanced.Camera("back")), Ui.Button(tr("Phone camera (front)"), () => Advanced.Camera("front")), Ui.Button(tr("Stop camera"), () => Advanced.Stop("camera"))));
+        adv.Controls.Add(Ui.Check(tr("Play the phone's microphone on this PC"), Advanced.Running("mic"), on => Advanced.Microphone(on)));
+        adv.Controls.Add(Ui.Check(tr("Turn the phone's screen off while it's mirrored"), Settings.Bool("advancedScreenOff"), on => Advanced.ScreenOff(on)));
+        var pairAddr = Ui.Input(tr("IP:port")); var pairCode = Ui.Input(tr("Code")); var connAddr = Ui.Input(tr("IP:port"));
+        pairAddr.Width = connAddr.Width = LogicalToDeviceUnits(160); pairCode.Width = LogicalToDeviceUnits(90);
+        adv.Controls.Add(Ui.Row(Ui.Label(tr("Wireless debugging:")), pairAddr, pairCode, Ui.Button(tr("Pair"), () => Task.Run(() => { var r = Advanced.Pair(pairAddr.Text, pairCode.Text); Ui.Post(() => { advResult.Text = r; RefreshAdvanced(); }); }))));
+        adv.Controls.Add(Ui.Row(Ui.Label(tr("then connect to:")), connAddr, Ui.Button(tr("Connect"), () => Task.Run(() => { var r = Advanced.Connect(connAddr.Text); Ui.Post(() => { advResult.Text = r; RefreshAdvanced(); }); }))));
+        adv.Controls.Add(advResult);
+        adv.Controls.Add(Note(tr("Phone apps in their own windows (right-click an app in Apps), the phone's camera as a window for calls or OBS, its microphone, and a really dark phone screen while mirroring. Needs USB debugging on the phone and scrcpy on this PC (winget install Genymobile.scrcpy). Nothing else in PhoneCast needs it.")));
+
         var files = new CardPanel(tr("Files"), Glyph.Folder);
         files.Controls.Add(Note(tr("Explorer: right-click files → Send to → PhoneCast (phone). They land in the phone's Downloads. The phone's storage opens as a drive with Files → Open in File Explorer (or the tray).")));
         files.Controls.Add(Ui.Button(tr("Open the phone in File Explorer"), PhoneDrive.Open));
@@ -492,7 +523,7 @@ sealed class SettingsSection : Section
         phone.Controls.Add(perms);
         phone.Controls.Add(Note(tr("Missing ones are allowed in the PhoneCast app on the phone (Phone features on the computer).")));
 
-        foreach (var c in new Control[] { pair, sec, notif, clip, control, awake, files, web, lockCard, dev, pc, phone })
+        foreach (var c in new Control[] { pair, sec, notif, clip, control, awake, files, web, lockCard, dev, adv, pc, phone })
         {
             c.MinimumSize = new Size(w + LogicalToDeviceUnits(32), 0);
             flow.Controls.Add(c);
@@ -502,7 +533,7 @@ sealed class SettingsSection : Section
 
     sealed class AppItem { public string Pkg, Name; public override string ToString() => Name; }
 
-    public override void Shown() => Fill();
+    public override void Shown() { Fill(); RefreshAdvanced(); }
     public override void Changed(string what) { if (what is "settings" or "status" or "pc") Fill(); }
 
     void Fill()

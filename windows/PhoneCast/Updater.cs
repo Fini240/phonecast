@@ -10,22 +10,21 @@ namespace PhoneCast;
 /// after this process quits (a small script) → start the new version. Also checks quietly once at start.</summary>
 static class Updater
 {
-    const string Api = "https://api.github.com/repos/Fini240/phonecast/releases/latest";
+    // github.com's own "latest release" link answers with a redirect to /releases/tag/vX: no API call, so no
+    // 60-per-hour limit (that limit is per IP and hits shared school/mobile IPs).
+    const string Repo = "https://github.com/Fini240/phonecast";
     static string Current => typeof(Updater).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "0";
 
     public static async Task<(string version, string zip, string page)?> Latest()
     {
-        using var http = new HttpClient();
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
         http.DefaultRequestHeaders.UserAgent.ParseAdd("PhoneCast-Windows");
         http.Timeout = TimeSpan.FromSeconds(15);
-        using var doc = JsonDocument.Parse(await http.GetStringAsync(Api));
-        var root = doc.RootElement;
-        var v = root.GetProperty("tag_name").GetString()!.TrimStart('v', 'V');
-        var page = root.GetProperty("html_url").GetString()!;
-        string zip = null;
-        foreach (var a in root.GetProperty("assets").EnumerateArray())
-            if (a.GetProperty("name").GetString()!.StartsWith("PhoneCast-windows")) zip = a.GetProperty("browser_download_url").GetString();
-        return (v, zip, page);
+        using var r = await http.GetAsync(Repo + "/releases/latest");
+        var loc = r.Headers.Location?.ToString() ?? throw new Exception($"GitHub answered {(int)r.StatusCode}");
+        var tag = loc.TrimEnd('/').Split('/').Last();
+        if (!tag.StartsWith("v")) throw new Exception("no release found");
+        return (tag.TrimStart('v', 'V'), $"{Repo}/releases/download/{tag}/PhoneCast-windows-x64.zip", $"{Repo}/releases/tag/{tag}");
     }
 
     public static bool Newer(string a, string b)
@@ -49,11 +48,11 @@ static class Updater
             if (r is not { } l) return;
             if (!Newer(l.version, Current))
             {
-                if (!quiet) MessageBox.Show(owner, $"PhoneCast {Current} is the newest version.", "PhoneCast", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (!quiet) MessageBox.Show(owner, tr("PhoneCast {0} is the newest version.", Current), "PhoneCast", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            var ask = MessageBox.Show(owner, $"PhoneCast {l.version} is available (you have {Current}).\n\nInstall it now? PhoneCast restarts by itself.",
-                "Update PhoneCast", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            var ask = MessageBox.Show(owner, tr("PhoneCast {0} is available (you have {1}).\n\nInstall it now? PhoneCast restarts by itself.", l.version, Current),
+                tr("Update PhoneCast"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (ask != DialogResult.Yes) return;
             if (l.zip == null) { Process.Start(new ProcessStartInfo(l.page) { UseShellExecute = true }); return; }
             await Install(l.zip);
@@ -61,7 +60,7 @@ static class Updater
         catch (Exception e)
         {
             App.Log("update: " + e.Message);
-            if (!quiet) MessageBox.Show(owner, "Couldn't check for updates:\n" + e.Message, "PhoneCast", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (!quiet) MessageBox.Show(owner, tr("Couldn't check for updates:\n{0}", e.Message), "PhoneCast", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

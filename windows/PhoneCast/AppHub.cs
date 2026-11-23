@@ -506,6 +506,7 @@ sealed unsafe partial class App : IPhoneLink
     {
         screen?.Stop();
         KeepAwake.Shared.StopOnQuit();
+        Advanced.StopAll();
         hub?.Close();
         MainForm.Quitting = true;
         var done = new ManualResetEventSlim();
