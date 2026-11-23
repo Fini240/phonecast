@@ -54,7 +54,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dashWeb = DashWeb(this)
-        pcSub = getSharedPreferences("ui", MODE_PRIVATE).getString("pcsub", "control")!!
+        pcSub = getSharedPreferences("ui", MODE_PRIVATE).getString("pcsub2", "windows")!!
         current = savedInstanceState?.getString("tab") ?: getSharedPreferences("ui", MODE_PRIVATE).getString("tab", "home")!!
         buildUi()
         HubService.start(this)
@@ -100,6 +100,7 @@ class MainActivity : Activity() {
     private var pcSub = "control"
     private var pcHolder: FrameLayout? = null
     private var pcNative: View? = null
+    private var pcWindows: View? = null
     private var pcSeg: Ui.Segmented<String>? = null
 
     private fun dp(v: Int) = u.dp(v)
@@ -121,7 +122,7 @@ class MainActivity : Activity() {
 
         castParts()
         pages["home"] = homePage()
-        pages["mac"] = macPage()
+        pages["mac"] = computerPage("mac")
         pages["pc"] = pcContainer()
         agents = AgentsPage(this, u)
         pages["agents"] = agents!!.view
@@ -209,9 +210,14 @@ class MainActivity : Activity() {
     // ---- Home ----
 
     private fun homePage(): View {
-        val status = u.Status()
         val transfer = u.label("", 13f, secondary = true)
         val devices = u.Rows()
+        // one card per linked computer (a Mac and a PC can both be linked), or one "nothing connected" card
+        val computersBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val noneStatus = u.Status()
+        val noneCard = u.card(noneStatus.view)
+        var computersSig = "-"
+        val cardStatus = HashMap<String, Ui.Status>()
 
         // setup checklist: only shown while something is missing
         val setupRows = u.Rows()
@@ -221,21 +227,42 @@ class MainActivity : Activity() {
 
         updaters += {
             val hub = HubService.instance
-            val st = hub?.macStatus
+            val comps = hub?.computers ?: emptyList()
             val sharing = CaptureService.instance != null
+            val csig = comps.joinToString("|") { it.second + ":" + it.first }
+            if (csig != computersSig) {
+                computersSig = csig
+                computersBox.removeAllViews(); cardStatus.clear()
+                if (comps.isEmpty()) computersBox.addView(noneCard)
+                for ((_, os) in comps.distinctBy { it.second }) {
+                    val st = u.Status()
+                    cardStatus[os] = st
+                    val pc = os == "windows"
+                    computersBox.addView(u.card(st.view, u.grid(3,
+                        (if (pc) "PC screen" else "Mac screen") to { openControl(os) },
+                        "Send files" to { pickFiles(os) },
+                        "Clipboard" to { sendClipboard(os) },
+                    )))
+                }
+                (transfer.parent as? ViewGroup)?.removeView(transfer)
+                computersBox.addView(transfer)
+            }
             when {
-                hub == null -> status.set(u.grey, "Starting…", "")
-                !hub.connected -> status.set(u.grey, "No computer connected",
-                    "Open PhoneCast on the Mac. Same Wi-Fi or any network; pair once in Settings.")
-                else -> status.set(u.green, hub.macName ?: "Mac", listOfNotNull(
-                    st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: tr("Connected"),
-                    if (sharing) tr("screen shared") else null,
-                    tr(if (NotifListener.instance != null) "notifications on" else "notifications off"),
+                hub == null -> noneStatus.set(u.grey, "Starting…", "")
+                comps.isEmpty() -> noneStatus.set(u.grey, "No computer connected",
+                    "Open PhoneCast on the Mac or PC. Same Wi-Fi or any network; pair once in Settings.")
+            }
+            for ((os, st) in cardStatus) {
+                val s = hub?.statusOf(os)
+                st.set(u.green, hub?.nameOf(os) ?: if (os == "windows") "PC" else "Mac", listOfNotNull(
+                    s?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: tr("Connected"),
+                    s?.optInt("battery", -1)?.takeIf { it >= 0 }?.let { "$it %" + if (s.optBoolean("charging")) " ⚡" else "" },
                 ).joinToString(" · "))
             }
+            if (hub?.has("windows") == true) getSharedPreferences("ui", MODE_PRIVATE).edit().putBoolean("seenWindows", true).apply()
             transfer.text = hub?.transfer ?: ""
             u.gone(transfer, hub?.transfer == null)
-            devices.set(deviceRows(st, all = true), "Shown once the Mac is connected.")
+            devices.set(deviceRows(), "Shown once a computer is connected.")
 
             // setup checklist
             val p = hub?.let { try { it.features.perms() } catch (_: Exception) { null } }
@@ -252,7 +279,7 @@ class MainActivity : Activity() {
             val unpaired = !steps[0].second
             u.emphasize(castBtn, !unpaired || sharing)
             val col = setupCard.parent as? ViewGroup
-            val statusCard = status.view.parent as? View
+            val statusCard: View = computersBox
             if (col != null && statusCard != null && statusCard.parent === col) {
                 val want = if (unpaired) col.indexOfChild(statusCard) else col.indexOfChild(statusCard) + 1
                 val have = col.indexOfChild(setupCard)
@@ -289,92 +316,60 @@ class MainActivity : Activity() {
                 updateBtn.alpha = if (Updates.installing == null) 1f else 0.5f
             }
         }
-        val connCard = u.card(status.view,
-                u.grid(3,
-                    "Mac screen" to { openMacControl() },
-                    "Send files" to { pickFiles() },
-                    "Clipboard" to { sendClipboard() },
-                ), transfer)
         // wide (Fold open): what you do first on the left, sharing and the other machines on the right
         return u.page2("PhoneCast",
-            left = listOf(updateCard, setupCard, connCard),
+            left = listOf(updateCard, setupCard, computersBox),
             right = listOf(u.card(castStatus.view, castBtn), u.card(u.title("Devices"), devices.view)))
     }
 
-    private fun deviceRows(st: org.json.JSONObject?, all: Boolean, filter: (String) -> Boolean = { true }): List<Ui.Row> {
-        if (st == null) return emptyList()
+    private fun deviceRows(): List<Ui.Row> {
+        val hub = HubService.instance ?: return emptyList()
         val out = ArrayList<Ui.Row>()
-        if (all) {
-            val bat = st.optInt("battery", -1)
-            out += Ui.Row(HubService.instance?.macName ?: "Mac",
-                if (bat >= 0) "$bat %" + (if (st.optBoolean("charging")) " ⚡" else "") else "connected", u.green)
+        for ((name, os) in hub.computers) {
+            val st = hub.statusOf(os)
+            val bat = st?.optInt("battery", -1) ?: -1
+            out += Ui.Row(name, if (bat >= 0) "$bat %" + (if (st!!.optBoolean("charging")) " ⚡" else "") else "connected", u.green)
         }
-        val devs = st.optJSONArray("devices")
+        val names = hub.computers.map { it.first }.toSet()
+        val devs = (hub.macStatus ?: hub.statusOf("windows"))?.optJSONArray("devices")
         if (devs != null) for (i in 0 until devs.length()) {
             val d = devs.getJSONObject(i)
             val name = d.optString("name")
-            if (!filter(name)) continue
+            if (name in names) continue
             val ms = d.optInt("ms", -1)
             out += Ui.Row(name, if (ms >= 0) "$ms ms" else "offline", if (ms >= 0) u.green else u.grey)
         }
         return out
     }
 
-    // ---- Mac ----
+    // ---- Mac / Windows PC: the same controls, each on its own tab ----
 
-    private fun macAction(a: String) {
+    private fun macAction(os: String, a: String) {
         val hub = HubService.instance
-        if (hub?.connected != true) { toast("The Mac isn't connected"); return }
-        hub.sendControl(HubProto.MAC_ACTION, a.toByteArray())
+        if (hub?.has(os) != true) { toast(if (os == "windows") "The PC isn't connected" else "The Mac isn't connected"); return }
+        hub.sendTo(os, HubProto.MAC_ACTION, a.toByteArray())
     }
 
-    /** The computer the Mac tab controls is a Windows PC. */
-    private val pcTarget get() = HubService.instance?.targetOs == "windows"
-
-    private fun macPage(): View {
+    /** The Mac tab ("mac") or the PC tab's Windows page ("windows"). */
+    private fun computerPage(os: String): View {
+        val pc = os == "windows"
         val status = u.Status()
-        // a Mac and a PC linked at the same time: pick which one this tab controls
-        val pickBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val pickCard = u.card(u.title("Control"), pickBox)
-        var pickSig = ""
-        val controlTitle = u.title("Control the Mac")
-        lateinit var openScreenBtn: Button
-        val lidTitle = u.title("Lid closed")
-        val onTitle = u.title("On the Mac")
-        lateinit var shortcutsCard: View
-        updaters += {
-            val hub = HubService.instance
-            val comps = hub?.computers ?: emptyList()
-            val sig = comps.joinToString("|") { it.first }
-            if (sig != pickSig) {
-                pickSig = sig
-                pickBox.removeAllViews()
-                if (comps.size > 1) pickBox.addView(u.Segmented("", comps.map { it.first to it.first },
-                    { HubService.instance?.targetName ?: "" }, { HubService.instance?.setTarget(it); updaters.forEach { u -> u() } }).view)
-            }
-            u.gone(pickCard, comps.size < 2)
-            val pc = pcTarget
-            controlTitle.text = tr(if (pc) "Control the PC" else "Control the Mac")
-            openScreenBtn.text = tr(if (pc) "Open the PC's screen" else "Open the Mac's screen")
-            lidTitle.text = tr(if (pc) "Stay awake" else "Lid closed")
-            onTitle.text = tr(if (pc) "On the PC" else "On the Mac")
-            u.gone(shortcutsCard, pc)
-        }
         val stats = u.Rows()
         val shortcutsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var shownShortcuts: String? = null
-        // stay awake with the lid closed (Mac LidAwake.swift): status line + buttons, hint until it's set up on the Mac
+        // stay awake (Mac LidAwake.swift / Windows KeepAwake.cs): status line + buttons, hint until it's set up on the Mac
         val lidStatus = u.Status()
         val lidHint = u.hint("")
         val lidButtons = u.grid(3,
-            "1 h" to { macAction("lidawake:60") }, "2 h" to { macAction("lidawake:120") }, "8 h" to { macAction("lidawake:480") },
-            "Until off" to { macAction("lidawake:0") }, "Off" to { macAction("lidawake:off") })
+            "1 h" to { macAction(os, "lidawake:60") }, "2 h" to { macAction(os, "lidawake:120") }, "8 h" to { macAction(os, "lidawake:480") },
+            "Until off" to { macAction(os, "lidawake:0") }, "Off" to { macAction(os, "lidawake:off") })
         updaters += {
-            val la = HubService.instance?.macStatus?.optJSONObject("lidAwake")
-            val connected = HubService.instance?.connected == true
-            val pc = pcTarget
+            val hub = HubService.instance
+            val st = hub?.statusOf(os)
+            val connected = hub?.has(os) == true
+            val la = st?.optJSONObject("lidAwake")
             when {
-                !connected || la == null -> lidStatus.set(u.grey, if (pc) "Stay awake" else "Lid closed", if (pc) "PC not connected" else "Mac not connected")
+                !connected || la == null -> lidStatus.set(u.grey, if (pc) "PC not connected" else "Mac not connected", "")
                 la.optBoolean("on") -> lidStatus.set(u.orange, if (pc) "The PC stays awake" else "Stays awake with the lid closed",
                     la.optLong("until", 0).takeIf { it > 0 }?.let {
                         tr("Until {0}", android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(it * 1000)))
@@ -389,70 +384,72 @@ class MainActivity : Activity() {
                 else -> tr("Turns itself off on battery below {0} %, when the Mac gets too hot, and when PhoneCast quits.", la?.optInt("min", 20) ?: 20)
             }
             lidButtons.alpha = if (connected) 1f else 0.5f
-        }
-        updaters += {
-            val hub = HubService.instance
-            val st = hub?.macStatus
-            val names = st?.optJSONArray("shortcuts")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
-            if (names.joinToString("\n") != shownShortcuts) {      // rebuild only when the list changed
-                shownShortcuts = names.joinToString("\n")
-                shortcutsBox.removeAllViews()
-                if (names.isEmpty()) shortcutsBox.addView(u.hint("None yet. Shortcuts you make in the Mac's Shortcuts app show up here."))
-                else {
-                    shortcutsBox.addView(u.grid(2, *names.map { n -> n to { macAction("shortcut:$n") } }.toTypedArray()))
-                    shortcutsBox.addView(u.hint("Tap one to run it on the Mac."))
+
+            if (!pc) {
+                val names = st?.optJSONArray("shortcuts")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+                if (names.joinToString("\n") != shownShortcuts) {      // rebuild only when the list changed
+                    shownShortcuts = names.joinToString("\n")
+                    shortcutsBox.removeAllViews()
+                    if (names.isEmpty()) shortcutsBox.addView(u.hint("None yet. Shortcuts you make in the Mac's Shortcuts app show up here."))
+                    else {
+                        shortcutsBox.addView(u.grid(2, *names.map { n -> n to { macAction(os, "shortcut:$n") } }.toTypedArray()))
+                        shortcutsBox.addView(u.hint("Tap one to run it on the Mac."))
+                    }
                 }
             }
-            if (hub?.connected == true) status.set(u.green, hub.targetName ?: "Mac",
+            if (connected) status.set(u.green, hub!!.nameOf(os) ?: if (pc) "PC" else "Mac",
                 st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: "Connected")
+            else if (pc) status.set(u.grey, "PC not connected", "Install PhoneCast for Windows on the PC and pair it once (Settings → Scan computer's QR code).")
             else status.set(u.grey, "Mac not connected", "Open PhoneCast on the Mac.")
-            stats.set(if (st == null) emptyList() else buildList {
+            stats.set(if (st == null || !connected) emptyList() else buildList {
                 st.optInt("battery", -1).takeIf { it >= 0 }?.let { add(Ui.Row("Battery", if (st.optBoolean("charging")) tr("{0} % · on power", it) else "$it %")) }
                 if (st.has("cpu")) add(Ui.Row("CPU", "${st.optInt("cpu")} %"))
                 if (st.has("mem")) add(Ui.Row("Memory", "${st.optInt("mem")} %"))
-                add(Ui.Row("Heat", st.optString("thermal", "—")))
+                if (!pc) add(Ui.Row("Heat", st.optString("thermal", "—")))
             })
         }
-        return u.page2("Mac",
+        val right = mutableListOf<View>(
+            u.card(u.title("Sound & media"), u.grid(3,
+                "Vol −" to { macAction(os, "voldown") }, "Mute" to { macAction(os, "mute") }, "Vol +" to { macAction(os, "volup") },
+                "⏮" to { macAction(os, "prev") }, "⏯" to { macAction(os, "play") }, "⏭" to { macAction(os, "next") },
+            )),
+            u.card(u.title(if (pc) "On the PC" else "On the Mac"), u.grid(2,
+                "Lock" to { macAction(os, "lock") }, "Screen off" to { macAction(os, "displaysleep") },
+                "Screenshot" to { macAction(os, "screenshot") }, "Browser tab here" to { macAction(os, "tab") },
+            )),
+        )
+        if (!pc) right += u.card(u.title("Mac Shortcuts"), shortcutsBox)
+        return u.page2(if (pc) "Windows PC" else "Mac",
             left = listOf(
-                pickCard,
                 u.card(status.view, stats.view),
                 u.card(
-                    controlTitle,
-                    u.primary("Open the Mac's screen") { openMacControl() }.also { openScreenBtn = it },
-                    u.tonal("Trackpad & keyboard only") { openMacControl(trackpad = true) },
+                    u.title(if (pc) "Control the PC" else "Control the Mac"),
+                    u.primary(if (pc) "Open the PC's screen" else "Open the Mac's screen") { openControl(os) },
+                    u.tonal("Trackpad & keyboard only") { openControl(os, trackpad = true) },
                     u.details("How it works",
                         u.hint("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll."),
                         u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection.")),
                 ),
-                u.card(lidTitle, lidStatus.view, lidButtons, lidHint),
+                u.card(u.title(if (pc) "Stay awake" else "Lid closed"), lidStatus.view, lidButtons, lidHint),
             ),
-            right = listOf(
-                // what plays on the Mac, then the Mac itself
-                u.card(u.title("Sound & media"), u.grid(3,
-                    "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
-                    "⏮" to { macAction("prev") }, "⏯" to { macAction("play") }, "⏭" to { macAction("next") },
-                )),
-                u.card(onTitle, u.grid(2,
-                    "Lock" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") },
-                    "Screenshot" to { macAction("screenshot") }, "Browser tab here" to { macAction("tab") },
-                )),
-                u.card(u.title("Mac Shortcuts"), shortcutsBox).also { shortcutsCard = it },
-            ),
+            right = right,
         )
     }
 
-    private fun openMacControl(trackpad: Boolean = false) {
-        if (HubService.instance?.connected != true) { toast("The Mac isn't connected"); return }
-        startActivity(Intent(this, MacViewActivity::class.java).putExtra(MacViewActivity.EXTRA_TRACKPAD, trackpad))
+    private fun openControl(os: String, trackpad: Boolean = false) {
+        if (HubService.instance?.has(os) != true) { toast(if (os == "windows") "The PC isn't connected" else "The Mac isn't connected"); return }
+        startActivity(Intent(this, MacViewActivity::class.java)
+            .putExtra(MacViewActivity.EXTRA_TRACKPAD, trackpad).putExtra(MacViewActivity.EXTRA_OS, os))
     }
 
     // ---- PC ----
 
-    /** The PC tab: a switch at the top between the native controls and the dashboard's own Chat, Builder and Studio. */
+    /** The PC tab: the Windows PC (PhoneCast for Windows) and, with a Hermes dashboard, its controls, Chat, Builder
+     *  and Studio, switched at the top. */
     private fun pcContainer(): View {
         pcNative = pcPage()
-        val seg = u.Segmented("", listOf("Control" to "control", "Chat" to "chat", "Builder" to "builder", "Studio" to "studio"),
+        pcWindows = computerPage("windows")
+        val seg = u.Segmented("", listOf("Windows" to "windows", "Dashboard" to "control", "Chat" to "chat", "Builder" to "builder", "Studio" to "studio"),
             { pcSub }, { showPc(it) })
         pcSeg = seg
         val holder = FrameLayout(this)
@@ -469,10 +466,12 @@ class MainActivity : Activity() {
 
     private fun showPc(sub: String) {
         val holder = pcHolder ?: return
-        pcSub = if (sub in listOf("chat", "builder", "studio") && Dashboard.base.isNotEmpty()) sub else "control"
-        getSharedPreferences("ui", MODE_PRIVATE).edit().putString("pcsub", pcSub).apply()
+        pcSub = if (sub in listOf("control", "chat", "builder", "studio") && Dashboard.base.isNotEmpty()) sub else "windows"
+        // without a dashboard there is nothing to switch between
+        pcSeg?.view?.visibility = if (Dashboard.base.isNotEmpty()) View.VISIBLE else View.GONE
+        getSharedPreferences("ui", MODE_PRIVATE).edit().putString("pcsub2", pcSub).apply()
         holder.removeAllViews()
-        val v = if (pcSub == "control") pcNative!! else dashWeb.view(pcSub, Dashboard.base, u)
+        val v = when (pcSub) { "windows" -> pcWindows!!; "control" -> pcNative!!; else -> dashWeb.view(pcSub, Dashboard.base, u) }
         (v.parent as? android.view.ViewGroup)?.removeView(v)
         holder.addView(v, FrameLayout.LayoutParams(-1, -1))
         pcSeg?.refresh()
@@ -481,7 +480,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // inside a dashboard view: back in the page first, then back to the controls
-        if (current == "pc" && pcSub != "control") { if (!dashWeb.back(pcSub)) showPc("control"); return }
+        if (current == "pc" && pcSub !in listOf("control", "windows")) { if (!dashWeb.back(pcSub)) showPc("control"); return }
         if (current == "agents" && agents?.back() == true) return
         @Suppress("DEPRECATION") super.onBackPressed()
     }
@@ -571,7 +570,7 @@ class MainActivity : Activity() {
                 t.optJSONObject("current")?.let { c -> add(Ui.Row("Last session", "${c.optString("model")} · ${c.optInt("calls")} " + tr("calls"))) }
             })
         }
-        return u.page("PC",
+        return u.page("Dashboard",
             u.card(status.view, stats.view),
             u.card(u.title("Power"),
                 u.primary("Wake") { if (Dashboard.stats == null && Prefs.pcMac(this).isNotEmpty()) wakePc() else act("wake", j()) },
@@ -841,9 +840,11 @@ class MainActivity : Activity() {
     // ---- refresh ----
 
     private fun tick() {
-        // the PC tab only exists for people with a Hermes dashboard (set here or on the Mac)
+        // the PC tab: for a Windows PC with PhoneCast (linked now or before) and/or a Hermes dashboard (set here or on the Mac)
         Dashboard.base = Prefs.dashboard(this).ifEmpty { HubService.instance?.dashboardBase ?: "" }.trimEnd('/')
-        val hasPc = Dashboard.base.isNotEmpty()
+        val hasPc = Dashboard.base.isNotEmpty() || HubService.instance?.has("windows") == true ||
+            getSharedPreferences("ui", MODE_PRIVATE).getBoolean("seenWindows", false)
+        if (pcSeg?.view?.visibility == View.VISIBLE != Dashboard.base.isNotEmpty()) showPc(pcSub)
         tabViews["pc"]?.visibility = if (hasPc) View.VISIBLE else View.GONE
         if (!hasPc && current == "pc") show("home")
         updaters.forEach { it() }
@@ -919,21 +920,25 @@ class MainActivity : Activity() {
         catch (_: Exception) { toast("Allow \"Modify system settings\" for PhoneCast in Android's settings") }
     }
 
-    private fun pickFiles() {
+    /** Which computer the picked files go to (null = all). */
+    private var filesTo: String? = null
+
+    private fun pickFiles(os: String? = null) {
         if (HubService.instance?.connected != true) { toast("The Mac isn't connected"); return }
+        filesTo = os
         @Suppress("DEPRECATION")
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), REQ_FILES)
     }
 
-    private fun sendClipboard() {
+    private fun sendClipboard(os: String? = null) {
         val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip
         clip?.takeIf { it.itemCount > 0 && it.description.hasMimeType("image/*") }?.getItemAt(0)?.uri?.let { img ->
-            HubService.instance?.takeIf { it.connected }?.sendClipImage(img) ?: toast("Not connected to the Mac"); return
+            HubService.instance?.takeIf { it.connected }?.sendClipImage(img, os) ?: toast("Not connected to the Mac"); return
         }
         val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         if (text.isNullOrEmpty()) { toast("The clipboard is empty"); return }
-        HubService.instance?.sendClip(text) ?: toast("Not connected to the Mac")
+        HubService.instance?.sendClip(text, os) ?: toast("Not connected to the Mac")
     }
 
     // ---- start / stop sharing ----
@@ -979,7 +984,7 @@ class MainActivity : Activity() {
             val uris = ArrayList<Uri>()
             data.clipData?.let { c -> for (i in 0 until c.itemCount) uris.add(c.getItemAt(i).uri) }
             if (uris.isEmpty()) data.data?.let { uris.add(it) }
-            HubService.instance?.sendFiles(uris) ?: toast("Not connected to the Mac")
+            HubService.instance?.sendFiles(uris, filesTo) ?: toast("Not connected to the Mac")
             return
         }
         if (requestCode != REQ_CAPTURE) return

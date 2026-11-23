@@ -39,7 +39,7 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
   PC, stay awake, continue the phone's website, browser tab to the phone, the phone as a drive in File Explorer,
   Send to → PhoneCast, phone in a browser and Advanced (scrcpy). Not on Windows: the AI agents page and Mac
   Shortcuts. See [windows/README.md](windows/README.md). The phone can be linked to a Mac and a PC at the same
-  time; its Mac tab then lets you pick which one it controls.
+  time: Home shows a card for each, the Mac tab controls the Mac and the PC tab the Windows PC.
 - **English and German**: the apps follow the device's language.
 - **The app icon shows the link**: the little phone's screen is lit while the phone and the computer are
   connected, dark when not (Mac Dock and menu bar, Android home screen, Windows taskbar).

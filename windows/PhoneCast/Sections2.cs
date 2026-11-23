@@ -461,7 +461,7 @@ sealed class SettingsSection : Section
 
         var control = new CardPanel(tr("Control this PC from the phone"), Glyph.Keyboard);
         control.Controls.Add(Ui.Check(tr("Let the phone see and control this PC"), S.AllowControl, on => S.AllowControl = on));
-        control.Controls.Add(Note(tr("On the phone: the Mac tab → “Open the PC's screen” or “Trackpad & keyboard only”, plus volume, media, lock, screen off, screenshot and the browser tab. With a Mac and this PC both linked, pick this PC at the top of that tab. Keys: ⌘ = Ctrl, ⌥ = Alt, ⌃ = Windows key.")));
+        control.Controls.Add(Note(tr("On the phone: the PC tab → “Open the PC's screen” or “Trackpad & keyboard only”, plus volume, media, lock, screen off, screenshot and the browser tab. Keys on the phone: Ctrl, Alt, Win, Shift.")));
 
         var awake = new CardPanel(tr("Stay awake"), Glyph.Power);
         awake.Controls.Add(awakeState);
@@ -469,7 +469,7 @@ sealed class SettingsSection : Section
             Ui.Button(tr("1 hour"), () => KeepAwake.Shared.Enable(60)), Ui.Button(tr("2 hours"), () => KeepAwake.Shared.Enable(120)),
             Ui.Button(tr("8 hours"), () => KeepAwake.Shared.Enable(480)), Ui.Button(tr("Until I turn it off"), () => KeepAwake.Shared.Enable(0)),
             Ui.Button(tr("Off"), () => KeepAwake.Shared.Disable(null))));
-        awake.Controls.Add(Note(tr("While on, this PC doesn't go to sleep, and closing a laptop's lid does nothing, so the phone can still reach it. Turns itself off on battery at {0} % and when PhoneCast quits. Also in the tray and on the phone's Mac tab.", KeepAwake.Shared.MinBattery)));
+        awake.Controls.Add(Note(tr("While on, this PC doesn't go to sleep, and closing a laptop's lid does nothing, so the phone can still reach it. Turns itself off on battery at {0} % and when PhoneCast quits. Also in the tray and on the phone's PC tab.", KeepAwake.Shared.MinBattery)));
 
         var web = new CardPanel(tr("Phone in a browser"), Glyph.Globe);
         web.Controls.Add(Ui.Check(tr("Show the phone's notifications and messages on other devices in my network"), Settings.Bool("phoneWeb"), on => { Settings.Set("phoneWeb", on); PhoneWeb.Apply(); Fill(); }));

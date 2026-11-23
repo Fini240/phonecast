@@ -60,7 +60,12 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
     /** Trackpad & keyboard only: no video from the Mac (saves battery and data). */
     private val trackpad by lazy { intent.getBooleanExtra(EXTRA_TRACKPAD, false) }
 
-    companion object { const val EXTRA_TRACKPAD = "trackpad" }
+    companion object {
+        const val EXTRA_TRACKPAD = "trackpad"
+        const val EXTRA_OS = "os"   // "mac" or "windows": which computer to show and control
+    }
+    /** The computer shown and controlled: "mac" or "windows". */
+    private val os by lazy { intent.getStringExtra(EXTRA_OS) ?: "mac" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,7 +74,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         surfaceView = SurfaceView(this)
         surfaceView.holder.addCallback(this)
         root.addView(surfaceView, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
-        msg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; text = tr(if (HubService.instance?.targetOs == "windows") "Connecting to the PC…" else "Connecting to the Mac…") }
+        msg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; text = tr(if (os == "windows") "Connecting to the PC…" else "Connecting to the Mac…") }
         root.addView(msg, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         keys = KeyCatcher(this)
         root.addView(keys, FrameLayout.LayoutParams(1, 1))
@@ -92,20 +97,21 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
     override fun onStart() {
         super.onStart()
         val hub = HubService.instance
-        if (hub == null || !hub.connected) {
-            msg.text = tr("Not connected to the Mac.\nOpen PhoneCast on the Mac first (it connects by itself).")
+        if (hub == null || !hub.has(os)) {
+            msg.text = tr(if (os == "windows") "Not connected to the PC.\nOpen PhoneCast on the PC first (it connects by itself)."
+                else "Not connected to the Mac.\nOpen PhoneCast on the Mac first (it connects by itself).")
             return
         }
         if (trackpad) return
         hub.screenSink = { type, p -> onPacket(type, p) }
         val dm = resources.displayMetrics
         val long = maxOf(dm.widthPixels, dm.heightPixels).coerceIn(1280, 2560)
-        hub.sendControl(HubProto.SCREEN_START, ByteBuffer.allocate(3).putShort(long.toShort()).put(20.toByte()).array())
+        hub.sendTo(os, HubProto.SCREEN_START, ByteBuffer.allocate(3).putShort(long.toShort()).put(20.toByte()).array())
     }
 
     override fun onStop() {
         super.onStop()
-        if (!trackpad) HubService.instance?.let { it.screenSink = null; it.sendControl(HubProto.SCREEN_STOP) }
+        if (!trackpad) HubService.instance?.let { it.screenSink = null; it.sendTo(os, HubProto.SCREEN_STOP) }
         releaseCodec()
     }
 
@@ -113,7 +119,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
 
     private fun onPacket(type: Int, p: ByteArray) {
         when (type) {
-            -1 -> runOnUiThread { msg.visibility = View.VISIBLE; msg.text = tr(if (HubService.instance?.targetOs == "windows") "The PC disconnected." else "The Mac disconnected.") }
+            -1 -> runOnUiThread { msg.visibility = View.VISIBLE; msg.text = tr(if (os == "windows") "The PC disconnected." else "The Mac disconnected.") }
             HubProto.SCREEN_DENIED -> runOnUiThread { msg.visibility = View.VISIBLE; msg.text = String(p) }
             HubProto.SCREEN_FORMAT -> {
                 val b = ByteBuffer.wrap(p)
@@ -185,7 +191,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         val now = SystemClock.uptimeMillis()
         if (now - lastKeyReq < 300) return
         lastKeyReq = now
-        HubService.instance?.sendControl(HubProto.SCREEN_KEY)
+        HubService.instance?.sendTo(os, HubProto.SCREEN_KEY)
     }
 
     private fun drain(c: MediaCodec) {
@@ -234,7 +240,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
     private fun input(vararg parts: ByteArray) {
         val total = parts.sumOf { it.size }
         val b = ByteBuffer.allocate(total); parts.forEach { b.put(it) }
-        HubService.instance?.sendControl(HubProto.INPUT, b.array())
+        HubService.instance?.sendTo(os, HubProto.INPUT, b.array())
     }
 
     private fun move(x: Float, y: Float) = input(byteArrayOf(HubProto.IN_MOVE.toByte()), pos(x, y))
@@ -398,7 +404,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         b("tab") { sendKey(48) }
         b("←") { sendKey(123) }; b("→") { sendKey(124) }; b("↑") { sendKey(126) }; b("↓") { sendKey(125) }
         // on a Windows PC the same bits mean Ctrl, Alt, the Windows key and Shift (PcInput.cs)
-        val pc = HubService.instance?.targetOs == "windows"
+        val pc = os == "windows"
         val labels = if (pc) listOf("Ctrl", "Alt", "Win", "⇧") else listOf("⌘", "⌥", "⌃", "⇧")
         for ((label, bit) in labels.zip(listOf(HubProto.MOD_CMD, HubProto.MOD_OPT, HubProto.MOD_CTRL, HubProto.MOD_SHIFT))) {
             modViews[bit] = b(label) { v ->

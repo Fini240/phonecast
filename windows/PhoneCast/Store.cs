@@ -20,7 +20,7 @@ interface IPhoneLink
     void SendFiles(string[] paths, string dir = null);
     void Mirror();
     void ShowPairing();
-    /// This PC's status for the phone (battery, CPU, stay awake…): its Mac tab shows it when it controls this PC.
+    /// This PC's status for the phone (battery, CPU, stay awake…): its PC tab shows it.
     void SendStatus(JsonObject o);
     void ShowConnect();
     void ForgetPhoneKey();

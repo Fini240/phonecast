@@ -5,7 +5,7 @@ using FFmpeg.AutoGen;
 
 namespace PhoneCast;
 
-/// Shows this PC's main screen on the phone (the phone's Mac tab → "Open the PC's screen"): GDI capture,
+/// Shows this PC's main screen on the phone (the phone's PC tab → "Open the PC's screen"): GDI capture,
 /// low-latency H.264 from the graphics card (NVENC, AMF, Quick Sync, else Media Foundation), sent over the hub as
 /// SCREEN_FORMAT / SCREEN_CONFIG (SPS+PPS, Annex B) / SCREEN_FRAME (u8 keyframe + Annex B), like the Mac's MacScreen.
 sealed unsafe class PcScreen

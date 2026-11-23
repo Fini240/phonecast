@@ -130,26 +130,21 @@ class HubService : Service() {
         }
     }
 
-    /** What the computer the Mac tab controls ([target]) last told us about itself (and the devices it watches). */
-    val macStatus: JSONObject? get() = target()?.status
-
-    /** The computer the Mac tab controls (its screen, mouse & keyboard, buttons): the one picked there, else the
-     *  first Mac, else whatever is connected. Only matters when a Mac and a PC are linked at the same time. */
-    private fun target(): Client? {
-        val want = getSharedPreferences("hub", MODE_PRIVATE).getString("target", null)
-        return clients.firstOrNull { it.name == want } ?: clients.firstOrNull { it.os == "mac" } ?: clients.firstOrNull()
-    }
+    // A Mac and a Windows PC can be linked at the same time. The Mac tab talks to the Mac, the PC tab to the PC
+    // (by os, "mac" or "windows"); Home shows one card per computer.
+    private fun client(os: String): Client? = clients.firstOrNull { it.os == os }
+    /** What that computer last told us about itself (and, for the Mac, the devices it watches). */
+    fun statusOf(os: String): JSONObject? = client(os)?.status
+    fun nameOf(os: String): String? = client(os)?.name
+    fun has(os: String): Boolean = client(os) != null
+    /** The Mac's status (the Mac tab, devices). */
+    val macStatus: JSONObject? get() = statusOf("mac")
     /** Every connected computer: (name, os). */
     val computers: List<Pair<String, String>> get() = clients.map { it.name to it.os }
-    val targetName: String? get() = target()?.name
     /** The Hermes dashboard address any linked computer told us about. */
     val dashboardBase: String? get() = clients.firstNotNullOfOrNull { c -> c.status?.optString("dashboard")?.takeIf { it.isNotEmpty() } }
-    val targetOs: String? get() = target()?.os
-    fun setTarget(name: String) {
-        getSharedPreferences("hub", MODE_PRIVATE).edit().putString("target", name).apply()
-    }
-    /** Input, buttons and the screen request: only to the computer the Mac tab controls. */
-    fun sendControl(type: Int, payload: ByteArray = ByteArray(0)) { target()?.control(type, payload) }
+    /** Buttons, input and the screen request go to one computer only. */
+    fun sendTo(os: String, type: Int, payload: ByteArray = ByteArray(0)) { client(os)?.control(type, payload) }
     /** Every connected computer's name ("Finn's MacBook Air + Finn-Windows"), null when none. */
     val macName: String? get() = clients.map { it.name }.takeIf { it.isNotEmpty() }?.joinToString(" + ")
     val connected: Boolean get() = clients.isNotEmpty()
@@ -266,15 +261,18 @@ class HubService : Service() {
     /** Who a file goes to: the computer that asked, else every connected one. */
     private fun targets(): List<Client> = (origin.get() as? Client)?.let { listOf(it) } ?: clients.toList()
 
-    fun sendClip(text: String) {
-        if (!connected) { toast("Not connected to the Mac"); return }
+    /** To every computer, or only to the one with [os]. */
+    fun sendClip(text: String, os: String? = null) {
+        val to = clients.filter { os == null || it.os == os }
+        if (to.isEmpty()) { toast("Not connected to the Mac"); return }
         lastClip = text
-        send(HubProto.CLIP, text.toByteArray()); toast("Copied to the Mac")
+        to.forEach { it.control(HubProto.CLIP, text.toByteArray()) }
+        toast(if (to.size == 1 && to[0].os == "windows") "Copied to the PC" else "Copied to the Mac")
     }
 
     /** A copied picture -> the Mac's clipboard (FILE_BEGIN kind "clipimg"; the Mac keeps no copy in Downloads). */
-    fun sendClipImage(u: Uri) {
-        val to = clients.toList()
+    fun sendClipImage(u: Uri, os: String? = null) {
+        val to = clients.filter { os == null || it.os == os }
         if (to.isEmpty()) { toast("Not connected to the Mac"); return }
         Thread({
             try { to.forEach { sendOne(it, u, 0, "clipimg") }; toast("Picture copied to the Mac") }
@@ -290,8 +288,8 @@ class HubService : Service() {
     fun castStarted() = send(HubProto.CAST_READY)
     fun castStopped() = send(HubProto.CAST_STOPPED)
 
-    fun sendFiles(uris: List<Uri>) {
-        val to = clients.toList()
+    fun sendFiles(uris: List<Uri>, os: String? = null) {
+        val to = clients.filter { os == null || it.os == os }
         if (to.isEmpty()) { toast("Not connected to the Mac"); return }
         Thread({
             for (c in to) for (u in uris) {

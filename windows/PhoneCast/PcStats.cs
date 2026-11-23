@@ -33,7 +33,7 @@ static class PcStats
         if (ticks % 7 == 0) AutoLock.Check();
     }
 
-    /// What the phone's Mac tab shows while it controls this PC (the same keys the Mac sends).
+    /// What the phone's PC tab shows (the same keys the Mac sends).
     static void SendToPhone(Store s)
     {
         var p = s.Pc;

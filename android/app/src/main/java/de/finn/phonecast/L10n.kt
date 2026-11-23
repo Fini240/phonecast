@@ -69,7 +69,13 @@ private val DE = mapOf(
     "Open PhoneCast on the Mac." to "Öffne PhoneCast auf dem Mac.",
     "Battery" to "Akku", "CPU" to "CPU", "Memory" to "Arbeitsspeicher", "Heat" to "Wärme",
     "{0} % · on power" to "{0} % · am Strom",
-    "Control the Mac" to "Mac steuern", "Connecting to the PC…" to "Verbinde mit dem PC…", "The PC disconnected." to "Der PC hat die Verbindung getrennt.", "Control the PC" to "PC steuern", "Control" to "Steuern",
+    "Control the Mac" to "Mac steuern", "PC screen" to "PC-Bildschirm", "Windows PC" to "Windows-PC", "Windows" to "Windows",
+    "Dashboard" to "Dashboard", "The PC isn't connected" to "Der PC ist nicht verbunden",
+    "Install PhoneCast for Windows on the PC and pair it once (Settings → Scan computer's QR code)." to
+        "Installiere PhoneCast für Windows auf dem PC und kopple ihn einmal (Einstellungen → QR-Code des Computers scannen).",
+    "Open PhoneCast on the Mac or PC. Same Wi-Fi or any network; pair once in Settings." to
+        "Öffne PhoneCast auf dem Mac oder PC. Gleiches WLAN oder jedes Netz; einmal in den Einstellungen koppeln.",
+    "Shown once a computer is connected." to "Erscheint, sobald ein Computer verbunden ist.", "Not connected to the PC.\nOpen PhoneCast on the PC first (it connects by itself)." to "Nicht mit dem PC verbunden.\nÖffne zuerst PhoneCast auf dem PC (es verbindet sich von selbst).", "Copied to the PC" to "Auf den PC kopiert", "Connecting to the PC…" to "Verbinde mit dem PC…", "The PC disconnected." to "Der PC hat die Verbindung getrennt.", "Control the PC" to "PC steuern", "Control" to "Steuern",
     "Open the PC's screen" to "PC-Bildschirm öffnen", "On the PC" to "Auf dem PC", "PC not connected" to "PC nicht verbunden",
     "Stay awake" to "Wach bleiben", "The PC stays awake" to "Der PC bleibt wach", "Sleeps as usual" to "Schläft wie gewohnt",
     "No sleep, also not with a laptop's lid closed. Turns itself off on battery below {0} % and when PhoneCast quits." to

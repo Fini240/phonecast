@@ -13,13 +13,12 @@ internet relay or a USB cable (USB tethering).
   machines you watch; notification history with reply/open/dismiss and per-app banners; SMS and MMS
   conversations (read, reply, new message); call log, dial, answer/decline; contacts; photo and video grid
   (save to Downloads); the phone's files (open, download, upload, delete); apps (open on the phone); transfers.
-- **Control this PC from the phone**: on the phone's Mac tab (pick this PC at the top when a Mac is linked
-  too) → "Open the PC's screen" (the screen, encoded on the graphics card: NVENC, AMD AMF, Quick Sync, else
+- **Control this PC from the phone**: on the phone's PC tab → "Open the PC's screen" (the screen, encoded on the graphics card: NVENC, AMD AMF, Quick Sync, else
   Media Foundation) or "Trackpad & keyboard only"; plus volume, media keys, lock, screen off, screenshot (lands
   on the phone) and "Browser tab here". ⌘ = Ctrl, ⌥ = Alt, ⌃ = Windows key; ⌘Tab = Alt+Tab, ⌘Q = Alt+F4.
   Turn it off in Settings → Control this PC from the phone.
 - **Stay awake**: the PC doesn't sleep, and a laptop's lid does nothing, for 1, 2 or 8 hours or until turned
-  off (tray, Overview, Settings or the phone's Mac tab). Turns itself off on battery at 20 % and when PhoneCast
+  off (tray, Overview, Settings or the phone's PC tab). Turns itself off on battery at 20 % and when PhoneCast
   quits; if PhoneCast crashes, a helper puts the lid setting back.
 - **Continue the phone's website here**: Overview shows the page the phone's browser has open, with **Open on
   PC** (Ctrl+Shift+O, also in the tray). In Samsung Internet the phone reads the full address from the address bar

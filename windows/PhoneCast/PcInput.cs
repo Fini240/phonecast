@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 namespace PhoneCast;
 
-/// The phone controlling this PC (the phone's Mac tab, aimed at this PC): its touches, trackpad and keys become
+/// The phone controlling this PC (the phone's PC tab): its touches, trackpad and keys become
 /// Windows mouse and keyboard input (SendInput), like the Mac's MacScreen.input. Packets: see HubProto.IN_* on the
 /// phone. Key codes arrive as Mac key codes; ⌘ becomes Ctrl, ⌥ Alt, ⌃ the Windows key, ⇧ Shift.
 static class PcInput
@@ -169,7 +169,7 @@ static class PcInput
         if (l.Count > 0) Send(l.ToArray());
     }
 
-    // ---------- buttons on the phone's Mac tab (MAC_ACTION) ----------
+    // ---------- buttons on the phone's PC tab (MAC_ACTION) ----------
 
     /// [sendFile] sends a file to the phone (the screenshot).
     public static void Action(string a, Action<string> sendFile, Action<string> openOnPhone = null)

@@ -7,7 +7,7 @@ namespace PhoneCast;
 /// "Stay awake" (the Windows twin of the Mac's LidAwake): the PC doesn't go to sleep, and on a laptop closing the
 /// lid does nothing, so the phone can still reach it. For a while (1 h, 2 h, 8 h) or until turned off; turns
 /// itself off on battery at or below 20 % and when PhoneCast quits. If PhoneCast crashes, a small helper puts the
-/// lid setting back (and the next start does too). Switch it from the tray, Settings or the phone's Mac tab.
+/// lid setting back (and the next start does too). Switch it from the tray, Settings or the phone's PC tab.
 sealed class KeepAwake
 {
     public static readonly KeepAwake Shared = new();
