@@ -243,13 +243,13 @@ sealed unsafe partial class App : IPhoneLink
                 {
                     int longSide = p.Length >= 2 ? p[0] << 8 | p[1] : 1920, mbps = p.Length >= 3 ? p[2] : 16;
                     if (!Settings.Bool("allowControl", true)) { hub?.Send(HubLink.ScreenDenied, Encoding.UTF8.GetBytes(tr("This PC doesn't allow control from the phone (PhoneCast → Settings on the PC)."))); break; }
-                    screen ??= new PcScreen((ty, data) => hub?.Send(ty, data));
+                    screen ??= new PcScreen((ty, data) => hub?.Send(ty, data), (ty, data, max) => hub?.SendVideo(ty, data, max) ?? false);
                     screen.Start(longSide, mbps);
                     break;
                 }
             case HubLink.ScreenStop: screen?.Stop(); break;
             case HubLink.ScreenKey: screen?.ForceKeyframe(); break;
-            case HubLink.MacAction: if (Settings.Bool("allowControl", true)) PcInput.Action(Encoding.UTF8.GetString(p), path => SendFiles(new[] { path })); break;
+            case HubLink.MacAction: if (Settings.Bool("allowControl", true)) PcInput.Action(Encoding.UTF8.GetString(p), path => SendFiles(new[] { path }), url => Request("url.open", new JsonObject { ["url"] = url }, _ => { })); break;
         }
     }
 
@@ -350,6 +350,8 @@ sealed unsafe partial class App : IPhoneLink
         m.sens = map.sens;   // keep your own mouse speed
         map = m; map.Save(); overlayDirty = true;
     }
+
+    public void SendStatus(JsonObject o) { if (hubUp) hub?.SendJson(HubLink.Status, o); }
 
     public void FetchFile(string m, JsonObject p, bool keep, Action<string> then)
     {
@@ -503,6 +505,7 @@ sealed unsafe partial class App : IPhoneLink
     void HubShutdown()
     {
         screen?.Stop();
+        KeepAwake.Shared.StopOnQuit();
         hub?.Close();
         MainForm.Quitting = true;
         var done = new ManualResetEventSlim();

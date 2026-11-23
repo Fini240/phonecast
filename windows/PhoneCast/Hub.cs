@@ -148,6 +148,25 @@ sealed class HubLink
         try { lock (sendLock) { ssl.Write(f); ssl.Flush(); } } catch { Finish("write error"); }
     }
 
+    // video to the phone (this PC's screen): its own queue, so a slow network drops frames instead of piling them up
+    readonly System.Collections.Concurrent.BlockingCollection<(byte, byte[])> videoQ = new();
+    Thread videoThread;
+
+    /// Queues a video packet; false (and nothing sent) when [maxInFlight] are already waiting.
+    public bool SendVideo(byte type, byte[] p, int maxInFlight)
+    {
+        if (closed) return false;
+        if (videoQ.Count >= maxInFlight) return false;
+        if (videoThread == null)
+            lock (videoQ)
+                videoThread ??= new Thread(() =>
+                {
+                    while (!closed) { if (videoQ.TryTake(out var v, 200)) Send(v.Item1, v.Item2); }
+                }) { IsBackground = true, Name = "hub-video" }.Also(t => t.Start());
+        videoQ.Add((type, p));
+        return true;
+    }
+
     public void SendJson(byte type, JsonObject o) => Send(type, Encoding.UTF8.GetBytes(o.ToJsonString()));
 
     public void Close() => Finish("closed");
@@ -164,4 +183,9 @@ sealed class HubLink
     static byte[] A(string s) => Encoding.ASCII.GetBytes(s ?? "");
     static string Hex(byte[] b) => Convert.ToHexString(b).ToLowerInvariant();
     static byte[] Hmac(byte[] key, params byte[][] parts) { using var h = new HMACSHA256(key); return h.ComputeHash(parts.SelectMany(x => x).ToArray()); }
+}
+
+static class ObjectExt
+{
+    public static T Also<T>(this T o, Action<T> a) { a(o); return o; }
 }

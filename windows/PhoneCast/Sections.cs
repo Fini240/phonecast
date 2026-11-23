@@ -35,7 +35,10 @@ sealed class OverviewSection : Section
 {
     readonly FlowLayoutPanel flow = new() { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Ui.Bg };
     readonly KvTable phone = new(), pc = new();
-    readonly CardPanel phoneCard, mediaCard, pcCard, devicesCard;
+    readonly CardPanel phoneCard, mediaCard, pcCard, devicesCard, webCard, awakeCard;
+    readonly Label webUrl = Ui.Label("", Ui.Body, null, 300), webSub = Ui.Label("", Ui.Small, Ui.Sub, 300), awakeText = Ui.Label("", Ui.Small, Ui.Sub, 260);
+    readonly FlatButton webOpen;
+    readonly FlowLayoutPanel awakeButtons;
     readonly Label phoneTitle = Ui.Label("", Ui.H2);
     readonly FlatButton ringBtn, mirrorBtn;
     readonly CheckBox dnd;
@@ -79,7 +82,22 @@ sealed class OverviewSection : Section
         devicesCard.Controls.Add(devices);
         devicesCard.Controls.Add(Ui.Label(tr("Time to open a connection, every 5 s. Edit the list in Settings."), Ui.Small, Ui.Sub, LogicalToDeviceUnits(320)));
 
-        flow.Controls.AddRange(new Control[] { phoneCard, mediaCard, pcCard, devicesCard });
+        // "continue on the PC": the website the phone's browser has open
+        webCard = new CardPanel(tr("Website on the phone"), Glyph.Globe);
+        webCard.Controls.Add(webUrl); webCard.Controls.Add(webSub);
+        webOpen = Ui.Button(tr("Open on PC"), () => S.OpenPhoneWeb(), primary: true);
+        webCard.Controls.Add(webOpen);
+        webCard.MinimumSize = new Size(LogicalToDeviceUnits(300), 0);
+
+        // stay awake (no sleep, laptop lid does nothing) so the phone can reach this PC
+        awakeCard = new CardPanel(tr("Stay awake"), Glyph.Power);
+        awakeCard.Controls.Add(awakeText);
+        awakeButtons = Ui.Row(
+            Ui.Button(tr("1 h"), () => KeepAwake.Shared.Enable(60)), Ui.Button(tr("8 h"), () => KeepAwake.Shared.Enable(480)),
+            Ui.Button(tr("Until off"), () => KeepAwake.Shared.Enable(0)), Ui.Button(tr("Off"), () => KeepAwake.Shared.Disable(null)));
+        awakeCard.Controls.Add(awakeButtons);
+
+        flow.Controls.AddRange(new Control[] { phoneCard, webCard, mediaCard, pcCard, awakeCard, devicesCard });
         Refresh2();
     }
 
@@ -130,6 +148,23 @@ sealed class OverviewSection : Section
             pc.Set("Memory", p.Mem is int mm ? $"{mm} %" : null, p.Mem >= 90 ? Ui.Orange : null);
             pc.Set("Uptime", p.Uptime);
         }
+
+        if (S.PhoneWeb is Store.PhoneWebInfo w)
+        {
+            webUrl.Text = w.Short.Length > 70 ? w.Short[..70] + "…" : w.Short;
+            webSub.Text = w.Front ? tr("Open on the phone now · {0}", w.App) : $"{w.App} · {Ui.Ago(w.At)}";
+            webOpen.Visible = true;
+        }
+        else
+        {
+            webUrl.Text = !S.Connected ? tr("Phone not connected") : S.PhoneControl ? tr("No website open on the phone right now")
+                : tr("Allow “Mouse & keyboard” on the phone to see its open website");
+            webSub.Text = tr("Ctrl+Shift+O opens it here");
+            webOpen.Visible = false;
+        }
+        var ka = KeepAwake.Shared;
+        awakeText.Text = ka.On ? tr("On · {0}", ka.Summary) : tr("Off. While on, this PC doesn't sleep (a laptop not even with the lid closed), so the phone can reach it.");
+        awakeText.ForeColor = ka.On ? Ui.Orange : Ui.Sub;
 
         devicesCard.Visible = S.Devices.Count > 0;
         devices.SetRows(S.Devices.Select(d => new Row

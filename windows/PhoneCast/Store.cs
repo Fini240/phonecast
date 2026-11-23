@@ -20,6 +20,8 @@ interface IPhoneLink
     void SendFiles(string[] paths, string dir = null);
     void Mirror();
     void ShowPairing();
+    /// This PC's status for the phone (battery, CPU, stay awake…): its Mac tab shows it when it controls this PC.
+    void SendStatus(JsonObject o);
     void ShowConnect();
     void ForgetPhoneKey();
     void NewPairCode();
@@ -93,6 +95,49 @@ sealed class Store
             if ((string)Status["net"] is string n) p.Add(n);
             return string.Join(" · ", p);
         }
+    }
+
+    // ---------- the website the phone's browser has open (continue it here) ----------
+    public sealed record PhoneWebInfo(string Url, string App, bool Front, DateTime At)
+    {
+        public string Short
+        {
+            get
+            {
+                if (!Uri.TryCreate(Url, UriKind.Absolute, out var u)) return Url;
+                var host = u.Host.StartsWith("www.") ? u.Host[4..] : u.Host;
+                var rest = u.PathAndQuery == "/" ? "" : Uri.UnescapeDataString(u.PathAndQuery);
+                return host + rest;
+            }
+        }
+    }
+
+    /// The Accessibility service (mouse & keyboard) is on on the phone: it reads the browser's address.
+    public bool PhoneControl => (bool?)Status["control"] ?? false;
+
+    public PhoneWebInfo PhoneWeb
+    {
+        get
+        {
+            if (!Connected || Status["web"] is not JsonObject w || (string)w["url"] is not string u) return null;
+            if (!Uri.TryCreate(u, UriKind.Absolute, out var uri) || (uri.Scheme != "https" && uri.Scheme != "http")) return null;
+            var at = w["at"] is JsonNode a ? DateTimeOffset.FromUnixTimeSeconds((long)(double)a).LocalDateTime : DateTime.Now;
+            return new PhoneWebInfo(u, (string)w["app"] ?? "", (bool?)w["front"] ?? false, at);
+        }
+    }
+
+    /// "Open on PC": ask the phone for the full address first (Samsung Internet shows only the domain; the phone reads
+    /// the whole one from its address bar), else open what the status had.
+    public void OpenPhoneWeb()
+    {
+        var w = PhoneWeb;
+        if (w == null) return;
+        if (!w.Front) { Ui.Shell(w.Url); return; }
+        Link.Request("web.url", new JsonObject(), r =>
+        {
+            var fresh = r.Ok && r.Data is JsonValue v && v.TryGetValue<string>(out var s) && (s.StartsWith("https://") || s.StartsWith("http://")) ? s : null;
+            Ui.Shell(fresh ?? w.Url);
+        }, 4);
     }
 
     // ---------- notifications ----------

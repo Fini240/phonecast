@@ -231,6 +231,8 @@ sealed class CardPanel : FlowLayoutPanel
 {
     public CardPanel(string title = null, string glyph = null)
     {
+        // the rounded background is painted for the whole card: redraw all of it when it grows (new rows)
+        SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
         FlowDirection = FlowDirection.TopDown;
         WrapContents = false;
         AutoSize = true;
@@ -288,5 +290,5 @@ static class Glyph
         Pc = "", Network = "", Music = "", Play = "", Pause = "", Next = "", Prev = "",
         Ring = "", Moon = "", Doc = "", Video = "", Up = "", Download = "", Delete = "",
         Refresh = "", Send = "", Add = "", Search = "", Cancel = "", Check = "", Warning = "",
-        Lock = "", Disconnected = "", Record = "", Gamepad = "", Keyboard = "";
+        Lock = "", Globe = "", Power = "", Disconnected = "", Record = "", Gamepad = "", Keyboard = "";
 }

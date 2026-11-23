@@ -129,9 +129,15 @@ sealed unsafe partial class App
             Tray.Start();
             ClipboardSync.Start();
             PcStats.Start();
+            KeepAwake.Shared.Start();
+            Single.Listen();
+            Single.InstallSendTo();
             if (!StartInTray) MainForm.Open();
+            // started by "Send to" while PhoneCast wasn't running: send once the phone is linked
+            if (StartArgs.Contains("--send")) SendWhenLinked(StartArgs, 0);
         });
-        After(5, () => Ui.Post(() => Updater.Check(null, quiet: true)));   // once at start, only speaks up if there is an update
+        After(5, () => Ui.Post(() => Updater.Check(null, quiet: true)));
+        SelfTest();   // once at start, only speaks up if there is an update
         ren = Sdl.SDL_CreateRenderer(win, -1, Sdl.RENDERER_ACCELERATED);
         Sdl.SDL_RenderSetVSync(ren, 0);
         Sdl.SDL_EventState(Sdl.SYSWMEVENT, 1);
@@ -577,5 +583,45 @@ sealed unsafe partial class App
     void LogLag(double gapMs)
     {
         try { File.AppendAllText(LagLog, $"{DateTime.Now:O} gap={(int)gapMs}ms rtt={(int)rttMs}ms decode={dec.DecodeMs:0.0}ms resyncs={resyncs}\n"); } catch { }
+    }
+
+    /// PHONECAST_SELFTEST=1 (test env file): encodes 3 s of this PC's screen to selftest.h264, reads the browser tab,
+    /// switches Stay awake on and off, and logs what happened. Nothing goes to the phone.
+    public static string[] StartArgs = Array.Empty<string>();
+
+    static void SendWhenLinked(string[] args, int tries)
+    {
+        if (Store.Shared.Connected || tries > 30) { Single.Handle(args); return; }
+        var t = new System.Windows.Forms.Timer { Interval = 1000 };
+        t.Tick += (_, _) => { t.Dispose(); SendWhenLinked(args, tries + 1); };
+        t.Start();
+    }
+
+    static void SelfTest()
+    {
+        if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") != "1") return;
+        new Thread(() =>
+        {
+            Thread.Sleep(3000);
+            var file = Path.Combine(AppContext.BaseDirectory, "selftest.h264");
+            using var fs = File.Create(file);
+            int frames = 0, configs = 0;
+            var sc = new PcScreen((t, d) =>
+            {
+                if (t == HubLink.ScreenConfig) { configs++; fs.Write(d); }
+                else if (t == HubLink.ScreenDenied) Log("selftest: denied " + System.Text.Encoding.UTF8.GetString(d));
+                else if (t == HubLink.ScreenFormat) Log($"selftest: format {d[2] << 8 | d[3]}x{d[6] << 8 | d[7]}");
+            }, (t, d, max) => { frames++; lock (fs) fs.Write(d, 1, d.Length - 1); return true; });
+            sc.Start(1920, 16);
+            Thread.Sleep(3000);
+            sc.Stop();
+            Log($"selftest: {frames} frames, {configs} configs, {fs.Length / 1024} KB");
+            Log("selftest: browser tab = " + (BrowserTab.Current() ?? "(none)"));
+            KeepAwake.Shared.Enable(60);
+            Log("selftest: stay awake " + KeepAwake.Shared.Summary + " lidOwned=" + Settings.Str("lidOwned"));
+            Thread.Sleep(1000);
+            KeepAwake.Shared.Disable(null);
+            Log("selftest: stay awake off, lidOwned=" + (Settings.Str("lidOwned") ?? "none"));
+        }) { IsBackground = true, Name = "selftest" }.Start();
     }
 }

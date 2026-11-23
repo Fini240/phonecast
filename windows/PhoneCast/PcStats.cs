@@ -28,8 +28,31 @@ static class PcStats
         var s = Store.Shared;
         s.Pc = Read();
         s.Fire("pc");
+        if (s.Connected) SendToPhone(s);
         if (ticks++ % 5 == 0) Probe();   // devices: every 10 s
         if (ticks % 7 == 0) AutoLock.Check();
+    }
+
+    /// What the phone's Mac tab shows while it controls this PC (the same keys the Mac sends).
+    static void SendToPhone(Store s)
+    {
+        var p = s.Pc;
+        var o = new System.Text.Json.Nodes.JsonObject { ["name"] = Environment.MachineName, ["os"] = "windows" };
+        if (p.Battery is int b) { o["battery"] = b; o["charging"] = p.Charging; }
+        if (p.Cpu is int c) o["cpu"] = c;
+        if (p.Mem is int m) o["mem"] = m;
+        o["thermal"] = "—";
+        if (s.Rtt >= 0) o["rtt"] = (int)Math.Round(s.Rtt);
+        var devs = new System.Text.Json.Nodes.JsonArray();
+        foreach (var d in s.Devices)
+        {
+            var j = new System.Text.Json.Nodes.JsonObject { ["name"] = d.name };
+            if (d.ms is double ms) j["ms"] = (int)Math.Round(ms);
+            devs.Add(j);
+        }
+        o["devices"] = devs;
+        o["lidAwake"] = KeepAwake.Shared.StatusForPhone();
+        s.Link?.SendStatus(o);
     }
 
     static Sample Read()

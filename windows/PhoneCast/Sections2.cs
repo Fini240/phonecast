@@ -199,7 +199,7 @@ sealed class FilesSection : Section
         Controls.Add(host);
         var up = Ui.Button(Glyph.Up, () => { if (S.FilePath != "") S.LoadFiles(Parent(S.FilePath)); });
         up.Font = Ui.IconFont(10);
-        Controls.Add(Header(tr("Files"), crumbs, up, Ui.Button(tr("Upload…"), Upload), Ui.Button(tr("Refresh"), () => S.LoadFiles(S.FilePath))));
+        Controls.Add(Header(tr("Files"), crumbs, up, Ui.Button(tr("Upload…"), Upload), Ui.Button(tr("Refresh"), () => S.LoadFiles(S.FilePath)), Ui.Button(tr("Open in File Explorer"), PhoneDrive.Open)));
         var hint = Ui.Label(tr("Double-click to open · drop files here to upload into this folder"), Ui.Small, Ui.Sub);
         hint.Dock = DockStyle.Bottom;
         hint.Margin = new Padding(0, 6, 0, 0);

@@ -15,7 +15,10 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => App.Log("CRASH: " + e.ExceptionObject);
-        App.StartInTray = Environment.GetCommandLineArgs().Contains("--tray");
+        var args = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        App.StartInTray = args.Contains("--tray") || args.Contains("--send");
+        if (!Single.Claim(args)) return;     // PhoneCast already runs: it got the files / shows its window
+        App.StartArgs = args;
         try { new App().Run(); }
         catch (Exception e)
         {

@@ -34,6 +34,7 @@ static class Tray
         var s = Store.Shared;
         icon.Icon = s.Connected ? on : off;
         var t = s.Connected ? tr("PhoneCast — linked with {0}", s.PhoneName) : tr("PhoneCast — phone not linked");
+        if (KeepAwake.Shared.On) t = "☕ " + t;
         if (s.Media != null) t += $"\n♪ {(string)s.Media["title"]}";
         icon.Text = t.Length > 127 ? t[..127] : t;
         if (MainForm.Instance != null) SetFormIcon(MainForm.Instance);
@@ -46,6 +47,18 @@ static class Tray
         m.Items.Add(new ToolStripMenuItem(s.Connected ? tr("Linked with {0}", s.PhoneName) + (s.PhoneSummary != "" ? " · " + s.PhoneSummary : "") : tr("Phone not linked")) { Enabled = false });
         m.Items.Add(tr("Open PhoneCast"), null, (_, _) => MainForm.Open());
         m.Items.Add(tr("Mirror"), null, (_, _) => s.Link.Mirror()).Enabled = s.Connected || s.Link.MirrorConnected;
+        if (s.PhoneWeb is Store.PhoneWebInfo w)
+        {
+            var label = tr("Open on PC: {0}", w.Short.Length > 50 ? w.Short[..50] + "…" : w.Short);
+            m.Items.Add(new ToolStripMenuItem(label, null, (_, _) => s.OpenPhoneWeb()) { ToolTipText = w.Url, ShortcutKeyDisplayString = "Ctrl+Shift+O" });
+        }
+        m.Items.Add(tr("Phone in File Explorer"), null, (_, _) => PhoneDrive.Open()).Enabled = s.Connected;
+        m.Items.Add(tr("Browser tab to the phone"), null, (_, _) =>
+        {
+            var url = BrowserTab.Current();
+            if (url == null) Banners.Info(tr("No browser tab found"), tr("Open the page in Chrome, Edge, Brave, Firefox or Opera on the PC first."));
+            else s.Link.Request("url.open", new JsonObject { ["url"] = url }, r => { if (!r.Ok) Banners.Info(tr("Couldn't open it on the phone"), r.Error); });
+        }).Enabled = s.Connected;
         m.Items.Add(new ToolStripSeparator());
         if (s.Media is JsonObject media)
         {
@@ -73,11 +86,24 @@ static class Tray
         var dnd = new ToolStripMenuItem(tr("Do Not Disturb on the phone")) { Checked = s.PhoneDnd, Enabled = s.Connected };
         dnd.Click += (_, _) => s.SetPhoneDnd(!s.PhoneDnd);
         m.Items.Add(dnd);
+        m.Items.Add(StayAwakeMenu());
         var mute = new ToolStripMenuItem(tr("Mute banners")) { Checked = s.MuteAll };
         mute.Click += (_, _) => s.MuteAll = !s.MuteAll;
         m.Items.Add(mute);
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add(tr("Quit PhoneCast"), null, (_, _) => s.Link.Quit());
+    }
+
+    /// "Stay awake" (KeepAwake): 1 h, 2 h, 8 h, until turned off, off.
+    public static ToolStripMenuItem StayAwakeMenu()
+    {
+        var k = KeepAwake.Shared;
+        var sa = new ToolStripMenuItem(k.On ? tr("Stay awake: {0}", k.Summary) : tr("Stay awake")) { Checked = k.On };
+        foreach (var (label, min) in new[] { (tr("1 hour"), 60), (tr("2 hours"), 120), (tr("8 hours"), 480), (tr("Until I turn it off"), 0) })
+            sa.DropDownItems.Add(label, null, (_, _) => k.Enable(min));
+        sa.DropDownItems.Add(new ToolStripSeparator());
+        sa.DropDownItems.Add(tr("Off"), null, (_, _) => k.Disable(null)).Enabled = k.On;
+        return sa;
     }
 
     public static void Stop()
