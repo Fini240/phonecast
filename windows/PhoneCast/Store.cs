@@ -65,6 +65,7 @@ sealed class Store
     public void ApplyStatus(JsonObject o)
     {
         Status = o;
+        Desk.Shared.Update(o);
         PhoneCasting = (bool?)o["casting"] ?? false;
         bool dnd = (bool?)o["dnd"] ?? false;
         bool dndChanged = dnd != PhoneDnd;

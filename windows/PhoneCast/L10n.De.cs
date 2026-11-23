@@ -5,6 +5,14 @@ static partial class L10n
 {
     static readonly Dictionary<string, string> De = new()
     {
+        ["Shared keyboard & mouse"] = "Gemeinsame Tastatur & Maus",
+        ["Use this PC's keyboard and mouse on the Mac, and the Mac's on this PC"] = "Tastatur und Maus dieses PCs am Mac nutzen, und die des Macs an diesem PC",
+        ["Push the pointer over the desktop edge that faces the Mac, and this PC's keyboard and mouse work the Mac; push it back to come home. Where the PC stands and the ⌘/Ctrl swap are set on the Mac (PhoneCast → Settings → Shared keyboard & mouse). The two talk directly on your network, encrypted with a key only your phone hands out; the clipboard is shared too."] = "Schieb den Zeiger über den Desktop-Rand, der zum Mac zeigt, dann steuern Tastatur und Maus dieses PCs den Mac; schieb ihn zurück, um heimzukommen. Wo der PC steht und den ⌘/Strg-Tausch stellst du am Mac ein (PhoneCast → Einstellungen → Gemeinsame Tastatur & Maus). Beide sprechen direkt in deinem Netz miteinander, verschlüsselt mit einem Schlüssel, den nur dein Handy verteilt; die Zwischenablage ist auch geteilt.",
+        ["Connected to {0}"] = "Verbunden mit {0}",
+        ["Looking for the Mac…"] = "Suche den Mac…",
+        ["Keyboard and mouse are on {0}"] = "Tastatur und Maus sind auf {0}",
+        ["{0}'s keyboard and mouse are on this PC"] = "Tastatur und Maus von {0} sind auf diesem PC",
+        ["Keyboard & mouse: {0}"] = "Tastatur & Maus: {0}",
         ["Advanced (USB debugging)"] = "Erweitert (USB-Debugging)",
         ["App windows:"] = "App-Fenster:",
         ["Click an app to open it on the phone and show it in the mirror. Right-click: in its own window (USB debugging)."] = "Klicke eine App an, um sie auf dem Handy zu öffnen und im Spiegel zu zeigen. Rechtsklick: in einem eigenen Fenster (USB-Debugging).",

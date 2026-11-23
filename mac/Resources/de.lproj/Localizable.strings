@@ -348,3 +348,18 @@
 "%@ · %@" = "%@ · %@";
 "No website open on the phone right now" = "Gerade keine Website auf dem Handy offen";
 "Allow “Mouse & keyboard” on the phone to see its open website" = "„Maus & Tastatur“ auf dem Handy erlauben, um die offene Website zu sehen";
+
+/* Shared keyboard & mouse (Desk.swift) */
+"Shared keyboard & mouse" = "Gemeinsame Tastatur & Maus";
+"Use this Mac's keyboard and mouse on the PC, and the PC's on this Mac" = "Tastatur und Maus dieses Macs am PC nutzen, und die des PCs an diesem Mac";
+"The PC is" = "Der PC steht";
+"Left of the Mac" = "Links vom Mac";
+"Right of the Mac" = "Rechts vom Mac";
+"Swap ⌘ and Ctrl (⌘C copies on the PC)" = "⌘ und Strg tauschen (⌘C kopiert auf dem PC)";
+"Push the pointer over the screen edge that faces the PC, and this Mac's keyboard and mouse work the PC; push it back to come home. The PC's keyboard and mouse cross over to the Mac the same way. The clipboard is shared too. The Mac and the PC talk to each other directly on your network (both need PhoneCast and the phone linked once); everything is encrypted with a key only your phone hands out. Needs Accessibility for PhoneCast." = "Schieb den Zeiger über den Bildschirmrand, der zum PC zeigt, dann steuern Tastatur und Maus dieses Macs den PC; schieb ihn zurück, um heimzukommen. Tastatur und Maus des PCs kommen genauso auf den Mac. Die Zwischenablage ist auch geteilt. Mac und PC sprechen direkt in deinem Netz miteinander (beide brauchen PhoneCast und einmal das verbundene Handy); alles ist mit einem Schlüssel verschlüsselt, den nur dein Handy verteilt. Braucht Bedienungshilfen für PhoneCast.";
+"Waiting for the PC" = "Warte auf den PC";
+"Connected to %@" = "Verbunden mit %@";
+"Keyboard and mouse are on %@" = "Tastatur und Maus sind auf %@";
+"%@'s keyboard and mouse are on this Mac" = "Tastatur und Maus von %@ sind auf diesem Mac";
+"Shared keyboard & mouse needs Accessibility" = "Gemeinsame Tastatur & Maus braucht Bedienungshilfen";
+"System Settings → Privacy & Security → Accessibility → PhoneCast" = "Systemeinstellungen → Datenschutz & Sicherheit → Bedienungshilfen → PhoneCast";

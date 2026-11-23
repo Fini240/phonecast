@@ -1140,6 +1140,7 @@ struct SettingsView: View {
                 }
             }
             LidAwakeSection()
+            DeskSection()
             Section("Phone") {
                 ForEach([("notifications", "Notifications"), ("sms", "Messages"), ("calls", "Calls"), ("callControl", "Answer & dial"),
                          ("contacts", "Contacts"), ("photos", "Photos"), ("files", "Files"), ("control", "Mouse & keyboard (mirror)")], id: \.0) { k, name in
@@ -1230,6 +1231,29 @@ struct LidAwakeSection: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if la.ready { Button("Remove the permission") { la.removeRule() } }
+        }
+    }
+}
+
+/// Settings → Shared keyboard & mouse with the linked Windows PC (Desk.swift).
+struct DeskSection: View {
+    @ObservedObject private var desk = Desk.shared
+    var body: some View {
+        Section("Shared keyboard & mouse") {
+            Toggle("Use this Mac's keyboard and mouse on the PC, and the PC's on this Mac", isOn: Binding(get: { desk.enabled }, set: { desk.enabled = $0; desk.objectWillChange.send() }))
+            HStack {
+                Image(systemName: desk.state == .sending || desk.state == .receiving ? "keyboard.fill" : "keyboard")
+                    .foregroundStyle(desk.state == .off || desk.state == .waiting ? Color.secondary : Color.accentColor)
+                Text(desk.summary)
+            }
+            Picker("The PC is", selection: Binding(get: { desk.pcSide }, set: { desk.pcSide = $0; desk.objectWillChange.send() })) {
+                Text("Left of the Mac").tag("left"); Text("Right of the Mac").tag("right")
+            }.pickerStyle(.segmented)
+            Toggle("Swap ⌘ and Ctrl (⌘C copies on the PC)", isOn: Binding(get: { desk.swapCmdCtrl }, set: { desk.swapCmdCtrl = $0; desk.objectWillChange.send() }))
+            DisclosureGroup("How it works") {
+                Text("Push the pointer over the screen edge that faces the PC, and this Mac's keyboard and mouse work the PC; push it back to come home. The PC's keyboard and mouse cross over to the Mac the same way. The clipboard is shared too. The Mac and the PC talk to each other directly on your network (both need PhoneCast and the phone linked once); everything is encrypted with a key only your phone hands out. Needs Accessibility for PhoneCast.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }

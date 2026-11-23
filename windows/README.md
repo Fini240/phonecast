@@ -27,6 +27,9 @@ internet relay or a USB cable (USB tethering).
   phone (tray, or the phone's "Browser tab here").
 - **Phone in File Explorer**: the phone's storage as a drive letter (Files → Open in File Explorer, or the tray).
   PhoneCast relays Windows' WebDAV client to the phone on 127.0.0.1, so no registry change or admin rights.
+- **Shared keyboard & mouse with the Mac**: push the pointer over the desktop edge that faces the Mac and this PC's
+  keyboard and mouse drive the Mac; the Mac's come over the same way. Direct, encrypted (key from the phone); where
+  the PC stands and the ⌘/Ctrl swap are set on the Mac. The clipboard is shared too.
 - **Send to → PhoneCast (phone)** in Explorer's right-click menu sends files to the phone's Downloads.
 - **Phone in a browser** (Settings, off by default): notifications and text messages at
   `http://<this PC>:27190/phone` for an iPad or a school laptop, with a 6-digit code.

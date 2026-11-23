@@ -133,6 +133,10 @@ object Prefs {
     fun shapeLong(c: Context): Int = p(c).getInt("shapeLong", 0)
     fun setShapeLong(c: Context, v: Int) = p(c).edit().putInt("shapeLong", v).apply()
 
+    /** Shared keyboard & mouse between the linked Mac and PC: the secret both get from this phone (base64, 32 bytes). */
+    fun deskKey(c: Context): String = p(c).getString("deskKey", null) ?: android.util.Base64.encodeToString(
+        ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }, android.util.Base64.NO_WRAP).also { p(c).edit().putString("deskKey", it).apply() }
+
     /** The clipboard picture from the Mac kept in Downloads/PhoneCast/Clipboard (only the newest is kept). */
     fun lastClipImage(c: Context): String? = p(c).getString("lastClipImage", null)
     fun setLastClipImage(c: Context, v: String) = p(c).edit().putString("lastClipImage", v).apply()

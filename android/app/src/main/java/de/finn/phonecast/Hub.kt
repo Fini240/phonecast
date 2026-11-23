@@ -663,6 +663,12 @@ class HubService : Service() {
         o.put("perms", features.perms())
         transfer?.let { o.put("transfer", it) }
         WebNow.status(pm.isInteractive)?.let { o.put("web", it) }          // the browser's page, for "Open on Mac"
+        // shared keyboard & mouse: the linked computers connect to each other directly (the PC dials the Mac's own
+        // network addresses, which it reports in its STATUS as "lan"); this phone only hands out the secret
+        if (clients.size > 1) o.put("desk", JSONObject().put("key", Prefs.deskKey(this)).put("peers", JSONArray().apply {
+            for (c in clients) put(JSONObject().put("name", c.name).put("os", c.os)
+                .put("lan", c.status?.optJSONArray("lan") ?: JSONArray()))
+        }))
         sendJson(HubProto.STATUS, o)
     }
 

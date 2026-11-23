@@ -86,6 +86,7 @@ static class Tray
         var dnd = new ToolStripMenuItem(tr("Do Not Disturb on the phone")) { Checked = s.PhoneDnd, Enabled = s.Connected };
         dnd.Click += (_, _) => s.SetPhoneDnd(!s.PhoneDnd);
         m.Items.Add(dnd);
+        if (Desk.Shared.State != Desk.St.Off) m.Items.Add(new ToolStripMenuItem(tr("Keyboard & mouse: {0}", Desk.Shared.Summary)) { Enabled = false });
         m.Items.Add(StayAwakeMenu());
         var mute = new ToolStripMenuItem(tr("Mute banners")) { Checked = s.MuteAll };
         mute.Click += (_, _) => s.MuteAll = !s.MuteAll;

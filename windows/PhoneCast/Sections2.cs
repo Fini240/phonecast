@@ -396,7 +396,7 @@ sealed class SettingsSection : Section
     readonly Label pairState = Ui.Label("", Ui.Body, null, 520), keyLabel = Ui.Label("", Ui.Small, Ui.Sub, 520), dndState = Ui.Label("", Ui.Small, Ui.Sub);
     readonly CheckedListBox apps = new() { CheckOnClick = true, BorderStyle = BorderStyle.None, IntegralHeight = false };
     readonly Label awakeState = Ui.Label("", Ui.Body, null, 520), webState = Ui.Label("", Ui.Body, null, 520),
-        advState = Ui.Label("", Ui.Body, null, 520), advResult = Ui.Label("", Ui.Small, Ui.Sub, 520);
+        advState = Ui.Label("", Ui.Body, null, 520), deskState = Ui.Label("", Ui.Body, null, 520), advResult = Ui.Label("", Ui.Small, Ui.Sub, 520);
     bool advChecking;
 
     /// adb is slow: ask in the background.
@@ -463,6 +463,11 @@ sealed class SettingsSection : Section
         control.Controls.Add(Ui.Check(tr("Let the phone see and control this PC"), S.AllowControl, on => S.AllowControl = on));
         control.Controls.Add(Note(tr("On the phone: the PC tab → “Open the PC's screen” or “Trackpad & keyboard only”, plus volume, media, lock, screen off, screenshot and the browser tab. Keys on the phone: Ctrl, Alt, Win, Shift.")));
 
+        var desk = new CardPanel(tr("Shared keyboard & mouse"), Glyph.Keyboard);
+        desk.Controls.Add(Ui.Check(tr("Use this PC's keyboard and mouse on the Mac, and the Mac's on this PC"), Desk.Shared.Enabled, on => Desk.Shared.Enabled = on));
+        desk.Controls.Add(deskState);
+        desk.Controls.Add(Note(tr("Push the pointer over the desktop edge that faces the Mac, and this PC's keyboard and mouse work the Mac; push it back to come home. Where the PC stands and the ⌘/Ctrl swap are set on the Mac (PhoneCast → Settings → Shared keyboard & mouse). The two talk directly on your network, encrypted with a key only your phone hands out; the clipboard is shared too.")));
+
         var awake = new CardPanel(tr("Stay awake"), Glyph.Power);
         awake.Controls.Add(awakeState);
         awake.Controls.Add(Ui.Row(
@@ -523,7 +528,7 @@ sealed class SettingsSection : Section
         phone.Controls.Add(perms);
         phone.Controls.Add(Note(tr("Missing ones are allowed in the PhoneCast app on the phone (Phone features on the computer).")));
 
-        foreach (var c in new Control[] { pair, sec, notif, clip, control, awake, files, web, lockCard, dev, adv, pc, phone })
+        foreach (var c in new Control[] { pair, sec, notif, clip, control, desk, awake, files, web, lockCard, dev, adv, pc, phone })
         {
             c.MinimumSize = new Size(w + LogicalToDeviceUnits(32), 0);
             flow.Controls.Add(c);
@@ -544,6 +549,7 @@ sealed class SettingsSection : Section
             : qr ? tr("Paired by QR code. Waiting for the phone…") : pin ? tr("Uses the PIN. Waiting for the phone…") : tr("Not paired yet: scan this PC's QR code with the phone.");
         var key = Settings.Str("phoneKey");
         keyLabel.Text = key == null ? tr("No phone key yet (saved on the first connection).") : tr("Phone key: {0}", string.Join(" ", Enumerable.Range(0, Math.Min(8, key.Length / 4)).Select(i => key.Substring(i * 4, 4))) + " …");
+        deskState.Text = Desk.Shared.Summary;
         var ka = KeepAwake.Shared;
         awakeState.Text = ka.On ? tr("On · {0}", ka.Summary) : tr("Off");
         awakeState.ForeColor = ka.On ? Ui.Orange : Ui.Text;

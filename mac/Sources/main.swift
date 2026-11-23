@@ -918,7 +918,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
-    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop(); Advanced.stopAll(); LidAwake.shared.stopOnQuit() }
+    func applicationWillTerminate(_ n: Notification) { link?.close(); UsbBridge.shared.stop(); Advanced.stopAll(); LidAwake.shared.stopOnQuit(); Desk.shared.stopOnQuit() }
 
     private func connect(_ ep: NWEndpoint, label: String, pin: String) {
         link?.onState = nil; link?.onPacket = nil

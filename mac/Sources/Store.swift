@@ -126,6 +126,7 @@ final class Store: ObservableObject {
 
     func applyStatus(_ o: [String: Any]) {
         phoneStatus = o
+        Desk.shared.update(phoneStatus: o)
         phoneCasting = o["casting"] as? Bool ?? false
         if let n = o["name"] as? String { phoneName = n }
         if let p = o["perms"] as? [String: Bool] {

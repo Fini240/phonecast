@@ -800,6 +800,7 @@ final class Hub: NSObject, NSMenuDelegate {
         let sc = Continuity.shortcuts
         if !sc.isEmpty { o["shortcuts"] = sc }   // the phone's PC tab uses it too
         o["lidAwake"] = LidAwake.shared.statusForPhone
+        o["lan"] = Desk.lanAddresses()   // shared keyboard & mouse: the PC dials these (the phone passes them on)
         if let t = store.transfers.first(where: { $0.state == .running }) { o["transfer"] = "\(t.outgoing ? "Sending" : "Receiving") \(t.name) \(Int(t.progress * 100)) %" }
         if let d = try? JSONSerialization.data(withJSONObject: o) { l.send(HT.status, d) }
     }
