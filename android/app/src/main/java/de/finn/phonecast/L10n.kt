@@ -69,7 +69,7 @@ private val DE = mapOf(
     "Open PhoneCast on the Mac." to "Öffne PhoneCast auf dem Mac.",
     "Battery" to "Akku", "CPU" to "CPU", "Memory" to "Arbeitsspeicher", "Heat" to "Wärme",
     "{0} % · on power" to "{0} % · am Strom",
-    "Control the Mac" to "Mac steuern", "Control the PC" to "PC steuern", "Control" to "Steuern",
+    "Control the Mac" to "Mac steuern", "Connecting to the PC…" to "Verbinde mit dem PC…", "The PC disconnected." to "Der PC hat die Verbindung getrennt.", "Control the PC" to "PC steuern", "Control" to "Steuern",
     "Open the PC's screen" to "PC-Bildschirm öffnen", "On the PC" to "Auf dem PC", "PC not connected" to "PC nicht verbunden",
     "Stay awake" to "Wach bleiben", "The PC stays awake" to "Der PC bleibt wach", "Sleeps as usual" to "Schläft wie gewohnt",
     "No sleep, also not with a laptop's lid closed. Turns itself off on battery below {0} % and when PhoneCast quits." to

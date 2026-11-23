@@ -19,7 +19,9 @@ static class PhoneDrive
     static volatile string auth;     // "Basic …"
 
     /// Any thread; banners and Explorer on the UI thread.
-    public static void Open()
+    public static void Open() => Open(true);
+
+    public static void Open(bool show)
     {
         var s = Store.Shared;
         if (!s.Connected) { Banners.Info(tr("Phone not connected"), ""); return; }
@@ -46,7 +48,8 @@ static class PhoneDrive
                     var letter = Mount();
                     Ui.Post(() =>
                     {
-                        if (letter != null) Ui.Shell(letter + "\\");
+                        if (letter != null && show) Ui.Shell(letter + "\\");
+                        if (!show) App.Log("phone drive: mounted at " + (letter ?? "(nothing)") + ", root has " + (letter != null ? Directory.GetFileSystemEntries(letter + "\\").Length : -1) + " entries");
                         else Banners.Info(tr("Couldn't map the phone as a drive"), tr("Windows' WebDAV client (the WebClient service) didn't answer."));
                     });
                 }

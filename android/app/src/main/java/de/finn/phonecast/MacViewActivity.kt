@@ -69,7 +69,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         surfaceView = SurfaceView(this)
         surfaceView.holder.addCallback(this)
         root.addView(surfaceView, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
-        msg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; text = tr("Connecting to the Mac…") }
+        msg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; text = tr(if (HubService.instance?.targetOs == "windows") "Connecting to the PC…" else "Connecting to the Mac…") }
         root.addView(msg, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         keys = KeyCatcher(this)
         root.addView(keys, FrameLayout.LayoutParams(1, 1))
@@ -113,7 +113,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
 
     private fun onPacket(type: Int, p: ByteArray) {
         when (type) {
-            -1 -> runOnUiThread { msg.visibility = View.VISIBLE; msg.text = "The Mac disconnected." }
+            -1 -> runOnUiThread { msg.visibility = View.VISIBLE; msg.text = tr(if (HubService.instance?.targetOs == "windows") "The PC disconnected." else "The Mac disconnected.") }
             HubProto.SCREEN_DENIED -> runOnUiThread { msg.visibility = View.VISIBLE; msg.text = String(p) }
             HubProto.SCREEN_FORMAT -> {
                 val b = ByteBuffer.wrap(p)
@@ -397,7 +397,10 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         b("esc") { sendKey(53) }
         b("tab") { sendKey(48) }
         b("←") { sendKey(123) }; b("→") { sendKey(124) }; b("↑") { sendKey(126) }; b("↓") { sendKey(125) }
-        for ((label, bit) in listOf("⌘" to HubProto.MOD_CMD, "⌥" to HubProto.MOD_OPT, "⌃" to HubProto.MOD_CTRL, "⇧" to HubProto.MOD_SHIFT)) {
+        // on a Windows PC the same bits mean Ctrl, Alt, the Windows key and Shift (PcInput.cs)
+        val pc = HubService.instance?.targetOs == "windows"
+        val labels = if (pc) listOf("Ctrl", "Alt", "Win", "⇧") else listOf("⌘", "⌥", "⌃", "⇧")
+        for ((label, bit) in labels.zip(listOf(HubProto.MOD_CMD, HubProto.MOD_OPT, HubProto.MOD_CTRL, HubProto.MOD_SHIFT))) {
             modViews[bit] = b(label) { v ->
                 mods = mods xor bit
                 v.alpha = if (mods and bit != 0) 1f else 0.55f

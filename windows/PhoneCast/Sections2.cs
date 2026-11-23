@@ -390,6 +390,7 @@ sealed class SettingsSection : Section
     readonly FlowLayoutPanel flow = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Bg };
     readonly Label pairState = Ui.Label("", Ui.Body, null, 520), keyLabel = Ui.Label("", Ui.Small, Ui.Sub, 520), dndState = Ui.Label("", Ui.Small, Ui.Sub);
     readonly CheckedListBox apps = new() { CheckOnClick = true, BorderStyle = BorderStyle.None, IntegralHeight = false };
+    readonly Label awakeState = Ui.Label("", Ui.Body, null, 520), webState = Ui.Label("", Ui.Body, null, 520);
     readonly FlowLayoutPanel perms = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, BackColor = Color.Transparent };
     bool filling;
     const int W = 540;
@@ -445,7 +446,25 @@ sealed class SettingsSection : Section
 
         var control = new CardPanel(tr("Control this PC from the phone"), Glyph.Keyboard);
         control.Controls.Add(Ui.Check(tr("Let the phone see and control this PC"), S.AllowControl, on => S.AllowControl = on));
-        control.Controls.Add(Note(tr("On the phone: the Mac tab → “Open the Mac's screen” or “Trackpad & keyboard only”. With a Mac and this PC both linked, the phone asks which one. Keys: ⌘ = Ctrl, ⌥ = Alt, ⌃ = Windows key.")));
+        control.Controls.Add(Note(tr("On the phone: the Mac tab → “Open the PC's screen” or “Trackpad & keyboard only”, plus volume, media, lock, screen off, screenshot and the browser tab. With a Mac and this PC both linked, pick this PC at the top of that tab. Keys: ⌘ = Ctrl, ⌥ = Alt, ⌃ = Windows key.")));
+
+        var awake = new CardPanel(tr("Stay awake"), Glyph.Power);
+        awake.Controls.Add(awakeState);
+        awake.Controls.Add(Ui.Row(
+            Ui.Button(tr("1 hour"), () => KeepAwake.Shared.Enable(60)), Ui.Button(tr("2 hours"), () => KeepAwake.Shared.Enable(120)),
+            Ui.Button(tr("8 hours"), () => KeepAwake.Shared.Enable(480)), Ui.Button(tr("Until I turn it off"), () => KeepAwake.Shared.Enable(0)),
+            Ui.Button(tr("Off"), () => KeepAwake.Shared.Disable(null))));
+        awake.Controls.Add(Note(tr("While on, this PC doesn't go to sleep, and closing a laptop's lid does nothing, so the phone can still reach it. Turns itself off on battery at {0} % and when PhoneCast quits. Also in the tray and on the phone's Mac tab.", KeepAwake.Shared.MinBattery)));
+
+        var web = new CardPanel(tr("Phone in a browser"), Glyph.Globe);
+        web.Controls.Add(Ui.Check(tr("Show the phone's notifications and messages on other devices in my network"), Settings.Bool("phoneWeb"), on => { Settings.Set("phoneWeb", on); PhoneWeb.Apply(); Fill(); }));
+        web.Controls.Add(webState);
+        web.Controls.Add(Ui.Row(Ui.Button(tr("New code"), () => { PhoneWeb.NewCode(); Fill(); }), Ui.Button(tr("Open it here"), () => Ui.Shell($"http://localhost:{PhoneWeb.Port}/phone"))));
+        web.Controls.Add(Note(tr("For an iPad or a school laptop: open the address there and enter the code. It goes through this PC's link, so nothing leaves your network. Windows asks once whether to allow PhoneCast through the firewall: allow it for private networks.")));
+
+        var files = new CardPanel(tr("Files"), Glyph.Folder);
+        files.Controls.Add(Note(tr("Explorer: right-click files → Send to → PhoneCast (phone). They land in the phone's Downloads. The phone's storage opens as a drive with Files → Open in File Explorer (or the tray).")));
+        files.Controls.Add(Ui.Button(tr("Open the phone in File Explorer"), PhoneDrive.Open));
 
         var lockCard = new CardPanel(tr("Lock this PC when the phone leaves"), Glyph.Lock);
         var mins = new[] { 1, 2, 5, 10 };
@@ -473,7 +492,7 @@ sealed class SettingsSection : Section
         phone.Controls.Add(perms);
         phone.Controls.Add(Note(tr("Missing ones are allowed in the PhoneCast app on the phone (Phone features on the computer).")));
 
-        foreach (var c in new Control[] { pair, sec, notif, clip, control, lockCard, dev, pc, phone })
+        foreach (var c in new Control[] { pair, sec, notif, clip, control, awake, files, web, lockCard, dev, pc, phone })
         {
             c.MinimumSize = new Size(w + LogicalToDeviceUnits(32), 0);
             flow.Controls.Add(c);
@@ -484,7 +503,7 @@ sealed class SettingsSection : Section
     sealed class AppItem { public string Pkg, Name; public override string ToString() => Name; }
 
     public override void Shown() => Fill();
-    public override void Changed(string what) { if (what is "settings" or "status") Fill(); }
+    public override void Changed(string what) { if (what is "settings" or "status" or "pc") Fill(); }
 
     void Fill()
     {
@@ -494,6 +513,10 @@ sealed class SettingsSection : Section
             : qr ? tr("Paired by QR code. Waiting for the phone…") : pin ? tr("Uses the PIN. Waiting for the phone…") : tr("Not paired yet: scan this PC's QR code with the phone.");
         var key = Settings.Str("phoneKey");
         keyLabel.Text = key == null ? tr("No phone key yet (saved on the first connection).") : tr("Phone key: {0}", string.Join(" ", Enumerable.Range(0, Math.Min(8, key.Length / 4)).Select(i => key.Substring(i * 4, 4))) + " …");
+        var ka = KeepAwake.Shared;
+        awakeState.Text = ka.On ? tr("On · {0}", ka.Summary) : tr("Off");
+        awakeState.ForeColor = ka.On ? Ui.Orange : Ui.Text;
+        webState.Text = PhoneWeb.Running ? tr("On. Address: {0} · code {1}", string.Join("  or  ", PhoneWeb.Urls().Take(2)), PhoneWeb.Code) : tr("Off");
         dndState.Text = S.Connected ? (S.PhoneDnd ? tr("The phone is on Do Not Disturb now.") : tr("The phone isn't on Do Not Disturb.")) : "";
 
         var muted = S.MutedApps;

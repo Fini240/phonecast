@@ -131,13 +131,14 @@ sealed unsafe partial class App
             PcStats.Start();
             KeepAwake.Shared.Start();
             Single.Listen();
+            PhoneWeb.Apply();
             Single.InstallSendTo();
-            if (!StartInTray) MainForm.Open();
+            if (!StartInTray) MainForm.Open(Environment.GetEnvironmentVariable("PHONECAST_PANE"));   // PHONECAST_PANE=settings (tests)
             // started by "Send to" while PhoneCast wasn't running: send once the phone is linked
             if (StartArgs.Contains("--send")) SendWhenLinked(StartArgs, 0);
         });
         After(5, () => Ui.Post(() => Updater.Check(null, quiet: true)));
-        SelfTest();   // once at start, only speaks up if there is an update
+        SelfTest();
         ren = Sdl.SDL_CreateRenderer(win, -1, Sdl.RENDERER_ACCELERATED);
         Sdl.SDL_RenderSetVSync(ren, 0);
         Sdl.SDL_EventState(Sdl.SYSWMEVENT, 1);
@@ -599,6 +600,19 @@ sealed unsafe partial class App
 
     static void SelfTest()
     {
+        if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") == "drive")
+        {
+            new Thread(() => { Thread.Sleep(5000); PhoneDrive.Open(false); }) { IsBackground = true }.Start();
+            return;
+        }
+        if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") == "webreset") { Settings.Set("phoneWeb", false); Ui.Post(PhoneWeb.Apply); return; }
+        if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") == "web")
+        {
+            Settings.Set("phoneWeb", true);
+            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "selftest-code.txt"), PhoneWeb.Code);
+            Ui.Post(PhoneWeb.Apply);
+            return;
+        }
         if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") != "1") return;
         new Thread(() =>
         {
