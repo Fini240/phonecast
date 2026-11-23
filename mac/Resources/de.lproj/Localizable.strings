@@ -363,3 +363,5 @@
 "%@'s keyboard and mouse are on this Mac" = "Tastatur und Maus von %@ sind auf diesem Mac";
 "Shared keyboard & mouse needs Accessibility" = "Gemeinsame Tastatur & Maus braucht Bedienungshilfen";
 "System Settings → Privacy & Security → Accessibility → PhoneCast" = "Systemeinstellungen → Datenschutz & Sicherheit → Bedienungshilfen → PhoneCast";
+"Drag the Mac next to any edge of a PC monitor. The pointer crosses over exactly where they touch, both ways." = "Zieh den Mac an einen beliebigen Rand eines PC-Monitors. Der Zeiger wechselt genau dort hinüber, wo sie sich berühren, in beide Richtungen.";
+"The PC's monitors show up once the PC is connected." = "Die Monitore des PCs erscheinen, sobald der PC verbunden ist.";

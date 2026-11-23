@@ -63,7 +63,14 @@ final class Desk: ObservableObject {
         if newKey?.withUnsafeBytes({ Data($0) }) != key?.withUnsafeBytes({ Data($0) }) { key = newKey; apply() }
     }
 
+    private var screensObserver: Any?
     func apply() {
+        if screensObserver == nil {
+            refreshGeometry()
+            screensObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshGeometry(); self?.sendLayout(); self?.objectWillChange.send()
+            }
+        }
         if enabled && key != nil { startListener() } else { stopAll() }
         changed()
     }
@@ -118,7 +125,7 @@ final class Desk: ObservableObject {
                     switch s { case .failed, .cancelled: self?.q.async { if self?.conn === c { self?.drop("closed") } } default: break }
                 }
                 dlog("desk: \(self.peerName) connected")
-                DispatchQueue.main.async { self.state = .local; self.changed(); self.startTap() }
+                DispatchQueue.main.async { self.refreshGeometry(); self.state = .local; self.changed(); self.startTap() }
                 self.sendHello()
                 self.readFrame(c)
             }
@@ -173,10 +180,100 @@ final class Desk: ObservableObject {
     }
 
     // message types
-    private enum M: UInt8 { case hello = 0, enter = 1, leave = 2, move = 3, button = 4, wheel = 5, key = 6, releaseAll = 7 }
+    private enum M: UInt8 { case hello = 0, enter = 1, leave = 2, move = 3, button = 4, wheel = 5, key = 6, releaseAll = 7, layout = 8, screens = 9, setOrigin = 10 }
 
     /// Layout and options for the PC (u8 side of the Mac the PC is on: 0 left, 1 right; u8 swap).
-    private func sendHello() { send(Data([M.hello.rawValue, pcSide == "left" ? 0 : 1, swapCmdCtrl ? 1 : 0])) }
+    private func sendHello() { send(Data([M.hello.rawValue, pcSide == "left" ? 0 : 1, swapCmdCtrl ? 1 : 0])); sendLayout() }
+
+    // MARK: layout: the PC's monitors and this Mac on one plane (in PC pixels), arranged in Settings
+
+    /// PC pixels per Mac point (also how fast the Mac's mouse moves on the PC).
+    static let k: CGFloat = 1.5
+    /// The PC's monitors in its own pixels (from the PC; remembered for the editor while it's offline).
+    @Published var pcScreens: [CGRect] = (UserDefaults.standard.array(forKey: "deskPcScreens") as? [[Double]] ?? [])
+        .compactMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
+    /// Where the top-left of this Mac's displays sits on the PC's plane (PC pixels); nil = the default spot.
+    var macOrigin: CGPoint? {
+        get { let d = UserDefaults.standard; return d.object(forKey: "deskMacX") == nil ? nil : CGPoint(x: d.double(forKey: "deskMacX"), y: d.double(forKey: "deskMacY")) }
+        set {
+            if let v = newValue { UserDefaults.standard.set(Double(v.x), forKey: "deskMacX"); UserDefaults.standard.set(Double(v.y), forKey: "deskMacY") }
+            else { UserDefaults.standard.removeObject(forKey: "deskMacX"); UserDefaults.standard.removeObject(forKey: "deskMacY") }
+            refreshGeometry(); sendLayout(); objectWillChange.send()
+        }
+    }
+
+    /// This Mac's displays in CoreGraphics points (top-left origin).
+    static func macDisplays() -> [CGRect] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16); var n: UInt32 = 0
+        CGGetActiveDisplayList(16, &ids, &n)
+        return ids.prefix(Int(n)).map { CGDisplayBounds($0) }
+    }
+
+    /// Next to the PC's leftmost monitor (or rightmost, for the old "PC left of the Mac"), centred on it.
+    func defaultOrigin(macSize: CGSize) -> CGPoint {
+        guard !pcScreens.isEmpty else { return CGPoint(x: -macSize.width, y: 0) }
+        if pcSide == "left", let r = pcScreens.max(by: { $0.maxX < $1.maxX }) { return CGPoint(x: r.maxX, y: r.midY - macSize.height / 2) }
+        let l = pcScreens.min(by: { $0.minX < $1.minX })!
+        return CGPoint(x: l.minX - macSize.width, y: l.midY - macSize.height / 2)
+    }
+
+    // geometry the event tap reads (rebuilt on the main thread when anything changes)
+    private var macUnion = CGRect.zero
+    private var macRects: [CGRect] = []          // CG points
+    private var macPlane: [CGRect] = []          // the same displays on the PC's plane
+    private var origin = CGPoint.zero
+
+    func refreshGeometry() {
+        macRects = Self.macDisplays()
+        macUnion = macRects.reduce(CGRect.null) { $0.union($1) }
+        let size = CGSize(width: macUnion.width * Self.k, height: macUnion.height * Self.k)
+        origin = macOrigin ?? defaultOrigin(macSize: size)
+        macPlane = macRects.map { toPlane($0) }
+    }
+
+    func toPlane(_ p: CGPoint) -> CGPoint { CGPoint(x: origin.x + (p.x - macUnion.minX) * Self.k, y: origin.y + (p.y - macUnion.minY) * Self.k) }
+    func toPlane(_ r: CGRect) -> CGRect { CGRect(origin: toPlane(r.origin), size: CGSize(width: r.width * Self.k, height: r.height * Self.k)) }
+    func fromPlane(_ q: CGPoint) -> CGPoint { CGPoint(x: macUnion.minX + (q.x - origin.x) / Self.k, y: macUnion.minY + (q.y - origin.y) / Self.k) }
+    /// The Mac block dropped at [m] (plane): snapped against the nearest PC monitor edge, touching it with at
+    /// least 100 px in common and overlapping no monitor. Returns the new top-left.
+    func snap(_ m: CGRect) -> CGPoint {
+        let minOverlap: CGFloat = 100
+        var best: (CGPoint, CGFloat)?
+        for sc in pcScreens {
+            let y = min(max(m.minY, sc.minY - m.height + minOverlap), sc.maxY - minOverlap)
+            let x = min(max(m.minX, sc.minX - m.width + minOverlap), sc.maxX - minOverlap)
+            for o in [CGPoint(x: sc.minX - m.width, y: y), CGPoint(x: sc.maxX, y: y), CGPoint(x: x, y: sc.minY - m.height), CGPoint(x: x, y: sc.maxY)] {
+                let cand = CGRect(origin: o, size: m.size)
+                if pcScreens.contains(where: { let i = $0.intersection(cand); return !i.isNull && i.width > 1 && i.height > 1 }) { continue }
+                let d = hypot(o.x - m.minX, o.y - m.minY)
+                if best == nil || d < best!.1 { best = (o, d) }
+            }
+        }
+        return best?.0 ?? m.origin
+    }
+
+    /// The Mac's displays on the plane (for the editor).
+    var macPlaneRects: [CGRect] { macPlane }
+
+    private static func clamp(_ p: CGPoint, into r: CGRect) -> CGPoint { CGPoint(x: min(max(p.x, r.minX), r.maxX - 1), y: min(max(p.y, r.minY), r.maxY - 1)) }
+
+    /// A point on this Mac (CG points) nearest to [p]: inside the display that contains it, else the nearest display.
+    private func onMac(_ p: CGPoint) -> CGPoint {
+        if macRects.contains(where: { $0.contains(p) }) { return p }
+        let r = macRects.min(by: { Self.dist($0, p) < Self.dist($1, p) }) ?? macUnion
+        return Self.clamp(p, into: r)
+    }
+    private static func dist(_ r: CGRect, _ p: CGPoint) -> CGFloat { hypot(max(r.minX - p.x, 0, p.x - r.maxX), max(r.minY - p.y, 0, p.y - r.maxY)) }
+
+    private func sendLayout() {
+        var d = Data([M.layout.rawValue, UInt8(macPlane.count)])
+        for r in macPlane { for v in [r.minX, r.minY, r.width, r.height] { d += Self.i32(Int(v.rounded())) } }
+        send(d)
+    }
+
+    private static func i32(_ v: Int) -> Data { withUnsafeBytes(of: Int32(clamping: v).bigEndian) { Data($0) } }
+    private static func readI32(_ b: [UInt8], _ o: Int) -> Int { Int(Int32(bitPattern: UInt32(b[o]) << 24 | UInt32(b[o + 1]) << 16 | UInt32(b[o + 2]) << 8 | UInt32(b[o + 3]))) }
+    private func point(_ q: CGPoint) -> Data { Self.i32(Int(q.x.rounded())) + Self.i32(Int(q.y.rounded())) }
 
     private static func f32(_ v: Double) -> Data { withUnsafeBytes(of: Float(v).bitPattern.bigEndian) { Data($0) } }
     private static func i16(_ v: Int) -> Data { let x = Int16(clamping: v); return withUnsafeBytes(of: x.bigEndian) { Data($0) } }
@@ -192,21 +289,30 @@ final class Desk: ObservableObject {
         let b = [UInt8](m)
         guard let t = b.first.flatMap(M.init) else { return }
         switch t {
-        case .enter:   // the PC's pointer came over: this Mac is driven by the PC now
+        case .enter where b.count >= 9:   // the PC's pointer came over (at a point on the plane): this Mac is driven by the PC now
             dlog("desk: \(peerName)'s pointer came over")
             if state == .sending { unpin() }
             state = .receiving
-            let f = screenFrame()
-            pos = CGPoint(x: pcSide == "right" ? f.maxX - 2 : f.minX + 1, y: f.minY + Self.readF32(m, 1) * (f.height - 1))
+            pos = onMac(fromPlane(CGPoint(x: Self.readI32(b, 1), y: Self.readI32(b, 5))))
             warp(pos)
             changed()
-        case .leave:   // our pointer came back from the PC
+        case .leave where b.count >= 9:   // our pointer came back from the PC
             guard state == .sending else { return }
             dlog("desk: pointer back from \(peerName)")
             state = .local
-            let f = screenFrame()
-            unpin(at: CGPoint(x: pcSide == "right" ? f.maxX - 3 : f.minX + 2, y: f.minY + Self.readF32(m, 1) * (f.height - 1)))
+            unpin(at: onMac(fromPlane(CGPoint(x: Self.readI32(b, 1), y: Self.readI32(b, 5)))))
             changed()
+        case .setOrigin where b.count >= 9:   // rearranged in the PC's editor
+            macOrigin = CGPoint(x: Self.readI32(b, 1), y: Self.readI32(b, 5))
+        case .screens where b.count >= 2:   // the PC's monitors
+            let n = Int(b[1])
+            guard b.count >= 2 + n * 16 else { return }
+            pcScreens = (0..<n).map { i in
+                let o = 2 + i * 16
+                return CGRect(x: Self.readI32(b, o), y: Self.readI32(b, o + 4), width: Self.readI32(b, o + 8), height: Self.readI32(b, o + 12))
+            }
+            UserDefaults.standard.set(pcScreens.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] }, forKey: "deskPcScreens")
+            refreshGeometry(); sendLayout(); objectWillChange.send()
         case .move where state == .receiving && b.count >= 5:
             injectMove(dx: Double(Self.readI16(m, 1)), dy: Double(Self.readI16(m, 3)))
         case .button where state == .receiving && b.count >= 3: injectButton(Int(b[1]), down: b[2] == 1)
@@ -267,32 +373,37 @@ final class Desk: ObservableObject {
         if ev.getIntegerValueField(.eventSourceUserData) == Self.mark { return Unmanaged.passUnretained(ev) }
         let st = tapState
         if st == .sending { forward(type, ev); return nil }
-        if st == .local, type == .mouseMoved || type == .leftMouseDragged || type == .rightMouseDragged || type == .otherMouseDragged {
-            let dx = ev.getDoubleValueField(.mouseEventDeltaX)
-            let p = ev.location, f = screenFrame()
-            // just came back over this edge: only cross again once the pointer has been away from it
-            if !armed { if pcSide == "right" ? p.x < f.maxX - 21 : p.x > f.minX + 20 { armed = true }; return Unmanaged.passUnretained(ev) }
-            let atEdge = pcSide == "right" ? (p.x >= f.maxX - 1 && dx > 0) : (p.x <= f.minX && dx < 0)
-            if atEdge && conn != nil {
-                DispatchQueue.main.async { self.beginSending(y: (p.y - f.minY) / max(1, f.height - 1)) }
+        if st == .local, conn != nil, type == .mouseMoved || type == .leftMouseDragged || type == .rightMouseDragged || type == .otherMouseDragged {
+            let dx = ev.getDoubleValueField(.mouseEventDeltaX), dy = ev.getDoubleValueField(.mouseEventDeltaY)
+            let p = ev.location
+            // just came back: only cross again once the pointer has been away from where it came in
+            if !armed { if hypot(p.x - disarmedAt.x, p.y - disarmedAt.y) > 20 { armed = true }; return Unmanaged.passUnretained(ev) }
+            // a few pixels further in the direction of the push: off every Mac display and onto a PC monitor?
+            let P = toPlane(p)
+            let q = CGPoint(x: P.x + (dx > 0 ? 3 : dx < 0 ? -3 : 0), y: P.y + (dy > 0 ? 3 : dy < 0 ? -3 : 0))
+            if q != P, !macPlane.contains(where: { $0.contains(q) }), let screen = pcScreens.first(where: { $0.contains(q) }) {
+                let entry = Self.clamp(q, into: screen)
+                DispatchQueue.main.async { self.beginSending(at: entry) }
                 return nil
             }
         }
         return Unmanaged.passUnretained(ev)
     }
 
-    private func beginSending(y: Double) {
+    private func beginSending(at entry: CGPoint) {
         guard state == .local else { return }
         state = .sending
         dlog("desk: pointer -> \(peerName)")
         CGAssociateMouseAndMouseCursorPosition(0)    // hold the arrow still while the mouse drives the PC
-        send(Data([M.enter.rawValue]) + Self.f32(y))
+        send(Data([M.enter.rawValue]) + point(entry))
         changed()
     }
 
     private var armed = true
+    private var disarmedAt = CGPoint.zero
+    private func disarm(_ p: CGPoint) { armed = false; disarmedAt = p }
     private func unpin(at p: CGPoint? = nil) {
-        armed = false
+        if let p { disarm(p) }
         if let p { CGWarpMouseCursorPosition(p) }
         CGAssociateMouseAndMouseCursorPosition(1)
         sendHeldKeysUp()
@@ -351,21 +462,22 @@ final class Desk: ObservableObject {
     private func warp(_ p: CGPoint) { CGWarpMouseCursorPosition(p); CGAssociateMouseAndMouseCursorPosition(1) }
 
     private func injectMove(dx: Double, dy: Double) {
-        let f = screenFrame()
         // from where the cursor really is (this Mac's own trackpad may have moved it too)
         if let cur = CGEvent(source: nil)?.location { pos = cur }
         var p = CGPoint(x: pos.x + dx, y: pos.y + dy)
-        p.y = min(max(p.y, f.minY), f.maxY - 1)
-        // over the edge that faces the PC: the pointer goes back to the PC
-        if pcSide == "right" ? p.x > f.maxX - 1 : p.x < f.minX {
-            state = .local
-            armed = false
-            releaseAll()
-            send(Data([M.leave.rawValue]) + Self.f32((p.y - f.minY) / max(1, f.height - 1)))
-            changed()
-            return
+        if !macRects.contains(where: { $0.contains(p) }) {
+            // off this Mac's displays: onto a PC monitor goes back to the PC, anywhere else stays at the edge
+            let q = toPlane(p)
+            if let screen = pcScreens.first(where: { $0.contains(q) }) {
+                state = .local
+                disarm(pos)
+                releaseAll()
+                send(Data([M.leave.rawValue]) + point(Self.clamp(q, into: screen)))
+                changed()
+                return
+            }
+            p = Self.clamp(p, into: macRects.first(where: { $0.contains(pos) }) ?? macUnion)
         }
-        p.x = min(max(p.x, f.minX), f.maxX - 1)
         pos = p
         let type: CGEventType = buttons.contains(0) ? .leftMouseDragged : buttons.contains(1) ? .rightMouseDragged : buttons.isEmpty ? .mouseMoved : .otherMouseDragged
         let e = CGEvent(mouseEventSource: src, mouseType: type, mouseCursorPosition: p, mouseButton: .left)

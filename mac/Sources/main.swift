@@ -1,3 +1,4 @@
+import SwiftUI
 import AppKit
 import Network
 import QuartzCore
@@ -75,6 +76,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private let bitrates = [8, 16, 24, 40]
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        // PHONECAST_RENDER_DESK=/path.png (tests): draw the keyboard & mouse layout editor to a picture and quit
+        if let out = ProcessInfo.processInfo.environment["PHONECAST_RENDER_DESK"] {
+            Desk.shared.refreshGeometry()
+            let r = SwiftUI.ImageRenderer(content: DeskLayoutEditor().frame(width: 520).padding())
+            r.scale = 2
+            if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: URL(fileURLWithPath: out)) }
+            exit(0)
+        }
         buildMenu()
         window = PhoneWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 860),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)

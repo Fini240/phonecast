@@ -41,7 +41,7 @@ sealed class Desk
     AesGcm aes;
     long sendCounter, recvCounter;
     readonly object sendLock = new();
-    bool pcIsRightOfMac = true, swap = true;
+    bool swap = true;
     Thread loop;
 
     // ---------- setup ----------
@@ -67,6 +67,7 @@ sealed class Desk
     void Start()
     {
         if (loop != null) return;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => SendScreens();
         loop = new Thread(Loop) { IsBackground = true, Name = "desk" };
         loop.Start();
     }
@@ -114,6 +115,7 @@ sealed class Desk
         App.Log($"desk: connected to {MacName} at {addr}");
         State = St.Local; Changed();
         Capture.Start();
+        SendScreens();
         while (true)
         {
             var h = ReadN(2);
@@ -161,7 +163,65 @@ sealed class Desk
     }
 
     // message types (same as Desk.swift)
-    const byte Hello = 0, Enter = 1, Leave = 2, Move = 3, Button = 4, Wheel = 5, Key = 6, ReleaseAllMsg = 7;
+    const byte Hello = 0, Enter = 1, Leave = 2, Move = 3, Button = 4, Wheel = 5, Key = 6, ReleaseAllMsg = 7, Layout = 8, Screens = 9, SetOrigin = 10;
+
+    // ---------- layout: this PC's monitors and the Mac's displays on one plane (this PC's pixels) ----------
+
+    /// The Mac's displays on the plane (from the Mac; remembered for the editor while it's offline).
+    public List<System.Drawing.Rectangle> MacRects = LoadRects();
+    public static List<System.Drawing.Rectangle> PcScreens() => Screen.AllScreens.Select(x => x.Bounds).ToList();
+
+    static List<System.Drawing.Rectangle> LoadRects()
+    {
+        try
+        {
+            return (Settings.Str("deskMacRects") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(r => r.Split(',').Select(int.Parse).ToArray()).Where(v => v.Length == 4)
+                .Select(v => new System.Drawing.Rectangle(v[0], v[1], v[2], v[3])).ToList();
+        }
+        catch { return new(); }
+    }
+
+    static byte[] I32(int v) => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v };
+    static int ReadI32(byte[] m, int o) => m[o] << 24 | m[o + 1] << 16 | m[o + 2] << 8 | m[o + 3];
+    static byte[] Pt(System.Drawing.Point p) => I32(p.X).Concat(I32(p.Y)).ToArray();
+    static System.Drawing.Point Clamp(System.Drawing.Point p, System.Drawing.Rectangle r) =>
+        new(Math.Clamp(p.X, r.Left, r.Right - 1), Math.Clamp(p.Y, r.Top, r.Bottom - 1));
+
+    /// This PC's monitors, for the Mac (on connect and whenever they change).
+    void SendScreens()
+    {
+        var s = PcScreens();
+        var m = new List<byte> { Screens, (byte)s.Count };
+        foreach (var r in s) { m.AddRange(I32(r.X)); m.AddRange(I32(r.Y)); m.AddRange(I32(r.Width)); m.AddRange(I32(r.Height)); }
+        Send(m.ToArray());
+    }
+
+    /// Rearranged in this PC's editor: the Mac's new top-left on the plane (the Mac keeps the layout and sends it back).
+    public void SetMacOrigin(System.Drawing.Point o) => Send(new byte[] { SetOrigin }.Concat(Pt(o)).ToArray());
+    public bool Connected => ns != null;
+
+    /// The Mac block dropped at [m]: snapped against the nearest monitor edge with at least 100 px in common,
+    /// overlapping no monitor (the same rule as the Mac's editor).
+    public static System.Drawing.Point Snap(System.Drawing.Rectangle m)
+    {
+        const int minOverlap = 100;
+        var screens = PcScreens();
+        System.Drawing.Point? best = null; double bestD = double.MaxValue;
+        foreach (var sc in screens)
+        {
+            int y = Math.Min(Math.Max(m.Y, sc.Top - m.Height + minOverlap), sc.Bottom - minOverlap);
+            int x = Math.Min(Math.Max(m.X, sc.Left - m.Width + minOverlap), sc.Right - minOverlap);
+            foreach (var o in new[] { new System.Drawing.Point(sc.Left - m.Width, y), new System.Drawing.Point(sc.Right, y), new System.Drawing.Point(x, sc.Top - m.Height), new System.Drawing.Point(x, sc.Bottom) })
+            {
+                var cand = new System.Drawing.Rectangle(o, m.Size);
+                if (screens.Any(r => { var i = System.Drawing.Rectangle.Intersect(r, cand); return i.Width > 1 && i.Height > 1; })) continue;
+                double d = Math.Sqrt(Math.Pow(o.X - m.X, 2) + Math.Pow(o.Y - m.Y, 2));
+                if (d < bestD) { bestD = d; best = o; }
+            }
+        }
+        return best ?? m.Location;
+    }
 
     static byte[] F32(double v) { var b = BitConverter.GetBytes((float)v); Array.Reverse(b); return b; }
     static double ReadF32(byte[] m, int o) { var b = m[o..(o + 4)]; Array.Reverse(b); return BitConverter.ToSingle(b); }
@@ -176,26 +236,33 @@ sealed class Desk
         switch (m[0])
         {
             case Hello when m.Length >= 3:
-                pcIsRightOfMac = m[1] == 1; swap = m[2] == 1;
+                swap = m[2] == 1;
                 break;
-            case Enter:   // the Mac's pointer came over: this PC is driven by the Mac now
+            case Layout when m.Length >= 2 && m.Length >= 2 + m[1] * 16:
+                {
+                    var l = new List<System.Drawing.Rectangle>();
+                    for (int i = 0; i < m[1]; i++) { int o = 2 + i * 16; l.Add(new(ReadI32(m, o), ReadI32(m, o + 4), ReadI32(m, o + 8), ReadI32(m, o + 12))); }
+                    MacRects = l;
+                    Settings.Set("deskMacRects", string.Join(";", l.Select(r => $"{r.X},{r.Y},{r.Width},{r.Height}")));
+                    Changed();
+                    break;
+                }
+            case Enter when m.Length >= 9:   // the Mac's pointer came over (at a point on the plane): this PC is driven by the Mac now
                 {
                     App.Log("desk: the Mac's pointer came over");
                     if (State == St.Sending) Capture.Release(null);
                     State = St.Receiving;
-                    var d = Desktop();
-                    int x = pcIsRightOfMac ? d.Left + 1 : d.Right - 2;
-                    Inject.MoveTo(x, d.Top + (int)(ReadF32(m, 1) * (d.Height - 1)));
+                    var p = OnPc(new System.Drawing.Point(ReadI32(m, 1), ReadI32(m, 5)));
+                    Inject.MoveTo(p.X, p.Y);
                     Changed();
                     break;
                 }
-            case Leave:   // our pointer came back from the Mac
+            case Leave when m.Length >= 9:   // our pointer came back from the Mac
                 {
                     if (State != St.Sending) break;
                     App.Log("desk: pointer back from the Mac");
                     State = St.Local;
-                    var d = Desktop();
-                    Capture.Release(new System.Drawing.Point(pcIsRightOfMac ? d.Left + 2 : d.Right - 3, d.Top + (int)(ReadF32(m, 1) * (d.Height - 1))));
+                    Capture.Release(OnPc(new System.Drawing.Point(ReadI32(m, 1), ReadI32(m, 5))));
                     Changed();
                     break;
                 }
@@ -215,46 +282,51 @@ sealed class Desk
 
     static System.Drawing.Rectangle Desktop() => SystemInformation.VirtualScreen;
 
+    /// A point on this PC nearest to [p] (inside the monitor that contains it, else the nearest monitor).
+    static System.Drawing.Point OnPc(System.Drawing.Point p)
+    {
+        var s = PcScreens();
+        if (s.Any(r => r.Contains(p))) return p;
+        var near = s.OrderBy(r => Math.Max(Math.Max(r.Left - p.X, p.X - r.Right), 0) + Math.Max(Math.Max(r.Top - p.Y, p.Y - r.Bottom), 0)).First();
+        return Clamp(p, near);
+    }
+
     /// Mac points -> pixels here (a little faster, the PC's desktop is wider).
     void InjectMove(int dx, int dy)
     {
         double gain = 1.5;
-        Inject.GetCursorPos(out var p);
-        var d = Desktop();
-        int x = p.X + (int)Math.Round(dx * gain), y = Math.Clamp(p.Y + (int)Math.Round(dy * gain), d.Top, d.Bottom - 1);
-        // over the edge that faces the Mac: back to the Mac
-        if (pcIsRightOfMac ? x < d.Left : x > d.Right - 1)
+        Inject.GetCursorPos(out var cur);
+        var now = new System.Drawing.Point(cur.X, cur.Y);
+        var p = new System.Drawing.Point(cur.X + (int)Math.Round(dx * gain), cur.Y + (int)Math.Round(dy * gain));
+        var screens = PcScreens();
+        if (!screens.Any(r => r.Contains(p)))
         {
-            App.Log("desk: the Mac's pointer went back");
-            State = St.Local;
-            ReleaseAll();
-            Send(new byte[] { Leave }.Concat(F32((double)(y - d.Top) / Math.Max(1, d.Height - 1))).ToArray());
-            Changed();
-            return;
+            // off this PC's monitors: onto the Mac goes back to the Mac, anywhere else stays at the edge
+            var mac = MacRects.FirstOrDefault(r => r.Contains(p));
+            if (!mac.IsEmpty)
+            {
+                App.Log("desk: the Mac's pointer went back");
+                State = St.Local;
+                Capture.Disarm(now);
+                ReleaseAll();
+                Send(new byte[] { Leave }.Concat(Pt(Clamp(p, mac))).ToArray());
+                Changed();
+                return;
+            }
+            p = Clamp(p, screens.FirstOrDefault(r => r.Contains(now), Desktop()));
         }
-        Inject.MoveTo(Math.Clamp(x, d.Left, d.Right - 1), y);
+        Inject.MoveTo(p.X, p.Y);
     }
 
     void ReleaseAll() => Inject.ReleaseAll();
 
     // ---------- capture (hook thread): this PC's keyboard and mouse to the Mac ----------
 
-    /// Called by Capture on the hook thread.
-    bool AtMacEdge(int dx)
+    void BeginSending(System.Drawing.Point entry)
     {
-        if (State != St.Local || ns == null) return false;
-        Inject.GetCursorPos(out var p);
-        var d = Desktop();
-        return pcIsRightOfMac ? p.X <= d.Left && dx < 0 : p.X >= d.Right - 1 && dx > 0;
-    }
-
-    void BeginSending()
-    {
-        Inject.GetCursorPos(out var p);
-        var d = Desktop();
         State = St.Sending;
         App.Log("desk: pointer -> the Mac");
-        Send(new byte[] { Enter }.Concat(F32((double)(p.Y - d.Top) / Math.Max(1, d.Height - 1))).ToArray());
+        Send(new byte[] { Enter }.Concat(Pt(entry)).ToArray());
         Changed();
     }
 
@@ -286,8 +358,7 @@ sealed class Desk
         /// Give the pointer back to this PC (optionally placing it).
         public static void Release(System.Drawing.Point? at)
         {
-            armed = false;
-            if (at is { } p) Inject.MoveTo(p.X, p.Y);
+            if (at is { } p) { Disarm(p); Inject.MoveTo(p.X, p.Y); }
             lock (held) held.Clear();
             Shared.Send(ReleaseAllMsg);
         }
@@ -354,18 +425,31 @@ sealed class Desk
 
         /// The pointer pressed against the edge that faces the Mac: Windows keeps reporting the same edge pixel while
         /// the mouse keeps moving (outward); sliding along the edge changes y and doesn't count.
+        static System.Drawing.Point disarmedAt;
+        public static void Disarm(System.Drawing.Point p) { armed = false; disarmedAt = p; }
+
+        /// The pointer pressed against a monitor edge that touches the Mac: Windows keeps reporting (nearly) the same
+        /// pixel while the mouse keeps pushing outward. Works on every side the Mac was placed in the editor.
         static void EdgeCheck(int x, int y)
         {
-            var d = Desktop();
-            bool atEdge = Shared.pcIsRightOfMac ? x <= d.Left : x >= d.Right - 1;
-            // just came back over this edge: only cross again once the pointer has been away from it
-            if (!armed) { if (Shared.pcIsRightOfMac ? x > d.Left + 20 : x < d.Right - 21) armed = true; lastX = x; lastY = y; return; }
-            if (atEdge && x == lastX && Math.Abs(y - lastY) <= 2) edgeHits++; else edgeHits = 0;
+            // just came back: only cross again once the pointer has been away from where it came in
+            if (!armed) { if (Math.Abs(x - disarmedAt.X) + Math.Abs(y - disarmedAt.Y) > 20) armed = true; lastX = x; lastY = y; return; }
+            bool stuck = Math.Abs(x - lastX) <= 2 && Math.Abs(y - lastY) <= 2;
             lastX = x; lastY = y;
+            System.Drawing.Point? entry = null;
+            var screens = PcScreens();
+            foreach (var (ox, oy) in new[] { (-3, 0), (3, 0), (0, -3), (0, 3) })
+            {
+                var q = new System.Drawing.Point(x + ox, y + oy);
+                if (screens.Any(r => r.Contains(q))) continue;          // still this PC: not an outer edge that way
+                var mac = Shared.MacRects.FirstOrDefault(r => r.Contains(q));
+                if (!mac.IsEmpty) { entry = Clamp(q, mac); break; }
+            }
+            if (entry != null && stuck) edgeHits++; else edgeHits = 0;
             if (edgeHits >= 2 && Shared.ns != null)
             {
                 edgeHits = 0;
-                Shared.BeginSending();
+                Shared.BeginSending(entry.Value);
                 // park the pointer in the middle of the main screen: half a screen of room in every direction
                 var b = Screen.PrimaryScreen.Bounds;
                 parked = new System.Drawing.Point(b.Left + b.Width / 2, b.Top + b.Height / 2);
@@ -377,7 +461,6 @@ sealed class Desk
         static int rawCount;
         public static void RawMove(int dx, int dy)
         {
-            if (rawCount++ % 200 == 0) { Inject.GetCursorPos(out var cp); App.Log($"desk: raw #{rawCount} dx {dx} at {cp.X},{cp.Y} state {Shared.State}"); }
             if (Shared.State == St.Sending)
             {
                 // device counts, no Windows acceleration: add a gentle one so big moves cross the Mac's screen
@@ -386,7 +469,7 @@ sealed class Desk
                 int x = (int)restX, y = (int)restY; restX -= x; restY -= y;
                 if (x != 0 || y != 0) Shared.Send(new byte[] { Move }.Concat(I16(x)).Concat(I16(y)).ToArray());
             }
-            else if (dx != 0 && Shared.AtMacEdge(dx)) Shared.BeginSending();
+
         }
 
         static int wmInput;
@@ -404,7 +487,6 @@ sealed class Desk
             {
                 if (m.Msg == 0x00FF /* WM_INPUT */)
                 {
-                    if (wmInput++ % 200 == 0) App.Log($"desk: WM_INPUT #{wmInput}");
                     uint size = 0;
                     int hdr = Marshal.SizeOf<RAWINPUTHEADER>();
                     GetRawInputData(m.LParam, 0x10000003, IntPtr.Zero, ref size, (uint)hdr);

@@ -1246,15 +1246,66 @@ struct DeskSection: View {
                     .foregroundStyle(desk.state == .off || desk.state == .waiting ? Color.secondary : Color.accentColor)
                 Text(desk.summary)
             }
-            Picker("The PC is", selection: Binding(get: { desk.pcSide }, set: { desk.pcSide = $0; desk.objectWillChange.send() })) {
-                Text("Left of the Mac").tag("left"); Text("Right of the Mac").tag("right")
-            }.pickerStyle(.segmented)
+            DeskLayoutEditor()
+            Text("Drag the Mac next to any edge of a PC monitor. The pointer crosses over exactly where they touch, both ways.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Swap ⌘ and Ctrl (⌘C copies on the PC)", isOn: Binding(get: { desk.swapCmdCtrl }, set: { desk.swapCmdCtrl = $0; desk.objectWillChange.send() }))
             DisclosureGroup("How it works") {
                 Text("Push the pointer over the screen edge that faces the PC, and this Mac's keyboard and mouse work the PC; push it back to come home. The PC's keyboard and mouse cross over to the Mac the same way. The clipboard is shared too. The Mac and the PC talk to each other directly on your network (both need PhoneCast and the phone linked once); everything is encrypted with a key only your phone hands out. Needs Accessibility for PhoneCast.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// The PC's monitors and this Mac on one canvas: drag the Mac against any monitor edge (Desk.snap).
+struct DeskLayoutEditor: View {
+    @ObservedObject private var desk = Desk.shared
+    @State private var drag: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { geo in
+            let pcs = desk.pcScreens
+            let mac = desk.macPlaneRects
+            let macU = mac.reduce(CGRect.null) { $0.union($1) }
+            // room for the Mac on every side of the PC's monitors
+            let base = pcs.reduce(macU) { $0.union($1) }
+            let bounds = base.insetBy(dx: -max(macU.width, 1) * 0.45, dy: -max(macU.height, 1) * 0.45)
+            let sc = min(geo.size.width / max(bounds.width, 1), geo.size.height / max(bounds.height, 1))
+            let ox = (geo.size.width - bounds.width * sc) / 2, oy = (geo.size.height - bounds.height * sc) / 2
+            let view = { (r: CGRect) -> CGRect in
+                CGRect(x: ox + (r.minX - bounds.minX) * sc, y: oy + (r.minY - bounds.minY) * sc, width: r.width * sc, height: r.height * sc)
+            }
+            ZStack(alignment: .topLeading) {
+                if pcs.isEmpty {
+                    Text("The PC's monitors show up once the PC is connected.").foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                ForEach(Array(pcs.enumerated()), id: \.offset) { i, r in
+                    let v = view(r)
+                    RoundedRectangle(cornerRadius: 4).fill(Color.gray.opacity(0.35))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.gray, lineWidth: 1))
+                        .overlay(Text(verbatim: "PC \(i + 1)\n" + String(Int(r.width)) + "×" + String(Int(r.height))).font(.caption2).multilineTextAlignment(.center))
+                        .frame(width: v.width, height: v.height).offset(x: v.minX, y: v.minY)
+                }
+                ForEach(Array(mac.enumerated()), id: \.offset) { _, r in
+                    let v = view(r)
+                    RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.55))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
+                        .overlay(Text("Mac").font(.caption.bold()).foregroundStyle(.white))
+                        .frame(width: v.width, height: v.height).offset(x: v.minX + drag.width, y: v.minY + drag.height)
+                        .gesture(DragGesture()
+                            .onChanged { drag = $0.translation }
+                            .onEnded { g in
+                                let moved = macU.offsetBy(dx: g.translation.width / sc, dy: g.translation.height / sc)
+                                drag = .zero
+                                if !pcs.isEmpty { desk.macOrigin = desk.snap(moved) }
+                            })
+                }
+            }
+        }
+        .frame(height: 220)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
     }
 }
 

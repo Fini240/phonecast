@@ -109,7 +109,7 @@ static class Ui
 
     public static Label Label(string text, Font font = null, Color? color = null, int maxWidth = 0)
     {
-        var l = new Label { Text = text, AutoSize = true, Font = font ?? Body, ForeColor = color ?? Text, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2) };
+        var l = new Label { Text = text, UseMnemonic = false, AutoSize = true, Font = font ?? Body, ForeColor = color ?? Text, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2) };
         if (maxWidth > 0) l.MaximumSize = new Size(maxWidth, 0);
         return l;
     }
@@ -123,7 +123,7 @@ static class Ui
 
     public static CheckBox Check(string text, bool on, Action<bool> changed)
     {
-        var c = new CheckBox { Text = text, Checked = on, AutoSize = true, Font = Body, ForeColor = Text, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 4) };
+        var c = new CheckBox { Text = text, UseMnemonic = false, Checked = on, AutoSize = true, Font = Body, ForeColor = Text, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 4) };
         c.CheckedChanged += (_, _) => changed(c.Checked);
         return c;
     }
@@ -202,6 +202,7 @@ sealed class FlatButton : Button
     public FlatButton(string text, bool primary)
     {
         this.primary = primary;
+        UseMnemonic = false;   // "Trackpad & keyboard" shows its "&"
         Text = text;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;

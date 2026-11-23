@@ -398,6 +398,7 @@ sealed class SettingsSection : Section
     readonly Label awakeState = Ui.Label("", Ui.Body, null, 520), webState = Ui.Label("", Ui.Body, null, 520),
         advState = Ui.Label("", Ui.Body, null, 520), deskState = Ui.Label("", Ui.Body, null, 520), advResult = Ui.Label("", Ui.Small, Ui.Sub, 520);
     bool advChecking;
+    readonly DeskLayoutView deskLayout = new();
 
     /// adb is slow: ask in the background.
     void RefreshAdvanced()
@@ -466,7 +467,9 @@ sealed class SettingsSection : Section
         var desk = new CardPanel(tr("Shared keyboard & mouse"), Glyph.Keyboard);
         desk.Controls.Add(Ui.Check(tr("Use this PC's keyboard and mouse on the Mac, and the Mac's on this PC"), Desk.Shared.Enabled, on => Desk.Shared.Enabled = on));
         desk.Controls.Add(deskState);
-        desk.Controls.Add(Note(tr("Push the pointer over the desktop edge that faces the Mac, and this PC's keyboard and mouse work the Mac; push it back to come home. Where the PC stands and the ⌘/Ctrl swap are set on the Mac (PhoneCast → Settings → Shared keyboard & mouse). The two talk directly on your network, encrypted with a key only your phone hands out; the clipboard is shared too.")));
+        deskLayout.Width = w; deskLayout.Height = LogicalToDeviceUnits(220);
+        desk.Controls.Add(deskLayout);
+        desk.Controls.Add(Note(tr("Drag the Mac next to any edge of a monitor. Push the pointer over that border and this PC's keyboard and mouse work the Mac; push it back to come home. It works the other way round too. The Mac and this PC talk directly on your network, encrypted with a key only your phone hands out; the clipboard is shared too. The ⌘/Ctrl swap is set on the Mac.")));
 
         var awake = new CardPanel(tr("Stay awake"), Glyph.Power);
         awake.Controls.Add(awakeState);
@@ -534,6 +537,8 @@ sealed class SettingsSection : Section
             flow.Controls.Add(c);
         }
         Fill();
+        // PHONECAST_SCROLL=desk (tests/screenshots): show that card
+        if (Environment.GetEnvironmentVariable("PHONECAST_SCROLL") == "desk") HandleCreated += (_, _) => BeginInvoke(() => flow.ScrollControlIntoView(desk));
     }
 
     sealed class AppItem { public string Pkg, Name; public override string ToString() => Name; }
@@ -550,6 +555,7 @@ sealed class SettingsSection : Section
         var key = Settings.Str("phoneKey");
         keyLabel.Text = key == null ? tr("No phone key yet (saved on the first connection).") : tr("Phone key: {0}", string.Join(" ", Enumerable.Range(0, Math.Min(8, key.Length / 4)).Select(i => key.Substring(i * 4, 4))) + " …");
         deskState.Text = Desk.Shared.Summary;
+        deskLayout.Invalidate();
         var ka = KeepAwake.Shared;
         awakeState.Text = ka.On ? tr("On · {0}", ka.Summary) : tr("Off");
         awakeState.ForeColor = ka.On ? Ui.Orange : Ui.Text;
