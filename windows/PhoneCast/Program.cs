@@ -15,6 +15,7 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => App.Log("CRASH: " + e.ExceptionObject);
+        App.StartInTray = Environment.GetCommandLineArgs().Contains("--tray");
         try { new App().Run(); }
         catch (Exception e)
         {

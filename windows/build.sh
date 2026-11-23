@@ -1,16 +1,16 @@
 #!/bin/bash
 # Builds PhoneCast for Windows (x64) from macOS/Linux/Windows with the .NET 8+ SDK.
-# Downloads the native parts once into deps/: FFmpeg 9.0 LGPL (H.264 decoding), SDL2 (window,
+# Downloads the native parts once into deps/: FFmpeg 9.0 LGPL (H.264 decoding, recording, the PC's screen for the phone), SDL2 (window,
 # rendering, audio), libusb (experimental accessory cable mode). Output: windows/out/.
 set -euo pipefail
 cd "$(dirname "$0")"
 DOTNET=${DOTNET:-$(command -v dotnet || echo ~/.dotnet/dotnet)}
 mkdir -p deps/dl
 fetch() { [ -f "deps/dl/$2" ] || gh release download "$3" -R "$1" -p "$2" -D deps/dl; }
-if [ ! -f deps/avcodec-63.dll ]; then
+if [ ! -f deps/avformat-63.dll ]; then
   fetch BtbN/FFmpeg-Builds ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip latest
   unzip -q -o deps/dl/ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip -d deps/dl/ff
-  cp deps/dl/ff/*/bin/{avcodec-63,avutil-61,swresample-7}.dll deps/
+  cp deps/dl/ff/*/bin/{avcodec-63,avformat-63,avutil-61,swresample-7,swscale-10}.dll deps/
 fi
 if [ ! -f deps/SDL2.dll ]; then
   fetch libsdl-org/SDL SDL2-2.32.10-win32-x64.zip release-2.32.10

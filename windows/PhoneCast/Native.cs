@@ -7,7 +7,7 @@ namespace PhoneCast;
 static unsafe class Sdl
 {
     const string L = "SDL2";
-    public const uint INIT_VIDEO = 0x20, INIT_AUDIO = 0x10, INIT_EVENTS = 0x4000;
+    public const uint INIT_VIDEO = 0x20, INIT_AUDIO = 0x10, INIT_EVENTS = 0x4000, INIT_GAMECONTROLLER = 0x2000;
     public const uint WINDOW_RESIZABLE = 0x20, WINDOW_HIDDEN = 0x8, WINDOW_FULLSCREEN_DESKTOP = 0x1001, WINDOW_ALLOW_HIGHDPI = 0x2000;
     public const int WINDOWPOS_CENTERED = 0x2FFF0000;
     public const uint RENDERER_ACCELERATED = 2, RENDERER_PRESENTVSYNC = 4;
@@ -17,7 +17,8 @@ static unsafe class Sdl
 
     // events
     public const uint QUIT = 0x100, WINDOWEVENT = 0x200, SYSWMEVENT = 0x201, KEYDOWN = 0x300, KEYUP = 0x301, TEXTINPUT = 0x303,
-        MOUSEMOTION = 0x400, MOUSEBUTTONDOWN = 0x401, MOUSEBUTTONUP = 0x402, MOUSEWHEEL = 0x403;
+        MOUSEMOTION = 0x400, MOUSEBUTTONDOWN = 0x401, MOUSEBUTTONUP = 0x402, MOUSEWHEEL = 0x403,
+        CONTROLLERBUTTONDOWN = 0x651, CONTROLLERBUTTONUP = 0x652, CONTROLLERDEVICEADDED = 0x653, CONTROLLERDEVICEREMOVED = 0x654;
     public const byte WE_SIZE_CHANGED = 6, WE_FOCUS_GAINED = 12, WE_FOCUS_LOST = 13, WE_CLOSE = 14, WE_DISPLAY_CHANGED = 18, WE_EXPOSED = 3, WE_MOVED = 4;
     public const ushort KMOD_SHIFT = 0x3, KMOD_CTRL = 0xC0, KMOD_ALT = 0x300, KMOD_GUI = 0xC00;
 
@@ -108,6 +109,17 @@ static unsafe class Sdl
     [DllImport(L)] public static extern void SDL_ClearQueuedAudio(uint dev);
     [DllImport(L)] public static extern void SDL_CloseAudioDevice(uint dev);
 
+    // game controllers
+    [DllImport(L)] public static extern int SDL_NumJoysticks();
+    [DllImport(L)] public static extern int SDL_IsGameController(int index);
+    [DllImport(L)] public static extern int SDL_JoystickGetDeviceInstanceID(int index);
+    [DllImport(L)] public static extern IntPtr SDL_GameControllerOpen(int index);
+    [DllImport(L)] public static extern void SDL_GameControllerClose(IntPtr c);
+    [DllImport(L)] public static extern short SDL_GameControllerGetAxis(IntPtr c, int axis);
+    [DllImport(L)] static extern IntPtr SDL_GameControllerName(IntPtr c);
+    public static string ControllerName(IntPtr c) => Marshal.PtrToStringUTF8(SDL_GameControllerName(c)) ?? "Controller";
+    [DllImport(L)] public static extern void SDL_HideWindow(IntPtr w);
+
     static byte[] Z(string s) { var b = Encoding.UTF8.GetBytes(s); Array.Resize(ref b, b.Length + 1); return b; }
 
     // event field readers
@@ -156,6 +168,7 @@ static unsafe class Usb
 /// Win32 menus and a few helpers.
 static class Win32
 {
+    [DllImport("user32")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32", CharSet = CharSet.Unicode)] public static extern IntPtr LoadImageW(IntPtr inst, string name, uint type, int cx, int cy, uint flags);
     [DllImport("user32")] public static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32")] public static extern int GetSystemMetrics(int index);
@@ -170,7 +183,6 @@ static class Win32
     [DllImport("user32")] public static extern int TrackPopupMenu(IntPtr menu, uint flags, int x, int y, int r, IntPtr hwnd, IntPtr rect);
     [DllImport("user32")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("user32")] public static extern uint GetDpiForWindow(IntPtr hwnd);
-    [DllImport("user32")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32")] public static extern bool DestroyMenu(IntPtr menu);
     [DllImport("user32")] public static extern int GetMenuItemCount(IntPtr menu);
     [DllImport("user32")] public static extern bool DeleteMenu(IntPtr menu, uint pos, uint flags);

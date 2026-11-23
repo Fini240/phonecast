@@ -315,6 +315,8 @@ sealed unsafe partial class App
                     Log($"connected via {label}{(l.UsedQr ? " (QR pairing, phone verified)" : "")}");
                     if (l.UsedQr) Settings.Set("qrPaired", true);
                     SendSettings();
+                    if (!mirrorDismissed) ShowMirrorWindow();
+                    Ui.Post(() => Store.Shared.Fire("status"));
                     break;
                 case LinkState.BadPin:
                     if (l.UsedQr)
@@ -339,6 +341,8 @@ sealed unsafe partial class App
                     udp?.Stop(); udp = null; udpActive = false;
                     if (viaUSB) { UsbBridge.Shared.Stop(); viaUSB = false; }
                     audio.Stop();
+                    if (Recorder.Shared.Recording) Recorder.Shared.Stop(tr("The mirror closed, so the recording was saved."));
+                    Ui.Post(() => Store.Shared.Fire("status"));
                     SetMode(Mode.Normal);
                     stateText = "Disconnected";
                     WindowIcon(false);
@@ -425,7 +429,7 @@ sealed unsafe partial class App
                     break;
                 }
             case PT.Config: case PT.Format: videoQ.Enqueue((type, p, l)); Wake(); break;
-            case PT.Audio: audio.Push(p); break;
+            case PT.Audio: audio.Push(p); Recorder.Shared.Audio(p); break;
             case PT.UdpToken:
                 {
                     if (p.Length < 6 || l.Remote == null) return;
@@ -551,6 +555,7 @@ sealed unsafe partial class App
         DecCpu = 130, DecGpu,
         LinkClip = 140, LinkFiles, LinkRing, LinkPlay, LinkNext, LinkPrev, LinkLocate,
         ExportMap = 150, ImportMap,
+        Record = 160, OpenMain, CloseMirror,
         QuickSettings = 120, LockPhone, Screenshot, VolUp, VolDown, MutePhone, PowerMenu,
     }
 
@@ -560,11 +565,16 @@ sealed unsafe partial class App
         IntPtr Sub(string title, params (M id, string text)[] items)
         {
             var m = Win32.CreatePopupMenu();
-            foreach (var (id, text) in items)
+            foreach (var (id, raw) in items)
+            {
+                // menu texts in the user's language (the shortcut after the tab stays)
+                var parts = raw.Split('\t', 2);
+                var text = (raw.StartsWith("#") ? "#" + tr(parts[0][1..]) : raw == "-" ? "-" : tr(parts[0])) + (parts.Length > 1 ? "\t" + parts[1] : "");
                 if (text == "-") Win32.AppendMenuW(m, Win32.MF_SEPARATOR, 0, null);
                 else if (text.StartsWith("#")) Win32.AppendMenuW(m, Win32.MF_STRING | Win32.MF_GRAYED, 0, text[1..]);
                 else Win32.AppendMenuW(m, Win32.MF_STRING, (nint)id, text);
-            Win32.AppendMenuW(menuBar, Win32.MF_POPUP, m, title);
+            }
+            Win32.AppendMenuW(menuBar, Win32.MF_POPUP, m, tr(title));
             return m;
         }
         Sub("&Device",
@@ -572,7 +582,7 @@ sealed unsafe partial class App
             (M.Back, "Back\tCtrl+B"), (M.Home, "Home\tCtrl+H"), (M.Recents, "Recent apps\tCtrl+R"), (M.Notifications, "Notifications\tCtrl+N"), (M.QuickSettings, "Quick settings"), (0, "-"),
             (M.VolUp, "Volume up\tCtrl+Up"), (M.VolDown, "Volume down\tCtrl+Down"), (M.MutePhone, "Mute the phone"),
             (M.Screenshot, "Screenshot on the phone"), (M.LockPhone, "Lock the phone"), (M.PowerMenu, "Power menu"), (0, "-"),
-            (M.Quit, "Quit\tAlt+F4"));
+            (M.OpenMain, "Open the PhoneCast window\tCtrl+Shift+M"), (M.CloseMirror, "Close the mirror"), (M.Quit, "Quit PhoneCast"));
         Sub("&Game",
             (M.EditMap, "Edit key map\tCtrl+E"), (M.Game, "Mouse aiming (game mode)\tCtrl+G"), (M.Typing, "Keys type text (instead of buttons)\tCtrl+T"),
             (M.Markers, "Show key markers in game mode\tCtrl+J"), (0, "-"), (M.SensUp, "Mouse-look faster\tCtrl+="), (M.SensDown, "Mouse-look slower\tCtrl+-"),
@@ -595,7 +605,7 @@ sealed unsafe partial class App
         Sub("&Link",
             (M.LinkClip, "Send clipboard to the phone\tCtrl+Shift+C"), (M.LinkFiles, "Send files to the phone… (or drop them on the window)"), (0, "-"),
             (M.LinkPlay, "Play / pause the phone's music"), (M.LinkNext, "Next track"), (M.LinkPrev, "Previous track"), (0, "-"),
-            (M.LinkRing, "Ring the phone"), (M.LinkLocate, "Show the phone on a map"));
+            (M.LinkRing, "Ring the phone"), (M.LinkLocate, "Show the phone on a map"), (0, "-"), (M.Record, "Record the mirror\tCtrl+Shift+R"));
         Sub("&Help", (M.Help, "Keyboard shortcuts\tCtrl+I"), (M.CheckUpdates, "Check for updates…"));
         Win32.SetMenu(hwnd, menuBar);
         RefreshMenu();
@@ -613,6 +623,7 @@ sealed unsafe partial class App
         for (int i = 0; i < resolutions.Length; i++) Check(M.Res0 + i, resolutions[i].Item2 == res);
         for (int i = 0; i < bitrates.Length; i++) Check(M.Rate0 + i, bitrates[i] == Bitrate);
         Check(M.DecCpu, !dec.Hardware); Check(M.DecGpu, dec.Hardware);
+        Check(M.Record, Recorder.Shared.Recording);
         int sl = Settings.Int("shapeLong", 0);
         Check(M.Sharp0, sl == 0); Check(M.Sharp2560, sl == 2560); Check(M.Sharp3200, sl == 3200);
     }
@@ -650,6 +661,9 @@ sealed unsafe partial class App
             case M.LinkPlay: MediaCmd("toggle"); break;
             case M.LinkNext: MediaCmd("next"); break;
             case M.LinkPrev: MediaCmd("prev"); break;
+            case M.Record: ToggleRecord(); break;
+            case M.OpenMain: Ui.Post(() => MainForm.Open()); break;
+            case M.CloseMirror: HideMirrorWindow(); break;
             case M.Quit: var q = new Sdl.Event { type = Sdl.QUIT }; Sdl.SDL_PushEvent(ref q); break;
             case M.EditMap: SetMode(mode == Mode.Edit ? Mode.Normal : Mode.Edit); break;
             case M.Game: ToggleGame(); break;

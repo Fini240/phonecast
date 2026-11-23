@@ -13,7 +13,7 @@ sealed unsafe partial class App
                     byte we = Sdl.U8(ref e, 12);
                     if (we == Sdl.WE_SIZE_CHANGED || we == Sdl.WE_EXPOSED || we == Sdl.WE_DISPLAY_CHANGED) { needRender = true; overlayDirty = true; }
                     if (we == Sdl.WE_FOCUS_LOST) { if (mode == Mode.Game) SetMode(Mode.Normal); else ReleaseAll(); }
-                    if (we == Sdl.WE_CLOSE) return false;
+                    if (we == Sdl.WE_CLOSE) { HideMirrorWindow(); break; }
                     break;
                 }
             case 0x2000: case 0x2001: // render targets / device reset: our textures are gone
@@ -55,6 +55,8 @@ sealed unsafe partial class App
                 }
             case Sdl.MOUSEBUTTONDOWN: MouseButton(Sdl.U8(ref e, 16), true, Sdl.I32(ref e, 20), Sdl.I32(ref e, 24)); break;
             case Sdl.MOUSEBUTTONUP: MouseButton(Sdl.U8(ref e, 16), false, Sdl.I32(ref e, 20), Sdl.I32(ref e, 24)); break;
+            case Sdl.CONTROLLERDEVICEADDED: case Sdl.CONTROLLERDEVICEREMOVED: PadDevices(); break;
+            case Sdl.CONTROLLERBUTTONDOWN: case Sdl.CONTROLLERBUTTONUP: PadButton(Sdl.U8(ref e, 12), e.type == Sdl.CONTROLLERBUTTONDOWN); break;
             case Sdl.MOUSEWHEEL:
                 {
                     float px = Sdl.F32(ref e, 28), py = Sdl.F32(ref e, 32);
@@ -239,6 +241,8 @@ sealed unsafe partial class App
             case 19: ShowPairing(); return true;                                     // P
             case 7: if (shift) { Disconnect(); return true; } return false;          // Shift+D
             case 6: if (shift) { SendClipboard(); return true; } return false;       // Shift+C
+            case 21 when shift: ToggleRecord(); return true;                         // Shift+R: record
+            case 16 when shift: Ui.Post(() => MainForm.Open()); return true;         // Shift+M: PhoneCast window
             case 5: link?.Send(CT.Global, new[] { GlobalA.Back }); return true;      // B
             case 11: link?.Send(CT.Global, new[] { GlobalA.Home }); return true;     // H
             case 21: link?.Send(CT.Global, new[] { GlobalA.Recents }); return true;  // R

@@ -17,6 +17,8 @@ sealed class HubLink
         Notif = 10, NotifGone = 11, NotifAction = 12,
         FileBegin = 20, FileData = 21, FileEnd = 22, FileCancel = 23,
         Clip = 30, CastReady = 40, CastStopped = 41, CastRequest = 42,
+        ScreenStart = 50, ScreenStop = 51, ScreenFormat = 52, ScreenConfig = 53, ScreenFrame = 54, ScreenKey = 55, ScreenDenied = 56,
+        Input = 60, MacAction = 61,
         Req = 70, Resp = 71, Event = 72;
 
     readonly string host;

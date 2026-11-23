@@ -90,6 +90,9 @@ sealed unsafe partial class App
     readonly int[] bitrates = { 8, 16, 24, 40 };
     int Bitrate { get { int b = Settings.Int("bitrate", 0); return b == 0 ? 24 : b; } }
 
+    /// Started at sign-in (Run key "--tray"): no window, just the tray icon.
+    public static bool StartInTray;
+
     public App()
     {
         try { if (new FileInfo(LogPath).Length > 4 << 20) File.Delete(LogPath); } catch { }
@@ -110,7 +113,8 @@ sealed unsafe partial class App
         Sdl.Hint("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1");
         Sdl.Hint("SDL_MOUSE_RELATIVE_MODE_CENTER", "1");
         Sdl.Hint("SDL_WINDOWS_NO_CLOSE_ON_ALT_F4", "1");
-        if (Sdl.SDL_Init(Sdl.INIT_VIDEO | Sdl.INIT_AUDIO | Sdl.INIT_EVENTS) != 0) { System.Windows.Forms.MessageBox.Show("SDL failed: " + Sdl.Error); return; }
+        Sdl.Hint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "0");
+        if (Sdl.SDL_Init(Sdl.INIT_VIDEO | Sdl.INIT_AUDIO | Sdl.INIT_EVENTS | Sdl.INIT_GAMECONTROLLER) != 0) { System.Windows.Forms.MessageBox.Show("SDL failed: " + Sdl.Error); return; }
         int w = Settings.Int("winW", 420), h = Settings.Int("winH", 860);
         int x = Settings.Has("winX") ? Settings.Int("winX") : Sdl.WINDOWPOS_CENTERED, y = Settings.Has("winY") ? Settings.Int("winY") : Sdl.WINDOWPOS_CENTERED;
         win = Sdl.CreateWindow("PhoneCast", x, y, w, h, Sdl.WINDOW_RESIZABLE | Sdl.WINDOW_HIDDEN);
@@ -118,8 +122,16 @@ sealed unsafe partial class App
         Sdl.SDL_SetWindowMinimumSize(win, 200, 200);
         BuildMenu();
         WindowIcon(false);
-        Sdl.SDL_ShowWindow(win);
-        After(5, () => Updater.Check(new HwndOwner(hwnd), quiet: true));   // once at start, only speaks up if there is an update
+        // the PhoneCast window, banners and tray run on their own thread; the mirror window stays hidden until it is used
+        Ui.Start(() =>
+        {
+            Store.Shared.Link = this;
+            Tray.Start();
+            ClipboardSync.Start();
+            PcStats.Start();
+            if (!StartInTray) MainForm.Open();
+        });
+        After(5, () => Ui.Post(() => Updater.Check(null, quiet: true)));   // once at start, only speaks up if there is an update
         ren = Sdl.SDL_CreateRenderer(win, -1, Sdl.RENDERER_ACCELERATED);
         Sdl.SDL_RenderSetVSync(ren, 0);
         Sdl.SDL_EventState(Sdl.SYSWMEVENT, 1);
@@ -128,11 +140,9 @@ sealed unsafe partial class App
         Log($"window {w}x{h}, hwnd {hwnd}, renderer {(ren != IntPtr.Zero ? "ok" : Sdl.Error)}");
 
         mdns.Start();
-        double nextFps = Now + 1, nextPing = Now + 0.5, nextCable = Now + 3, nextLog = Now + 5, nextHub = Now + 2;
-        UpdateTray();
+        double nextFps = Now + 1, nextPing = Now + 0.5, nextCable = Now + 3, nextLog = Now + 5, nextHub = Now + 0.5, nextPad = Now;
         double autoExit = double.TryParse(Environment.GetEnvironmentVariable("PHONECAST_AUTOEXIT"), out var ae) ? Now + ae : 0;
-        if (Settings.Str("pin") != null && WifiCandidates().Count > 0) After(1.2, ConnectSaved);
-        else After(1.2, () => ShowConnect());
+        // The mirror connects when the phone shares its screen (the link says so), or from Mirror.
         bool quit = false;
         while (!quit)
         {
@@ -157,14 +167,16 @@ sealed unsafe partial class App
             if (now >= nextFps) { nextFps = now + 1; TickFps(); }
             if (now >= nextPing) { nextPing = now + 0.5; Ping(); }
             if (now >= nextCable) { nextCable = now + 3; WatchCable(); }
-            if (now >= nextHub) { nextHub = now + 3; HubTick(); }
+            if (now >= nextHub) { nextHub = now + (hubUp ? 3 : 1); HubTick(); }
+            if (now >= nextPad) { nextPad = now + 1.0 / 120; PadTick(); }
             if (now >= nextLog) { nextLog = now + 5; if (stateText == "Connected") Log($"stats: {videoW}x{videoH} {fps} fps {Transport} rtt {rttMs:0} ms decode {dec.DecodeMs:0.0} ms ({(dec.Hardware ? "hw" : "sw")}) skipped {resyncs} audio {audio.BufferedMs} ms" + (udp != null && udpActive ? $" udp lost {udp.Lost} repaired {udp.Repaired} resent {udp.ResentFrames}" : "")); }
             if (autoExit > 0 && now > autoExit) quit = true;
             if (overlayDirty) { RedrawOverlay(); needRender = true; }
             if (needRender) Render();
         }
+        Recorder.Shared.Stop();
         HubShutdown();
-        SaveWindow();
+        if (mirrorShown) SaveWindow();
         link?.Close();
         UsbBridge.Shared.Stop();
         audio.Stop();
@@ -223,13 +235,15 @@ sealed unsafe partial class App
                     dec.Reset();
                     bool rotated = sizedOnce && Math.Abs((double)w / h - (double)videoW / videoH) > 0.01;
                     videoW = w; videoH = h;
+                    Recorder.Shared.Format(w, h);
                     SwitchKeyLayout(w, h);
                     if (!sizedOnce || rotated) { FitWindow(); sizedOnce = true; }
                     overlayDirty = true;
                     UpdateTitle();
                     break;
-                case PT.Config: dec.Config(item.p); break;
+                case PT.Config: dec.Config(item.p); Recorder.Shared.Config(item.p); break;
                 case PT.Frame:
+                    Recorder.Shared.Video(item.p);
                     dec.Decode(item.p, f => { Upload((AVFrame*)f); shown = true; });
                     break;
             }
