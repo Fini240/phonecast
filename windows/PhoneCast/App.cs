@@ -605,6 +605,20 @@ sealed unsafe partial class App
             new Thread(() => { Thread.Sleep(5000); PhoneDrive.Open(false); }) { IsBackground = true }.Start();
             return;
         }
+        if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") == "panes")
+        {
+            new Thread(() =>
+            {
+                Thread.Sleep(6000);
+                foreach (var k in new[] { "notifications", "messages", "calls", "contacts", "photos", "files", "apps", "transfers", "mirror", "settings", "overview" })
+                {
+                    Ui.Post(() => MainForm.Open(k));
+                    Thread.Sleep(4000);
+                    Log("selftest: pane " + k + " shown");
+                }
+            }) { IsBackground = true }.Start();
+            return;
+        }
         if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") == "webreset") { Settings.Set("phoneWeb", false); Ui.Post(PhoneWeb.Apply); return; }
         if (Environment.GetEnvironmentVariable("PHONECAST_SELFTEST") == "web")
         {

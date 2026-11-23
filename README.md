@@ -34,8 +34,12 @@ Connects an Android phone and a Mac, similar to LinkMyDroid or Phone Link:
   Agents page on the Mac): reply (it interrupts a running turn, like typing in the terminal), send photos,
   stop, answer permission questions, start new chats with the models your CLIs offer, and get notified when
   an agent is done, fails or needs you, with reply and approve right in the notification.
-- **Windows too**: the Windows app mirrors and links (notifications, clipboard, files, now playing, ring);
-  the phone can be linked to a Mac and a PC at the same time.
+- **Windows too**: since 0.10 the Windows app does what the Mac app does: the full PhoneCast window (messages,
+  calls, contacts, photos, files, apps), the mirror with recording and game controllers, the phone controlling the
+  PC, stay awake, continue the phone's website, browser tab to the phone, the phone as a drive in File Explorer,
+  Send to → PhoneCast, phone in a browser and Advanced (scrcpy). Not on Windows: the AI agents page and Mac
+  Shortcuts. See [windows/README.md](windows/README.md). The phone can be linked to a Mac and a PC at the same
+  time; its Mac tab then lets you pick which one it controls.
 - **English and German**: the apps follow the device's language.
 - **The app icon shows the link**: the little phone's screen is lit while the phone and the computer are
   connected, dark when not (Mac Dock and menu bar, Android home screen, Windows taskbar).
