@@ -100,12 +100,12 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         hub.screenSink = { type, p -> onPacket(type, p) }
         val dm = resources.displayMetrics
         val long = maxOf(dm.widthPixels, dm.heightPixels).coerceIn(1280, 2560)
-        hub.send(HubProto.SCREEN_START, ByteBuffer.allocate(3).putShort(long.toShort()).put(20.toByte()).array())
+        hub.sendControl(HubProto.SCREEN_START, ByteBuffer.allocate(3).putShort(long.toShort()).put(20.toByte()).array())
     }
 
     override fun onStop() {
         super.onStop()
-        if (!trackpad) HubService.instance?.let { it.screenSink = null; it.send(HubProto.SCREEN_STOP) }
+        if (!trackpad) HubService.instance?.let { it.screenSink = null; it.sendControl(HubProto.SCREEN_STOP) }
         releaseCodec()
     }
 
@@ -185,7 +185,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
         val now = SystemClock.uptimeMillis()
         if (now - lastKeyReq < 300) return
         lastKeyReq = now
-        HubService.instance?.send(HubProto.SCREEN_KEY)
+        HubService.instance?.sendControl(HubProto.SCREEN_KEY)
     }
 
     private fun drain(c: MediaCodec) {
@@ -234,7 +234,7 @@ class MacViewActivity : Activity(), SurfaceHolder.Callback {
     private fun input(vararg parts: ByteArray) {
         val total = parts.sumOf { it.size }
         val b = ByteBuffer.allocate(total); parts.forEach { b.put(it) }
-        HubService.instance?.send(HubProto.INPUT, b.array())
+        HubService.instance?.sendControl(HubProto.INPUT, b.array())
     }
 
     private fun move(x: Float, y: Float) = input(byteArrayOf(HubProto.IN_MOVE.toByte()), pos(x, y))

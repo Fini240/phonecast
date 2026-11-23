@@ -130,10 +130,26 @@ class HubService : Service() {
         }
     }
 
-    /** What the Mac last told us about itself (and the devices it watches). Windows PCs don't count:
-     *  this feeds the phone's Mac tab. */
-    @Volatile var macStatus: JSONObject? = null
-        private set
+    /** What the computer the Mac tab controls ([target]) last told us about itself (and the devices it watches). */
+    val macStatus: JSONObject? get() = target()?.status
+
+    /** The computer the Mac tab controls (its screen, mouse & keyboard, buttons): the one picked there, else the
+     *  first Mac, else whatever is connected. Only matters when a Mac and a PC are linked at the same time. */
+    private fun target(): Client? {
+        val want = getSharedPreferences("hub", MODE_PRIVATE).getString("target", null)
+        return clients.firstOrNull { it.name == want } ?: clients.firstOrNull { it.os == "mac" } ?: clients.firstOrNull()
+    }
+    /** Every connected computer: (name, os). */
+    val computers: List<Pair<String, String>> get() = clients.map { it.name to it.os }
+    val targetName: String? get() = target()?.name
+    /** The Hermes dashboard address any linked computer told us about. */
+    val dashboardBase: String? get() = clients.firstNotNullOfOrNull { c -> c.status?.optString("dashboard")?.takeIf { it.isNotEmpty() } }
+    val targetOs: String? get() = target()?.os
+    fun setTarget(name: String) {
+        getSharedPreferences("hub", MODE_PRIVATE).edit().putString("target", name).apply()
+    }
+    /** Input, buttons and the screen request: only to the computer the Mac tab controls. */
+    fun sendControl(type: Int, payload: ByteArray = ByteArray(0)) { target()?.control(type, payload) }
     /** Every connected computer's name ("Finn's MacBook Air + Finn-Windows"), null when none. */
     val macName: String? get() = clients.map { it.name }.takeIf { it.isNotEmpty() }?.joinToString(" + ")
     val connected: Boolean get() = clients.isNotEmpty()
@@ -443,7 +459,6 @@ class HubService : Service() {
             c?.close()
             if (c != null && clients.remove(c)) {
                 Log.i(TAG, "${c.os} '${c.name}' left (${clients.size} connected)")
-                if (clients.none { it.os != "windows" }) macStatus = null
                 Agents.lost(c)
                 if (screenClient === c) { screenClient = null; screenSink?.invoke(-1, ByteArray(0)) }
                 updateNotification()
@@ -456,7 +471,7 @@ class HubService : Service() {
         when (type) {
             HubProto.PING -> c.control(HubProto.PONG, p)
             HubProto.PONG -> {}
-            HubProto.STATUS -> if (c.os != "windows") { macStatus = try { JSONObject(String(p)) } catch (_: Exception) { null } }
+            HubProto.STATUS -> c.status = try { JSONObject(String(p)) } catch (_: Exception) { null }
             HubProto.CLIP -> {
                 val text = String(p)
                 lastClip = text
@@ -687,6 +702,8 @@ class HubService : Service() {
      */
     /** One linked computer; [os] "mac" or "windows" (from its HELLO). */
     private class Client(val socket: Socket, val name: String, val os: String) {
+        /** What it last said about itself (STATUS). */
+        @Volatile var status: JSONObject? = null
         private val out = BufferedOutputStream(socket.getOutputStream(), 256 * 1024)
         private val ctrl = LinkedBlockingQueue<ByteArray>()
         private val bulkQ = ArrayBlockingQueue<ByteArray>(6)

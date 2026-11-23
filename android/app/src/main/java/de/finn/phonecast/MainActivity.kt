@@ -325,11 +325,41 @@ class MainActivity : Activity() {
     private fun macAction(a: String) {
         val hub = HubService.instance
         if (hub?.connected != true) { toast("The Mac isn't connected"); return }
-        hub.send(HubProto.MAC_ACTION, a.toByteArray())
+        hub.sendControl(HubProto.MAC_ACTION, a.toByteArray())
     }
+
+    /** The computer the Mac tab controls is a Windows PC. */
+    private val pcTarget get() = HubService.instance?.targetOs == "windows"
 
     private fun macPage(): View {
         val status = u.Status()
+        // a Mac and a PC linked at the same time: pick which one this tab controls
+        val pickBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val pickCard = u.card(u.title("Control"), pickBox)
+        var pickSig = ""
+        val controlTitle = u.title("Control the Mac")
+        lateinit var openScreenBtn: Button
+        val lidTitle = u.title("Lid closed")
+        val onTitle = u.title("On the Mac")
+        lateinit var shortcutsCard: View
+        updaters += {
+            val hub = HubService.instance
+            val comps = hub?.computers ?: emptyList()
+            val sig = comps.joinToString("|") { it.first }
+            if (sig != pickSig) {
+                pickSig = sig
+                pickBox.removeAllViews()
+                if (comps.size > 1) pickBox.addView(u.Segmented("", comps.map { it.first to it.first },
+                    { HubService.instance?.targetName ?: "" }, { HubService.instance?.setTarget(it); updaters.forEach { u -> u() } }).view)
+            }
+            u.gone(pickCard, comps.size < 2)
+            val pc = pcTarget
+            controlTitle.text = tr(if (pc) "Control the PC" else "Control the Mac")
+            openScreenBtn.text = tr(if (pc) "Open the PC's screen" else "Open the Mac's screen")
+            lidTitle.text = tr(if (pc) "Stay awake" else "Lid closed")
+            onTitle.text = tr(if (pc) "On the PC" else "On the Mac")
+            u.gone(shortcutsCard, pc)
+        }
         val stats = u.Rows()
         val shortcutsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var shownShortcuts: String? = null
@@ -342,18 +372,20 @@ class MainActivity : Activity() {
         updaters += {
             val la = HubService.instance?.macStatus?.optJSONObject("lidAwake")
             val connected = HubService.instance?.connected == true
+            val pc = pcTarget
             when {
-                !connected || la == null -> lidStatus.set(u.grey, "Lid closed", "Mac not connected")
-                la.optBoolean("on") -> lidStatus.set(u.orange, "Stays awake with the lid closed",
+                !connected || la == null -> lidStatus.set(u.grey, if (pc) "Stay awake" else "Lid closed", if (pc) "PC not connected" else "Mac not connected")
+                la.optBoolean("on") -> lidStatus.set(u.orange, if (pc) "The PC stays awake" else "Stays awake with the lid closed",
                     la.optLong("until", 0).takeIf { it > 0 }?.let {
                         tr("Until {0}", android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(it * 1000)))
                     } ?: tr("Until you turn it off"))
-                else -> lidStatus.set(u.grey, "Sleeps when the lid closes", "Normal")
+                else -> lidStatus.set(u.grey, if (pc) "Sleeps as usual" else "Sleeps when the lid closes", "Normal")
             }
             val note = la?.optString("note", "").orEmpty()
             lidHint.text = when {
                 la != null && !la.optBoolean("ready") -> tr("The first time, macOS asks for the password on the Mac. Tap a time while you're at the Mac.")
                 note.isNotEmpty() -> note
+                pc -> tr("No sleep, also not with a laptop's lid closed. Turns itself off on battery below {0} % and when PhoneCast quits.", la?.optInt("min", 20) ?: 20)
                 else -> tr("Turns itself off on battery below {0} %, when the Mac gets too hot, and when PhoneCast quits.", la?.optInt("min", 20) ?: 20)
             }
             lidButtons.alpha = if (connected) 1f else 0.5f
@@ -371,7 +403,7 @@ class MainActivity : Activity() {
                     shortcutsBox.addView(u.hint("Tap one to run it on the Mac."))
                 }
             }
-            if (hub?.connected == true) status.set(u.green, hub.macName ?: "Mac",
+            if (hub?.connected == true) status.set(u.green, hub.targetName ?: "Mac",
                 st?.optInt("rtt", -1)?.takeIf { it >= 0 }?.let { tr("Connected · {0} ms", it) } ?: "Connected")
             else status.set(u.grey, "Mac not connected", "Open PhoneCast on the Mac.")
             stats.set(if (st == null) emptyList() else buildList {
@@ -383,16 +415,17 @@ class MainActivity : Activity() {
         }
         return u.page2("Mac",
             left = listOf(
+                pickCard,
                 u.card(status.view, stats.view),
                 u.card(
-                    u.title("Control the Mac"),
-                    u.primary("Open the Mac's screen") { openMacControl() },
+                    controlTitle,
+                    u.primary("Open the Mac's screen") { openMacControl() }.also { openScreenBtn = it },
                     u.tonal("Trackpad & keyboard only") { openMacControl(trackpad = true) },
                     u.details("How it works",
                         u.hint("Tap = click, drag = drag, long press or two-finger tap = right click, two fingers = scroll."),
                         u.hint("Trackpad mode shows no picture: it saves battery and works on a slow connection.")),
                 ),
-                u.card(u.title("Lid closed"), lidStatus.view, lidButtons, lidHint),
+                u.card(lidTitle, lidStatus.view, lidButtons, lidHint),
             ),
             right = listOf(
                 // what plays on the Mac, then the Mac itself
@@ -400,11 +433,11 @@ class MainActivity : Activity() {
                     "Vol −" to { macAction("voldown") }, "Mute" to { macAction("mute") }, "Vol +" to { macAction("volup") },
                     "⏮" to { macAction("prev") }, "⏯" to { macAction("play") }, "⏭" to { macAction("next") },
                 )),
-                u.card(u.title("On the Mac"), u.grid(2,
+                u.card(onTitle, u.grid(2,
                     "Lock" to { macAction("lock") }, "Screen off" to { macAction("displaysleep") },
                     "Screenshot" to { macAction("screenshot") }, "Browser tab here" to { macAction("tab") },
                 )),
-                u.card(u.title("Mac Shortcuts"), shortcutsBox),
+                u.card(u.title("Mac Shortcuts"), shortcutsBox).also { shortcutsCard = it },
             ),
         )
     }
@@ -809,7 +842,7 @@ class MainActivity : Activity() {
 
     private fun tick() {
         // the PC tab only exists for people with a Hermes dashboard (set here or on the Mac)
-        Dashboard.base = Prefs.dashboard(this).ifEmpty { HubService.instance?.macStatus?.optString("dashboard") ?: "" }.trimEnd('/')
+        Dashboard.base = Prefs.dashboard(this).ifEmpty { HubService.instance?.dashboardBase ?: "" }.trimEnd('/')
         val hasPc = Dashboard.base.isNotEmpty()
         tabViews["pc"]?.visibility = if (hasPc) View.VISIBLE else View.GONE
         if (!hasPc && current == "pc") show("home")
